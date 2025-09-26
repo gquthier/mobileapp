@@ -1,0 +1,89 @@
+import { useState, useEffect } from 'react';
+import { VideoService } from '../services/videoService';
+import { VideoRecord } from '../lib/supabase';
+
+export const useVideos = () => {
+  const [videos, setVideos] = useState<VideoRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchVideos = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const fetchedVideos = await VideoService.getAllVideos();
+      setVideos(fetchedVideos);
+      console.log('✅ Videos loaded:', fetchedVideos.length);
+    } catch (err) {
+      console.error('❌ Error fetching videos:', err);
+      setError('Failed to load videos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const uploadVideo = async (videoUri: string, title: string): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const savedVideo = await VideoService.uploadVideo(videoUri, title);
+      if (savedVideo) {
+        setVideos(prev => [savedVideo, ...prev]);
+        console.log('✅ Video uploaded and added to list');
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('❌ Error uploading video:', err);
+      setError('Failed to upload video');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteVideo = async (id: string): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const success = await VideoService.deleteVideo(id);
+      if (success) {
+        setVideos(prev => prev.filter(video => video.id !== id));
+        console.log('✅ Video deleted and removed from list');
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('❌ Error deleting video:', err);
+      setError('Failed to delete video');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Test connection first, then fetch videos
+    const initializeVideos = async () => {
+      console.log('🚀 Initializing videos hook...');
+      const isConnected = await VideoService.testSupabaseConnection();
+      if (isConnected) {
+        await fetchVideos();
+      } else {
+        setError('Failed to connect to Supabase');
+        console.error('❌ Cannot initialize videos - Supabase connection failed');
+      }
+    };
+
+    initializeVideos();
+  }, []);
+
+  return {
+    videos,
+    loading,
+    error,
+    fetchVideos,
+    uploadVideo,
+    deleteVideo,
+  };
+};

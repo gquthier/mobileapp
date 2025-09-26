@@ -1,0 +1,41 @@
+import { createClient } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const supabaseUrl = 'https://eenyzudwktcjpefpoapi.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlbnl6dWR3a3RjanBlZnBvYXBpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg3NzY0NTcsImV4cCI6MjA3NDM1MjQ1N30.iHLbdQaH-FSA7knlflVuRyUQ4n2kOzr3YttbShKiUZk';
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    storage: AsyncStorage,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
+});
+
+// Database types for type safety
+export interface VideoRecord {
+  id?: string;
+  title: string;
+  file_path: string;
+  duration: number;
+  created_at?: string;
+  user_id?: string;
+  thumbnail_path?: string;
+}
+
+export interface Chapter {
+  id?: string;
+  title: string;
+  description?: string;
+  created_at?: string;
+  user_id?: string;
+}
+
+export interface Theme {
+  id?: string;
+  title: string;
+  chapter_id: string;
+  created_at?: string;
+  color?: string;
+}
