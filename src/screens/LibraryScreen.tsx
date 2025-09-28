@@ -7,6 +7,8 @@ import {
   ActivityIndicator,
   ScrollView,
   Image,
+  TextInput,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -26,6 +28,12 @@ const LibraryScreen: React.FC = () => {
   const [selectedVideo, setSelectedVideo] = useState<VideoRecord | null>(null);
   const [showPlayer, setShowPlayer] = useState(false);
   const [viewMode, setViewMode] = useState<'calendar' | 'grid'>('calendar');
+
+  // Search states
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<VideoRecord[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   // Fetch videos from Supabase
   const fetchVideos = useCallback(async () => {
@@ -83,6 +91,48 @@ const LibraryScreen: React.FC = () => {
     navigation.navigate('Settings' as never);
   };
 
+  const handleSearchPress = () => {
+    setShowSearch(true);
+  };
+
+  const handleCloseSearch = () => {
+    setShowSearch(false);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
+  const performSearch = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const results = await VideoService.searchVideos(query);
+      setSearchResults(results);
+    } catch (error) {
+      console.error('❌ Search failed:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  // Debounced search
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const debounceTimer = setTimeout(() => {
+      performSearch(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchQuery, performSearch]);
+
   const renderEmpty = () => {
     if (loading && videos.length === 0) {
       return (
@@ -122,7 +172,7 @@ const LibraryScreen: React.FC = () => {
             <Text style={styles.title}>Memories</Text>
           </View>
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.iconButton}>
+            <TouchableOpacity style={styles.iconButton} onPress={handleSearchPress}>
               <Icon name="search" size={24} color={theme.colors.text.primary} />
             </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={handleNavigateToSettings}>
@@ -141,18 +191,121 @@ const LibraryScreen: React.FC = () => {
           </View>
         )}
 
+        {/* Search Interface */}
+        {showSearch && (
+          <View style={styles.searchContainer}>
+            <View style={styles.searchHeader}>
+              <TouchableOpacity onPress={handleCloseSearch} style={styles.closeSearchButton}>
+                <Icon name="chevronLeft" size={20} color={theme.colors.text.primary} />
+              </TouchableOpacity>
+              <Text style={styles.searchTitle}>Rechercher</Text>
+              <View style={styles.searchPlaceholder} />
+            </View>
+
+            <View style={styles.searchInput}>
+              <Icon name="search" size={20} color={theme.colors.text.tertiary} />
+              <TextInput
+                style={styles.input}
+                placeholder="Rechercher par titre ou date..."
+                placeholderTextColor={theme.colors.text.tertiary}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoFocus={true}
+                returnKeyType="search"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <Icon name="close" size={20} color={theme.colors.text.tertiary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Search Results */}
+            <View style={styles.searchResults}>
+              {isSearching ? (
+                <View style={styles.searchLoadingContainer}>
+                  <ActivityIndicator size="small" color={theme.colors.brand.primary} />
+                  <Text style={styles.searchLoadingText}>Recherche en cours...</Text>
+                </View>
+              ) : searchQuery.trim() === '' ? (
+                <View style={styles.searchEmptyState}>
+                  <Icon name="search" size={48} color={theme.colors.text.disabled} />
+                  <Text style={styles.searchEmptyTitle}>Rechercher vos vidéos</Text>
+                  <Text style={styles.searchEmptyText}>
+                    Tapez un titre ou une date{'\n'}(ex: "vacances", "septembre", "2025")
+                  </Text>
+                </View>
+              ) : searchResults.length === 0 ? (
+                <View style={styles.searchEmptyState}>
+                  <Icon name="search" size={48} color={theme.colors.text.disabled} />
+                  <Text style={styles.searchEmptyTitle}>Aucun résultat</Text>
+                  <Text style={styles.searchEmptyText}>
+                    Aucune vidéo trouvée pour "{searchQuery}"
+                  </Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={searchResults}
+                  keyExtractor={(item) => item.id || ''}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.searchResultItem}
+                      onPress={() => {
+                        handleVideoPress(item);
+                        handleCloseSearch();
+                      }}
+                    >
+                      <View style={styles.resultThumbnail}>
+                        {item.thumbnail_path ? (
+                          <Image
+                            source={{ uri: item.thumbnail_path }}
+                            style={styles.thumbnailImage}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.thumbnailPlaceholder}>
+                            <Icon name="cameraFilled" size={24} color={theme.colors.gray400} />
+                          </View>
+                        )}
+                      </View>
+                      <View style={styles.resultInfo}>
+                        <Text style={styles.resultTitle} numberOfLines={1}>
+                          {item.title || 'Vidéo sans titre'}
+                        </Text>
+                        <Text style={styles.resultDate}>
+                          {item.created_at ? new Date(item.created_at).toLocaleDateString('fr-FR') : ''}
+                        </Text>
+                      </View>
+                      <Icon name="chevronRight" size={16} color={theme.colors.text.tertiary} />
+                    </TouchableOpacity>
+                  )}
+                  ListHeaderComponent={() => (
+                    <Text style={styles.resultsCount}>
+                      {searchResults.length} résultat{searchResults.length > 1 ? 's' : ''} trouvé{searchResults.length > 1 ? 's' : ''}
+                    </Text>
+                  )}
+                  style={styles.searchResultsList}
+                  showsVerticalScrollIndicator={false}
+                />
+              )}
+            </View>
+          </View>
+        )}
+
         {/* Main content area */}
-        <View style={styles.contentContainer}>
-          {videos.length === 0 ? (
-            renderEmpty()
-          ) : (
-            <CalendarGallery
-              videos={videos}
-              onVideoPress={handleVideoPress}
-              chapters={chapters}
-            />
-          )}
-        </View>
+        {!showSearch && (
+          <View style={styles.contentContainer}>
+            {videos.length === 0 ? (
+              renderEmpty()
+            ) : (
+              <CalendarGallery
+                videos={videos}
+                onVideoPress={handleVideoPress}
+                chapters={chapters}
+              />
+            )}
+          </View>
+        )}
 
         {/* Video Player Modal */}
         <VideoPlayer
@@ -258,6 +411,134 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
     textAlign: 'center',
     marginBottom: theme.spacing['4'],
+  },
+  // Search styles
+  searchContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.white,
+  },
+  searchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['3'],
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.gray100,
+  },
+  closeSearchButton: {
+    padding: theme.spacing['2'],
+  },
+  searchTitle: {
+    ...theme.typography.h2,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+  },
+  searchPlaceholder: {
+    width: 40,
+  },
+  searchInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing['3'],
+    marginHorizontal: theme.spacing['4'],
+    marginVertical: theme.spacing['3'],
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
+    borderRadius: 12,
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['3'],
+    backgroundColor: theme.colors.gray50,
+  },
+  input: {
+    flex: 1,
+    ...theme.typography.body,
+    color: theme.colors.text.primary,
+  },
+  searchResults: {
+    flex: 1,
+    paddingHorizontal: theme.spacing['4'],
+  },
+  searchLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: theme.spacing['6'],
+    gap: theme.spacing['3'],
+  },
+  searchLoadingText: {
+    ...theme.typography.body,
+    color: theme.colors.text.secondary,
+  },
+  searchEmptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing['6'],
+  },
+  searchEmptyTitle: {
+    ...theme.typography.h3,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginTop: theme.spacing['4'],
+    marginBottom: theme.spacing['2'],
+  },
+  searchEmptyText: {
+    ...theme.typography.body,
+    color: theme.colors.text.secondary,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  resultsCount: {
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
+    marginBottom: theme.spacing['4'],
+    fontWeight: '600',
+  },
+  searchResultsList: {
+    flex: 1,
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: theme.spacing['3'],
+    marginBottom: theme.spacing['2'],
+    backgroundColor: theme.colors.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.gray100,
+  },
+  resultThumbnail: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    marginRight: theme.spacing['3'],
+  },
+  thumbnailImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  thumbnailPlaceholder: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+    backgroundColor: theme.colors.gray200,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  resultInfo: {
+    flex: 1,
+  },
+  resultTitle: {
+    ...theme.typography.body,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing['1'],
+  },
+  resultDate: {
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
   },
 });
 

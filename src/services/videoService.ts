@@ -269,4 +269,90 @@ export class VideoService {
       return false;
     }
   }
+
+  /**
+   * Search videos by title and date
+   */
+  static async searchVideos(query: string, userId?: string): Promise<VideoRecord[]> {
+    try {
+      console.log('🔍 Searching videos for:', query);
+
+      // Get current user if not provided
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.warn('❌ No authenticated user for search');
+          return [];
+        }
+        currentUserId = user.id;
+      }
+
+      const queryLower = query.toLowerCase().trim();
+
+      // Get all user videos first
+      const { data: videos, error } = await supabase
+        .from('videos')
+        .select('*')
+        .eq('user_id', currentUserId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ Error fetching videos for search:', error);
+        return [];
+      }
+
+      if (!videos || videos.length === 0) {
+        console.log('ℹ️ No videos found for user');
+        return [];
+      }
+
+      // Filter videos by title and date on client side
+      const filteredVideos = videos.filter(video => {
+        // Search by title
+        if (video.title?.toLowerCase().includes(queryLower)) {
+          return true;
+        }
+
+        // Search by date (various formats)
+        if (video.created_at) {
+          const videoDate = new Date(video.created_at);
+
+          // Check different date formats
+          const dateFormats = [
+            videoDate.toLocaleDateString('fr-FR'), // 28/09/2025
+            videoDate.toLocaleDateString('en-US'), // 9/28/2025
+            videoDate.toISOString().split('T')[0], // 2025-09-28
+            videoDate.getFullYear().toString(), // 2025
+            videoDate.toLocaleDateString('fr-FR', { month: 'long' }).toLowerCase(), // septembre
+            videoDate.toLocaleDateString('fr-FR', { month: 'short' }).toLowerCase(), // sept.
+            videoDate.toLocaleDateString('en-US', { month: 'long' }).toLowerCase(), // september
+            videoDate.toLocaleDateString('en-US', { month: 'short' }).toLowerCase(), // sep
+          ];
+
+          if (dateFormats.some(format => format.includes(queryLower))) {
+            return true;
+          }
+
+          // Search by day/month/year separately
+          const day = videoDate.getDate().toString();
+          const month = (videoDate.getMonth() + 1).toString();
+          const year = videoDate.getFullYear().toString();
+
+          if (day === queryLower || month === queryLower || year === queryLower) {
+            return true;
+          }
+        }
+
+        return false;
+      });
+
+      console.log(`✅ Found ${filteredVideos.length} videos matching "${query}"`);
+      return filteredVideos;
+
+    } catch (error) {
+      console.error('❌ Error searching videos:', error);
+      return [];
+    }
+  }
 }
