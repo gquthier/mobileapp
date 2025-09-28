@@ -9,6 +9,12 @@ import {
   Dimensions,
   FlatList,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  interpolate,
+} from 'react-native-reanimated';
 import { theme } from '../styles';
 import { Icon } from './Icon';
 import { VideoRecord } from '../lib/supabase';
@@ -213,7 +219,7 @@ export const CalendarGallery: React.FC<CalendarGalleryProps> = ({
 
   const renderMonth = (monthData: MonthData) => {
     const monthKey = `${monthData.year}-${monthData.month}`;
-    const isExpanded = expandedMonths.has(monthKey) || expandedMonths.size === 0;
+    const isExpanded = expandedMonths.has(monthKey);
 
     // Count total videos in month
     const monthVideoCount = monthData.days.reduce((sum, day) =>
@@ -223,7 +229,52 @@ export const CalendarGallery: React.FC<CalendarGalleryProps> = ({
     if (monthVideoCount === 0) return null; // Skip months without videos
 
     return (
-      <View key={monthKey} style={styles.monthContainer}>
+      <AnimatedMonthView
+        key={monthKey}
+        monthData={monthData}
+        monthKey={monthKey}
+        isExpanded={isExpanded}
+        onToggle={() => toggleMonth(monthKey)}
+        renderDayCell={renderDayCell}
+      />
+    );
+  };
+
+  // Composant animé pour chaque mois
+  const AnimatedMonthView = ({ monthData, monthKey, isExpanded, onToggle, renderDayCell }) => {
+    const expandedValue = useSharedValue(isExpanded ? 1 : 0);
+    const arrowRotation = useSharedValue(isExpanded ? 180 : 0);
+
+    React.useEffect(() => {
+      expandedValue.value = withTiming(isExpanded ? 1 : 0, { duration: 300 });
+      arrowRotation.value = withTiming(isExpanded ? 180 : 0, { duration: 250 });
+    }, [isExpanded]);
+
+    const contentAnimatedStyle = useAnimatedStyle(() => {
+      return {
+        opacity: interpolate(expandedValue.value, [0, 1], [0, 1]),
+        transform: [
+          {
+            scaleY: interpolate(expandedValue.value, [0, 1], [0.8, 1]),
+          },
+        ],
+        height: isExpanded ? 'auto' : 0,
+        overflow: 'hidden',
+      };
+    });
+
+    const arrowAnimatedStyle = useAnimatedStyle(() => {
+      return {
+        transform: [
+          {
+            rotate: `${arrowRotation.value}deg`,
+          },
+        ],
+      };
+    });
+
+    return (
+      <View style={styles.monthContainer}>
         {/* Chapter Header if applicable */}
         {monthData.chapter && (
           <View style={styles.chapterHeader}>
@@ -234,33 +285,35 @@ export const CalendarGallery: React.FC<CalendarGalleryProps> = ({
         {/* Month Header */}
         <TouchableOpacity
           style={styles.monthHeader}
-          onPress={() => toggleMonth(monthKey)}
+          onPress={onToggle}
+          activeOpacity={0.7}
         >
           <Text style={styles.monthTitle}>{monthData.monthName} {monthData.year}</Text>
-          <Icon
-            name={isExpanded ? "chevronUp" : "chevronDown"}
-            size={20}
-            color={theme.colors.text.secondary}
-          />
+          <Animated.View style={arrowAnimatedStyle}>
+            <Icon
+              name="chevronDown"
+              size={18}
+              color={theme.colors.text.secondary}
+            />
+          </Animated.View>
         </TouchableOpacity>
 
-        {isExpanded && (
-          <View>
-            {/* Day Labels */}
-            <View style={styles.dayLabelsRow}>
-              {DAYS.map(day => (
-                <View key={day} style={styles.dayLabelCell}>
-                  <Text style={styles.dayLabel}>{day}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* Calendar Grid */}
-            <View style={styles.calendarGrid}>
-              {monthData.days.map(day => renderDayCell(day))}
-            </View>
+        {/* Animated Content */}
+        <Animated.View style={contentAnimatedStyle}>
+          {/* Day Labels */}
+          <View style={styles.dayLabelsRow}>
+            {DAYS.map(day => (
+              <View key={day} style={styles.dayLabelCell}>
+                <Text style={styles.dayLabel}>{day}</Text>
+              </View>
+            ))}
           </View>
-        )}
+
+          {/* Calendar Grid */}
+          <View style={styles.calendarGrid}>
+            {monthData.days.map(day => renderDayCell(day))}
+          </View>
+        </Animated.View>
       </View>
     );
   };
@@ -301,8 +354,8 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing['3'],
   },
   monthTitle: {
-    ...theme.typography.h2,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '500',
     color: theme.colors.text.primary,
   },
   dayLabelsRow: {
