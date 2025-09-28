@@ -9,6 +9,7 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { theme } from '../styles';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
@@ -18,6 +19,7 @@ import { VideoRecord } from '../lib/supabase';
 import { VideoService } from '../services/videoService';
 
 const LibraryScreen: React.FC = () => {
+  const navigation = useNavigation();
   const [videos, setVideos] = useState<VideoRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +78,11 @@ const LibraryScreen: React.FC = () => {
     setSelectedVideo(null);
   };
 
+  const handleNavigateToSettings = () => {
+    // Navigate to the Settings tab
+    navigation.navigate('Settings' as never);
+  };
+
   const renderEmpty = () => {
     if (loading && videos.length === 0) {
       return (
@@ -118,7 +125,7 @@ const LibraryScreen: React.FC = () => {
             <TouchableOpacity style={styles.iconButton}>
               <Icon name="search" size={24} color={theme.colors.text.primary} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton}>
+            <TouchableOpacity style={styles.iconButton} onPress={handleNavigateToSettings}>
               <Icon name="settings" size={24} color={theme.colors.text.primary} />
             </TouchableOpacity>
           </View>
