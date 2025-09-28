@@ -1,6 +1,6 @@
 import React from 'react';
 import Svg, { Path, Circle, Rect, Line, Polyline } from 'react-native-svg';
-import { colors } from '../styles/theme';
+import { theme } from '../styles/theme';
 
 interface IconProps {
   name: string;
@@ -12,7 +12,7 @@ interface IconProps {
 export const Icon: React.FC<IconProps> = ({
   name,
   size = 24,
-  color = colors.black,
+  color = theme.colors.textPrimary,
   strokeWidth = 2
 }) => {
   const icons: Record<string, React.ReactElement> = {
@@ -66,7 +66,7 @@ export const Icon: React.FC<IconProps> = ({
           cx="12"
           cy="13"
           r="3"
-          stroke={color === '#FFFFFF' ? '#0B0B0B' : '#FFFFFF'}
+          stroke={color === theme.colors.white ? theme.colors.black : theme.colors.white}
           strokeWidth={2}
           fill="none"
         />
@@ -74,7 +74,7 @@ export const Icon: React.FC<IconProps> = ({
           cx="17.5"
           cy="9.5"
           r="1"
-          fill={color === '#FFFFFF' ? '#0B0B0B' : '#FFFFFF'}
+          fill={color === theme.colors.white ? theme.colors.black : theme.colors.white}
         />
       </Svg>
     ),
@@ -138,6 +138,21 @@ export const Icon: React.FC<IconProps> = ({
     chevronRight: (
       <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
         <Polyline points="9 18 15 12 9 6" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    chevronLeft: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Polyline points="15 18 9 12 15 6" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    chevronUp: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Polyline points="18 15 12 9 6 15" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    chevronDown: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Polyline points="6 9 12 15 18 9" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
     ),
     camera: (
@@ -274,6 +289,40 @@ export const Icon: React.FC<IconProps> = ({
         <Path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
         <Polyline points="16 17 21 12 16 7" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
         <Line x1="21" y1="12" x2="9" y2="12" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    // Video Player Icons
+    pause: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Rect x="6" y="4" width="4" height="16" fill={color} />
+        <Rect x="14" y="4" width="4" height="16" fill={color} />
+      </Svg>
+    ),
+    maximize: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    minimize: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M4 14h6m0 0v6m0-6l-7 7m17-11h-6m0 0V4m0 6l7-7" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    close: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Line x1="18" y1="6" x2="6" y2="18" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Line x1="6" y1="6" x2="18" y2="18" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    arrowLeft: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Line x1="19" y1="12" x2="5" y2="12" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Polyline points="12 19 5 12 12 5" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    loading: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M21 12a9 9 0 11-6.219-8.56" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
     ),
   };

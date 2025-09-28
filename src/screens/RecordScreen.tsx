@@ -1,29 +1,29 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
-  TouchableOpacity,
-  Pressable,
   Alert,
   Platform,
   TextInput,
-  Animated,
   Dimensions,
+  StatusBar,
+  Modal,
+  Text,
+  TouchableOpacity,
+  Image,
 } from 'react-native';
-import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import * as MediaLibrary from 'expo-media-library';
-import { colors } from '../styles/theme';
-import { TopBar } from '../components/TopBar';
-import { Icon } from '../components/Icon';
-import { PromptCard } from '../components/PromptCard';
-import { TranscriptionService } from '../services/transcriptionService';
+import { theme } from '../styles';
 import { VideoService } from '../services/videoService';
+import { SecureTranscriptionService } from '../services/secureTranscriptionService';
 
-const RecordScreen: React.FC = () => {
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+const RecordScreen: React.FC = ({ route, navigation }: any) => {
   // Permissions hooks
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
@@ -40,845 +40,517 @@ const RecordScreen: React.FC = () => {
 
   // Transcription state
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [transcriptionText, setTranscriptionText] = useState('');
 
-  // Remount key for iOS permission workaround
+  // Camera state
   const [cameraKey, setCameraKey] = useState(0);
+  const [isCameraReady, setIsCameraReady] = useState(false);
 
-  // Draggable popup state
-  const translateX = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
-  const lastOffset = useRef({ x: 0, y: 0 });
-
+  // Refs
   const cameraRef = useRef<CameraView>(null);
-  const recordingInterval = useRef<NodeJS.Timeout>();
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Check if all permissions are granted
-  const allPermissionsGranted =
-    cameraPermission?.granted &&
-    microphonePermission?.granted;
+  // Timer for recording duration
+  useEffect(() => {
+    if (isRecording) {
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+        recordingIntervalRef.current = null;
+      }
+    }
 
-  // Request all permissions together
-  const requestAllPermissions = useCallback(async () => {
-    console.log('🔐 Requesting camera and microphone permissions...');
+    return () => {
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+    };
+  }, [isRecording]);
 
+  // Check permissions on mount
+  useEffect(() => {
+    checkAllPermissions();
+  }, []);
+
+  // Camera ready timeout - force ready after 5 seconds if no callback
+  useEffect(() => {
+    if (cameraPermission?.granted && microphonePermission?.granted && !isCameraReady) {
+      const timeout = setTimeout(() => {
+        console.log('⚠️ Camera timeout - forcing ready state');
+        setIsCameraReady(true);
+      }, 5000);
+
+      return () => clearTimeout(timeout);
+    }
+  }, [cameraPermission?.granted, microphonePermission?.granted, isCameraReady]);
+
+  // Listen for navigation params to trigger recording
+  useFocusEffect(
+    useCallback(() => {
+      console.log('📱 RecordScreen focused, permissions:', {
+        camera: cameraPermission?.granted,
+        microphone: microphonePermission?.granted
+      });
+
+      const triggerRecording = route.params?.triggerRecording;
+      if (triggerRecording) {
+        // Clear the parameter to avoid repeated triggers
+        navigation.setParams({ triggerRecording: undefined });
+
+        // Toggle recording state
+        handleCenterPress();
+      }
+    }, [route.params?.triggerRecording, cameraPermission, microphonePermission])
+  );
+
+  const checkAllPermissions = async () => {
     try {
-      const [cameraResult, micResult] = await Promise.all([
-        requestCameraPermission(),
-        requestMicrophonePermission(),
-      ]);
+      console.log('🔍 Starting permission check...');
 
-      console.log('📹 Camera permission:', cameraResult.granted);
-      console.log('🎙️ Microphone permission:', micResult.granted);
+      // Camera permission
+      if (!cameraPermission?.granted) {
+        console.log('📷 Requesting camera permission...');
+        const cameraResult = await requestCameraPermission();
+        console.log('📷 Camera permission result:', cameraResult);
 
-      // Force remount of CameraView after permission grant (iOS workaround)
-      if (cameraResult.granted && micResult.granted) {
-        console.log('✅ All permissions granted, remounting camera...');
+        if (!cameraResult.granted) {
+          Alert.alert(
+            'Camera Permission Required',
+            'Please enable camera access in Settings to use the camera.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        // Force remount camera after permission grant
+        console.log('🔄 Remounting camera after permission grant');
         setCameraKey(prev => prev + 1);
       }
 
-      // Optional: Request media library permission for saving
-      if (cameraResult.granted && micResult.granted && !mediaLibraryPermission?.granted) {
-        console.log('💾 Requesting media library permission...');
-        await requestMediaLibraryPermission();
+      // Microphone permission
+      if (!microphonePermission?.granted) {
+        console.log('🎙️ Requesting microphone permission...');
+        const micResult = await requestMicrophonePermission();
+        console.log('🎙️ Microphone permission result:', micResult);
+
+        if (!micResult.granted) {
+          Alert.alert(
+            'Microphone Permission Required',
+            'Please enable microphone access in Settings to record audio.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
       }
 
+      // Media library permission (optional)
+      if (!mediaLibraryPermission?.granted) {
+        console.log('📱 Requesting media library permission...');
+        const mediaResult = await requestMediaLibraryPermission();
+        console.log('📱 Media library permission result:', mediaResult);
+      }
+
+      console.log('✅ All permissions checked');
     } catch (error) {
-      console.error('❌ Error requesting permissions:', error);
-      Alert.alert('Permission Error', 'Failed to request camera permissions. Please try again.');
+      console.error('❌ Permission error:', error);
+      Alert.alert('Permission Error', 'Failed to request permissions. Please try again.');
     }
-  }, [requestCameraPermission, requestMicrophonePermission, requestMediaLibraryPermission, mediaLibraryPermission?.granted]);
+  };
 
   const startRecording = async () => {
-    if (!cameraRef.current || !allPermissionsGranted) {
-      console.log('❌ Cannot start recording: missing permissions or camera ref');
+    if (!cameraRef.current || isRecording || !isCameraReady) {
+      console.log('⚠️ Cannot start recording:', {
+        hasCamera: !!cameraRef.current,
+        isRecording,
+        isCameraReady
+      });
       return;
     }
 
     try {
-      console.log('🎬 Starting video recording...');
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      console.log('🔴 Starting recording...');
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       setIsRecording(true);
       setRecordingTime(0);
 
-      // Start timer
-      recordingInterval.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
-      }, 1000);
+      // Notify navigation about recording state
+      navigation.setParams({ isRecording: true });
 
-      const videoResult = await cameraRef.current.recordAsync({
-        mirror: false, // Don't mirror front camera
-        mute: false,   // Record with audio
+      const video = await cameraRef.current.recordAsync({
+        maxDuration: 300, // 5 minutes max
       });
 
-      console.log('🎥 Video recorded successfully:', {
-        uri: videoResult.uri,
-        duration: recordingTime,
-      });
-
-      setLastVideoUri(videoResult.uri);
-
+      if (video?.uri) {
+        console.log('✅ Recording completed:', video.uri);
+        setLastVideoUri(video.uri);
+        setShowPostRecording(true);
+        setVideoName(`Video ${new Date().toLocaleDateString()}`);
+      }
     } catch (error) {
-      console.error('❌ Error starting recording:', error);
-      setIsRecording(false);
+      console.error('❌ Recording error:', error);
       Alert.alert('Recording Error', 'Failed to start recording. Please try again.');
+    } finally {
+      setIsRecording(false);
+      // Notify navigation about recording state
+      navigation.setParams({ isRecording: false });
     }
   };
 
   const stopRecording = async () => {
-    if (!cameraRef.current || !isRecording) {
-      return;
-    }
+    if (!cameraRef.current || !isRecording) return;
 
     try {
-      console.log('⏹️ Stopping video recording...');
+      console.log('⏹️ Stopping recording...');
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      cameraRef.current.stopRecording();
+      // Notify navigation about recording state
+      navigation.setParams({ isRecording: false });
+    } catch (error) {
+      console.error('❌ Stop recording error:', error);
+    }
+  };
 
-      // Clear timer
-      if (recordingInterval.current) {
-        clearInterval(recordingInterval.current);
+  const handleCenterPress = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
+  const handleLeftPress = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      // Handle pause/menu functionality
+      console.log('Left button pressed');
+    }
+  };
+
+  const handleRightPress = () => {
+    // Handle menu functionality
+    console.log('Right button pressed');
+  };
+
+  const handleSaveVideo = async () => {
+    if (!lastVideoUri || !videoName.trim()) return;
+
+    try {
+      setIsTranscribing(true);
+      console.log('💾 Saving video with title:', videoName);
+
+      // Save video to database and storage using VideoService
+      const videoRecord = await VideoService.uploadVideo(lastVideoUri, videoName.trim());
+
+      if (!videoRecord) {
+        throw new Error('Failed to save video');
       }
 
-      // Stop recording
-      cameraRef.current.stopRecording();
-      setIsRecording(false);
-      setShowPostRecording(true);
-      setVideoName(''); // Reset video name
+      console.log('✅ Video saved:', videoRecord);
 
-      console.log('✅ Recording stopped, duration:', recordingTime + 's');
+      // Start transcription process (optional - non-blocking)
+      SecureTranscriptionService.transcribeVideoFromLocalFile(videoRecord.id, lastVideoUri, 'fr')
+        .then(() => {
+          console.log('✅ Transcription started in background');
+        })
+        .catch((error) => {
+          console.warn('⚠️ Transcription failed to start:', error);
+          // Non-blocking - video is still saved successfully
+        });
 
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowPostRecording(false);
+      setLastVideoUri(null);
+      setVideoName('');
     } catch (error) {
-      console.error('❌ Error stopping recording:', error);
-      Alert.alert('Recording Error', 'Failed to stop recording properly.');
-      setIsRecording(false);
-    }
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  /**
-   * Transcribe video audio using OpenAI Whisper
-   */
-  const transcribeVideo = async (videoUri: string): Promise<string> => {
-    try {
-      console.log('🎤 Starting video transcription:', videoUri);
-      setIsTranscribing(true);
-
-      // Get user's preferred language for transcription
-      const { AuthService } = require('../services/authService');
-      const currentUser = await AuthService.getCurrentUser();
-      const preferredLanguage = currentUser?.profile?.preferred_language || 'fr';
-
-      // Force real transcription with OpenAI API - now supports direct video transcription
-      console.log('🚀 Transcribing video directly with OpenAI Whisper API');
-
-      // Transcribe video directly (OpenAI Whisper can process video files)
-      console.log('🎥 Transcribing video with OpenAI...', { preferredLanguage });
-      const transcriptionResult = await TranscriptionService.transcribeVideo(videoUri, {
-        language: preferredLanguage,
-        response_format: 'verbose_json',
-        temperature: 0.2, // Lower temperature for more consistent results
-      });
-
-      console.log('✅ Video transcription completed:', {
-        language: transcriptionResult.language,
-        duration: transcriptionResult.duration,
-        textLength: transcriptionResult.text.length,
-        segmentsCount: transcriptionResult.segments?.length || 0
-      });
-
-      return transcriptionResult;
-    } catch (error) {
-      console.error('❌ Video transcription failed:', error);
-      throw error;
+      console.error('❌ Save error:', error);
+      Alert.alert('Save Error', 'Failed to save video. Please try again.');
     } finally {
       setIsTranscribing(false);
     }
   };
 
-  // Post-recording actions
-  const handleValidateVideo = async () => {
-    if (!videoName.trim()) {
-      Alert.alert('Title required', 'Please enter a title for your video');
-      return;
-    }
-
-    if (!lastVideoUri) {
-      Alert.alert('Error', 'No video to save');
-      return;
-    }
-
-    try {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      console.log('✅ Starting video save process:', { title: videoName, uri: lastVideoUri });
-
-      // Show loading state
-      Alert.alert('Processing...', 'Uploading your video to the cloud, then generating transcription');
-
-      // Step 1: Save video to Supabase first (converts .mov to .mp4)
-      console.log('📤 Saving video to Supabase...', { title: videoName, uri: lastVideoUri });
-
-      let videoRecord = null;
-      try {
-        videoRecord = await VideoService.uploadVideo(lastVideoUri, videoName);
-        if (videoRecord) {
-          console.log('✅ Video saved successfully to Supabase:', videoRecord.id);
-          console.log('🔗 Video URL:', videoRecord.file_path);
-        } else {
-          throw new Error('Video upload returned null');
-        }
-      } catch (videoError) {
-        console.error('❌ Video upload failed:', videoError);
-        Alert.alert(
-          'Upload Failed',
-          'Your video couldn\'t be saved to the cloud. Please check your connection and try again.',
-          [{ text: 'OK', style: 'default' }]
-        );
-        return; // Exit early if video save fails
-      }
-
-      // Step 2: Transcribe using the Supabase URL (now in .mp4 format)
-      let transcriptionResult = null;
-      let transcriptionText = '';
-      try {
-        console.log('🎤 Starting transcription from Supabase URL (.mp4)...');
-        transcriptionResult = await transcribeVideo(videoRecord.file_path); // Use Supabase URL instead of local URI
-        transcriptionText = transcriptionResult.text;
-        setTranscriptionText(transcriptionText);
-        console.log('✅ Transcription generated successfully from Supabase URL');
-      } catch (transcriptionError) {
-        console.error('⚠️ Transcription failed, continuing without it:', transcriptionError);
-        Alert.alert(
-          'Transcription Failed',
-          'Your video was saved but transcription could not be generated. You can try transcribing it later.',
-          [{ text: 'Continue', style: 'default' }]
-        );
-      }
-
-      // Step 3: Save transcription to database if we have one
-      if (transcriptionResult && videoRecord) {
-        try {
-          console.log('💾 Saving transcription to database...');
-
-          // Import TranscriptionDatabaseService for Supabase storage
-          const { TranscriptionDatabaseService } = require('../services/transcriptionDatabaseService');
-
-          const transcriptionData = {
-            video_id: videoRecord.id,
-            text: transcriptionResult.text,
-            segments: transcriptionResult.segments || [],
-            language: transcriptionResult.language || 'en',
-            duration: transcriptionResult.duration || 0,
-            processing_status: 'completed' as const
-          };
-
-          await TranscriptionDatabaseService.saveTranscription(transcriptionData);
-          console.log('✅ Transcription saved to Supabase with complete data:', {
-            segments: transcriptionData.segments.length,
-            language: transcriptionData.language,
-            duration: transcriptionData.duration
-          });
-        } catch (transcriptionSaveError) {
-          console.warn('⚠️ Failed to save transcription, but video was saved:', transcriptionSaveError);
-        }
-      }
-
-      // Success - clear the form
-      setShowPostRecording(false);
-      setVideoName('');
-
-      // Show success message with cloud confirmation
-      const message = transcriptionText
-        ? `"${videoName}" has been saved to the cloud with transcription (${transcriptionText.length} characters)`
-        : `"${videoName}" has been saved to the cloud${transcriptionText === '' ? ' (transcription failed)' : ''}`;
-
-      Alert.alert('Success', message);
-      console.log('🎉 Video save process completed successfully');
-    } catch (error) {
-      console.error('❌ Error saving video:', error);
-      Alert.alert('Error', 'Unable to save the video. Please try again.');
-    }
-  };
-
-  const handleRestartRecording = async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const handleRetryRecording = () => {
     setShowPostRecording(false);
-    setVideoName('');
     setLastVideoUri(null);
-    setTranscriptionText('');
-    setIsTranscribing(false);
-    console.log('🔄 Restarting recording...');
+    setVideoName('');
   };
 
   const handleDeleteVideo = () => {
     Alert.alert(
-      'Delete video',
-      'Are you sure you want to delete this video?',
+      'Delete Video',
+      'Are you sure you want to delete this recording?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          onPress: () => {
             setShowPostRecording(false);
-            setVideoName('');
             setLastVideoUri(null);
-            setTranscriptionText('');
-            setIsTranscribing(false);
-            console.log('🗑️ Video deleted');
+            setVideoName('');
           },
         },
       ]
     );
   };
 
-  // Handle drag gesture for movable popup
-  const onGestureEvent = Animated.event(
-    [
-      {
-        nativeEvent: {
-          translationX: translateX,
-          translationY: translateY,
-        },
-      },
-    ],
-    { useNativeDriver: false }
-  );
-
-  const onHandlerStateChange = (event: any) => {
-    const { nativeEvent } = event;
-
-    if (nativeEvent.oldState === State.ACTIVE) {
-      // Save the final position
-      lastOffset.current = {
-        x: lastOffset.current.x + nativeEvent.translationX,
-        y: lastOffset.current.y + nativeEvent.translationY,
-      };
-
-      // Get screen dimensions to constrain movement
-      const screenWidth = Dimensions.get('window').width;
-      const screenHeight = Dimensions.get('window').height;
-
-      // Constrain to screen bounds (assuming popup is ~320px wide and ~200px tall)
-      const constrainedX = Math.max(
-        -50,
-        Math.min(screenWidth - 270, lastOffset.current.x)
-      );
-      const constrainedY = Math.max(
-        50,
-        Math.min(screenHeight - 250, lastOffset.current.y)
-      );
-
-      lastOffset.current = { x: constrainedX, y: constrainedY };
-
-      // Animate to the constrained position
-      Animated.parallel([
-        Animated.spring(translateX, {
-          toValue: constrainedX,
-          useNativeDriver: false,
-        }),
-        Animated.spring(translateY, {
-          toValue: constrainedY,
-          useNativeDriver: false,
-        }),
-      ]).start();
-    }
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Reset popup position when showing
-  useEffect(() => {
-    if (showPostRecording) {
-      lastOffset.current = { x: 0, y: 0 };
-      Animated.parallel([
-        Animated.spring(translateX, {
-          toValue: 0,
-          useNativeDriver: false,
-        }),
-        Animated.spring(translateY, {
-          toValue: 0,
-          useNativeDriver: false,
-        }),
-      ]).start();
-    }
-  }, [showPostRecording]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (recordingInterval.current) {
-        clearInterval(recordingInterval.current);
-      }
-    };
-  }, []);
+  // Debug logs
+  console.log('🎥 RecordScreen render, camera permission:', cameraPermission);
+  console.log('🎙️ RecordScreen render, microphone permission:', microphonePermission);
 
-  // Log permission states for debugging
-  useEffect(() => {
-    console.log('🔍 Permission states:', {
-      camera: cameraPermission?.granted,
-      microphone: microphonePermission?.granted,
-      mediaLibrary: mediaLibraryPermission?.granted,
-      platform: Platform.OS,
-    });
-  }, [cameraPermission, microphonePermission, mediaLibraryPermission]);
-
-  // Permission loading state
-  if (!cameraPermission || !microphonePermission) {
+  // Show permission request if needed
+  if (!cameraPermission?.granted) {
+    console.log('❌ Camera permission not granted, showing permission screen');
     return (
-      <SafeAreaView style={styles.container}>
-        <TopBar title="Record" right={<Icon name="clock" size={20} color={colors.black} />} />
-        <View style={styles.centerContainer}>
-          <Text style={styles.loadingText}>Loading camera...</Text>
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="black" hidden />
+        <View style={styles.permissionContainer}>
+          <Text style={styles.permissionText}>Camera permission required</Text>
+          <TouchableOpacity
+            style={styles.permissionButton}
+            onPress={checkAllPermissions}
+          >
+            <Text style={styles.permissionButtonText}>Grant Camera Access</Text>
+          </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
-  // Permission denied state
-  if (!allPermissionsGranted) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <TopBar title="Record" right={<Icon name="clock" size={20} color={colors.black} />} />
-        <View style={styles.centerContainer}>
-          <View style={styles.permissionCard}>
-            <Icon name="camera" size={48} color={colors.gray400} />
-            <Text style={styles.permissionTitle}>Camera & Microphone Access</Text>
-            <Text style={styles.permissionText}>
-              Allow camera and microphone access to record your video reflections.
-            </Text>
+  console.log('✅ Camera permission granted, showing camera view');
 
-            {/* Show specific permission status */}
-            <View style={styles.permissionStatus}>
-              <Text style={styles.statusText}>
-                📹 Camera: {cameraPermission?.granted ? '✅' : '❌'}
-              </Text>
-              <Text style={styles.statusText}>
-                🎙️ Microphone: {microphonePermission?.granted ? '✅' : '❌'}
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              style={styles.permissionButton}
-              onPress={requestAllPermissions}
-            >
-              <Text style={styles.permissionButtonText}>Grant Permissions</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // Main recording interface
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaView style={styles.container}>
-        <View style={styles.content}>
-          <TopBar title="Record" right={<Icon name="clock" size={20} color={colors.black} />} />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="black" hidden />
 
-        {/* Camera Preview */}
-        <View style={styles.cameraContainer}>
+      {/* Camera View - Always fullscreen */}
+      <View style={styles.cameraContainerFullscreen}>
+        {cameraPermission?.granted && microphonePermission?.granted ? (
           <CameraView
-            key={cameraKey} // Force remount after permission grant
+            key={`camera-${cameraKey}`}
             ref={cameraRef}
             style={styles.camera}
             facing="front"
             mode="video"
-          >
-            {/* Recording indicator */}
-            {isRecording && (
-              <View style={styles.recordingOverlay}>
-                <View style={styles.recordingIndicator}>
-                  <View style={styles.recordingDot} />
-                  <Text style={styles.recordingTime}>{formatTime(recordingTime)}</Text>
-                </View>
-              </View>
-            )}
-
-            {/* Camera overlay when not recording */}
-            {!isRecording && !showPostRecording && (
-              <View style={styles.cameraOverlay}>
-                <Icon name="cameraFilled" size={40} color={colors.white} />
-                <Text style={styles.overlayText}>Press to start recording</Text>
-                <Text style={styles.overlaySubtext}>
-                  Press again to stop • Vertical format
-                </Text>
-              </View>
-            )}
-
-            {/* Post-recording overlay - Draggable */}
-            {showPostRecording && (
-              <PanGestureHandler
-                onGestureEvent={onGestureEvent}
-                onHandlerStateChange={onHandlerStateChange}
-              >
-                <Animated.View
-                  style={[
-                    styles.postRecordingOverlay,
-                    {
-                      transform: [
-                        { translateX: translateX },
-                        { translateY: translateY },
-                      ],
-                    },
-                  ]}
-                >
-
-                  {/* Video title input */}
-                  <View style={styles.videoTitleSection}>
-                    <TextInput
-                      style={styles.videoTitleInput}
-                      value={videoName}
-                      onChangeText={setVideoName}
-                      placeholder="Video title"
-                      placeholderTextColor={colors.white}
-                      maxLength={50}
-                      returnKeyType="done"
-                    />
-
-                    {/* Action icons */}
-                    {/* Transcription status */}
-                    {isTranscribing && (
-                      <View style={styles.transcriptionStatus}>
-                        <Text style={styles.transcriptionStatusText}>🎤 Transcribing...</Text>
-                      </View>
-                    )}
-
-                    {/* Action icons */}
-                    <View style={styles.actionIcons}>
-                      <TouchableOpacity
-                        style={[styles.iconButton, isTranscribing && styles.iconButtonDisabled]}
-                        onPress={handleValidateVideo}
-                        activeOpacity={0.7}
-                        disabled={isTranscribing}
-                      >
-                        <Icon name="check" size={18} color={colors.white} />
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.iconButton, isTranscribing && styles.iconButtonDisabled]}
-                        onPress={handleRestartRecording}
-                        activeOpacity={0.7}
-                        disabled={isTranscribing}
-                      >
-                        <Icon name="rotateCcw" size={18} color={colors.white} />
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.iconButton, isTranscribing && styles.iconButtonDisabled]}
-                        onPress={handleDeleteVideo}
-                        activeOpacity={0.7}
-                        disabled={isTranscribing}
-                      >
-                        <Icon name="trash" size={18} color={colors.white} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </Animated.View>
-              </PanGestureHandler>
-            )}
-          </CameraView>
-        </View>
-
-        {/* Prompts */}
-        <View style={styles.promptsSection}>
-          <PromptCard
-            title="What to talk about today?"
-            items={[
-              'A win since your last video',
-              'One challenge this week',
-              'One small next step',
-            ]}
+            onCameraReady={() => {
+              console.log('📷 Camera is ready!');
+              setIsCameraReady(true);
+            }}
+            onMountError={(error) => {
+              console.error('❌ Camera mount error:', error);
+              setIsCameraReady(false);
+            }}
           />
-        </View>
-
-        {/* Transcription Preview */}
-        {transcriptionText && !showPostRecording && (
-          <View style={styles.transcriptionPreview}>
-            <Text style={styles.transcriptionTitle}>📝 Transcription</Text>
-            <Text style={styles.transcriptionText} numberOfLines={3}>
-              {transcriptionText}
-            </Text>
+        ) : (
+          <View style={styles.camera}>
+            <Text style={styles.cameraPlaceholderText}>Camera loading...</Text>
           </View>
         )}
 
-        {/* Debug info */}
-        {__DEV__ && lastVideoUri && (
-          <View style={styles.debugInfo}>
-            <Text style={styles.debugText}>✅ Last recording: {lastVideoUri}</Text>
-            {transcriptionText && (
-              <Text style={styles.debugText}>
-                🎤 Transcription: {transcriptionText.length} characters
-              </Text>
-            )}
+        {/* Recording Timer (only shown when recording) */}
+        {isRecording && (
+          <View style={styles.timerContainer}>
+            <View style={styles.recordingIndicator} />
+            <Text style={styles.timerText}>{formatTime(recordingTime)}</Text>
           </View>
         )}
+      </View>
 
-        {/* Record Button */}
-        {!showPostRecording && (
-          <View style={styles.recordButtonContainer}>
-            <Pressable
-              style={[styles.recordButton, isRecording && styles.recordButtonActive]}
-              onPress={isRecording ? stopRecording : startRecording}
-            >
-              <View style={[styles.recordButtonInner, isRecording && styles.recordButtonInnerActive]} />
-            </Pressable>
+      {/* Post-Recording Modal */}
+      <Modal
+        visible={showPostRecording}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowPostRecording(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Save Video</Text>
+
+            <TextInput
+              style={styles.videoTitleInput}
+              value={videoName}
+              onChangeText={setVideoName}
+              placeholder="Enter video title..."
+              placeholderTextColor={theme.colors.textTertiary}
+              autoFocus
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.deleteButton]}
+                onPress={handleDeleteVideo}
+              >
+                <Text style={styles.deleteButtonText}>Delete</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.retryButton]}
+                onPress={handleRetryRecording}
+              >
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.saveButton]}
+                onPress={handleSaveVideo}
+                disabled={!videoName.trim() || isTranscribing}
+              >
+                <Text style={styles.saveButtonText}>
+                  {isTranscribing ? 'Saving...' : 'Save'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        )}
-        </View>
-      </SafeAreaView>
-    </GestureHandlerRootView>
+        </SafeAreaView>
+      </Modal>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
-  content: {
-    flex: 1,
-    paddingTop: 16,
-    paddingHorizontal: 16,
-  },
-  centerContainer: {
+  permissionContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 16,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: colors.gray600,
-  },
-  permissionCard: {
-    alignItems: 'center',
-    padding: 32,
-    borderWidth: 1,
-    borderColor: colors.gray300,
-    borderRadius: 16,
-    backgroundColor: colors.gray100,
-  },
-  permissionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.black,
-    marginTop: 16,
-    marginBottom: 8,
-    textAlign: 'center',
+    backgroundColor: theme.colors.black,
+    paddingHorizontal: theme.spacing['6'],
   },
   permissionText: {
-    fontSize: 14,
-    color: colors.gray600,
+    ...theme.typography.body,
+    color: theme.colors.white,
     textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  permissionStatus: {
-    alignItems: 'flex-start',
-    marginBottom: 20,
-  },
-  statusText: {
-    fontSize: 14,
-    color: colors.gray700,
-    marginBottom: 4,
+    marginBottom: theme.spacing['4'],
   },
   permissionButton: {
-    backgroundColor: colors.black,
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 12,
+    backgroundColor: theme.colors.primary400,
+    paddingHorizontal: theme.spacing['6'],
+    paddingVertical: theme.spacing['3'],
+    borderRadius: theme.layout.borderRadius.button,
   },
   permissionButtonText: {
-    color: colors.white,
-    fontSize: 16,
-    fontWeight: '600',
+    ...theme.typography.button,
+    color: theme.colors.white,
+    textAlign: 'center',
   },
-  cameraContainer: {
-    aspectRatio: 9 / 16, // Vertical format
-    width: '100%',
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.gray300,
+  cameraContainerFullscreen: {
+    flex: 1,
+    position: 'relative',
+    paddingTop: 60,
+    paddingHorizontal: 12, // Marges latérales réduites
+    paddingBottom: 24,
   },
   camera: {
     flex: 1,
+    borderRadius: theme.layout?.borderRadius?.xl || 16,
+    overflow: 'hidden',
+    backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  recordingOverlay: {
-    position: 'absolute',
-    top: 20,
-    left: 20,
-    right: 20,
+  cameraPlaceholderText: {
+    color: theme.colors.white,
+    fontSize: 16,
+    textAlign: 'center',
   },
-  recordingIndicator: {
+  timerContainer: {
+    position: 'absolute',
+    top: 60, // Tout en haut de l'écran
+    left: '50%',
+    transform: [{ translateX: -50 }],
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['2'],
     borderRadius: 20,
-    alignSelf: 'flex-start',
+    zIndex: 15,
   },
-  recordingDot: {
+  recordingIndicator: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#FF0000',
-    marginRight: 8,
+    backgroundColor: theme.colors.error500,
+    marginRight: theme.spacing['2'],
   },
-  recordingTime: {
-    color: colors.white,
-    fontSize: 14,
+  timerText: {
+    ...theme.typography.body,
+    color: theme.colors.white,
     fontWeight: '600',
-  },
-  cameraOverlay: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    width: '100%',
-    height: '100%',
-  },
-  overlayText: {
-    color: colors.white,
     fontSize: 16,
-    fontWeight: '600',
-    marginTop: 12,
-    marginBottom: 4,
   },
-  overlaySubtext: {
-    color: colors.white,
-    fontSize: 12,
-    opacity: 0.8,
-    textAlign: 'center',
+
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.white,
   },
-  promptsSection: {
-    marginBottom: 24,
-  },
-  debugInfo: {
-    padding: 8,
-    backgroundColor: colors.gray100,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  debugText: {
-    fontSize: 10,
-    color: colors.gray600,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  recordButtonContainer: {
-    position: 'absolute',
-    bottom: 40,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-  },
-  recordButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: colors.black,
+  modalContent: {
+    flex: 1,
+    padding: theme.spacing['6'],
     justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
   },
-  recordButtonActive: {
-    backgroundColor: '#FF0000',
-  },
-  recordButtonInner: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.white,
-  },
-  recordButtonInnerActive: {
-    borderRadius: 4,
-    width: 24,
-    height: 24,
-  },
-  postRecordingOverlay: {
-    position: 'absolute',
-    top: 20,
-    left: 20,
-    width: 320,
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    zIndex: 1000,
-  },
-  videoTitleSection: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+  modalTitle: {
+    ...theme.typography.h2,
+    textAlign: 'center',
+    marginBottom: theme.spacing['8'],
+    color: theme.colors.textPrimary,
   },
   videoTitleInput: {
-    color: colors.white,
-    fontSize: 16,
-    fontWeight: '500',
-    textAlign: 'center',
-    minWidth: 120,
-    paddingVertical: 4,
-    marginBottom: 8,
-  },
-  actionIcons: {
-    flexDirection: 'row',
-    gap: 16,
-    alignItems: 'center',
-  },
-  iconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  iconButtonDisabled: {
-    opacity: 0.5,
-  },
-  transcriptionStatus: {
-    marginBottom: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    borderRadius: 12,
-  },
-  transcriptionStatusText: {
-    color: colors.white,
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  transcriptionPreview: {
-    marginBottom: 16,
-    padding: 16,
-    backgroundColor: colors.gray100,
-    borderRadius: 12,
+    ...theme.typography.body,
     borderWidth: 1,
-    borderColor: colors.gray300,
+    borderColor: theme.colors.borderLight,
+    borderRadius: theme.layout.borderRadius.input,
+    padding: theme.spacing['4'],
+    marginBottom: theme.spacing['8'],
+    backgroundColor: theme.colors.white,
+    color: theme.colors.textPrimary,
   },
-  transcriptionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.black,
-    marginBottom: 8,
+  modalActions: {
+    flexDirection: 'row',
+    gap: theme.spacing['3'],
   },
-  transcriptionText: {
-    fontSize: 12,
-    color: colors.gray700,
-    lineHeight: 16,
+  modalButton: {
+    flex: 1,
+    paddingVertical: theme.spacing['4'],
+    borderRadius: theme.layout.borderRadius.button,
+    alignItems: 'center',
+  },
+  deleteButton: {
+    backgroundColor: theme.colors.error500,
+  },
+  deleteButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.white,
+  },
+  retryButton: {
+    backgroundColor: theme.colors.gray200,
+  },
+  retryButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.textPrimary,
+  },
+  saveButton: {
+    backgroundColor: theme.colors.primary400,
+  },
+  saveButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.white,
   },
 });
 

@@ -125,38 +125,38 @@ export const typography = {
   } as TextStyle,
 
   h6: {
-    fontSize: fontSizes.lg,
+    fontSize: 18,
     fontWeight: fontWeights.semibold,
-    lineHeight: fontSizes.lg * lineHeights.normal,
+    lineHeight: 18 * lineHeights.normal,
     letterSpacing: letterSpacing.normal,
   } as TextStyle,
 
   // Body text
   bodyLarge: {
-    fontSize: fontSizes.lg,
+    fontSize: 18,
     fontWeight: fontWeights.regular,
-    lineHeight: fontSizes.lg * lineHeights.relaxed,
+    lineHeight: 18 * lineHeights.relaxed,
     letterSpacing: letterSpacing.normal,
   } as TextStyle,
 
   bodyLargeBold: {
-    fontSize: fontSizes.lg,
+    fontSize: 18,
     fontWeight: fontWeights.semibold,
-    lineHeight: fontSizes.lg * lineHeights.relaxed,
+    lineHeight: 18 * lineHeights.relaxed,
     letterSpacing: letterSpacing.normal,
   } as TextStyle,
 
   body: {
-    fontSize: fontSizes.md,
+    fontSize: 16,
     fontWeight: fontWeights.regular,
-    lineHeight: fontSizes.md * lineHeights.normal,
+    lineHeight: 16 * lineHeights.normal,
     letterSpacing: letterSpacing.normal,
   } as TextStyle,
 
   bodyBold: {
-    fontSize: fontSizes.md,
+    fontSize: 16,
     fontWeight: fontWeights.semibold,
-    lineHeight: fontSizes.md * lineHeights.normal,
+    lineHeight: 16 * lineHeights.normal,
     letterSpacing: letterSpacing.normal,
   } as TextStyle,
 
@@ -212,9 +212,9 @@ export const typography = {
 
   // UI elements
   button: {
-    fontSize: fontSizes.md,
+    fontSize: 16,
     fontWeight: fontWeights.semibold,
-    lineHeight: fontSizes.md * lineHeights.tight,
+    lineHeight: 16 * lineHeights.tight,
     letterSpacing: letterSpacing.wide,
   } as TextStyle,
 
@@ -226,9 +226,9 @@ export const typography = {
   } as TextStyle,
 
   buttonLarge: {
-    fontSize: fontSizes.lg,
+    fontSize: 18,
     fontWeight: fontWeights.semibold,
-    lineHeight: fontSizes.lg * lineHeights.tight,
+    lineHeight: 18 * lineHeights.tight,
     letterSpacing: letterSpacing.normal,
   } as TextStyle,
 
@@ -241,9 +241,9 @@ export const typography = {
   } as TextStyle,
 
   input: {
-    fontSize: fontSizes.md,
+    fontSize: 16,
     fontWeight: fontWeights.regular,
-    lineHeight: fontSizes.md * lineHeights.normal,
+    lineHeight: 16 * lineHeights.normal,
     letterSpacing: letterSpacing.normal,
   } as TextStyle,
 
@@ -257,9 +257,9 @@ export const typography = {
   } as TextStyle,
 
   quote: {
-    fontSize: fontSizes.lg,
+    fontSize: 18,
     fontWeight: fontWeights.light,
-    lineHeight: fontSizes.lg * lineHeights.loose,
+    lineHeight: 18 * lineHeights.loose,
     letterSpacing: letterSpacing.normal,
     fontStyle: 'italic' as TextStyle['fontStyle'],
   } as TextStyle,

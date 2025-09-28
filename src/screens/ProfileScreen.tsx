@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, typography, spacing } from '../styles/theme';
+import { theme } from '../styles';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { AuthService, Profile } from '../services/authService';
@@ -143,7 +143,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack }) => {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <TopBar title="Profile" right={<Icon name="chevronRight" size={20} color={colors.black} />} />
+        <TopBar title="Profile" right={<Icon name="chevronRight" size={20} color={theme.colors.black} />} />
         <View style={styles.centerContainer}>
           <Text style={styles.loadingText}>Loading profile...</Text>
         </View>
@@ -171,7 +171,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack }) => {
             {/* Profile Picture Section */}
             <View style={styles.avatarSection}>
               <View style={styles.avatarContainer}>
-                <Icon name="user" size={48} color={colors.gray400} />
+                <Icon name="user" size={48} color={theme.colors.gray400} />
               </View>
               <TouchableOpacity style={styles.changePhotoButton}>
                 <Text style={styles.changePhotoText}>Change Photo</Text>
@@ -278,7 +278,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack }) => {
                       {lang.name}
                     </Text>
                     {language === lang.code && (
-                      <Icon name="check" size={16} color={colors.white} />
+                      <Icon name="check" size={16} color={theme.colors.white} />
                     )}
                   </TouchableOpacity>
                 ))}
@@ -306,7 +306,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack }) => {
                       {tz.name}
                     </Text>
                     {timezone === tz.code && (
-                      <Icon name="check" size={16} color={colors.white} />
+                      <Icon name="check" size={16} color={theme.colors.white} />
                     )}
                   </TouchableOpacity>
                 ))}
@@ -331,7 +331,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack }) => {
               style={styles.dangerButton}
               onPress={handleDeleteAccount}
             >
-              <Icon name="trash" size={16} color={colors.white} />
+              <Icon name="trash" size={16} color={theme.colors.white} />
               <Text style={styles.dangerButtonText}>Delete Account</Text>
             </TouchableOpacity>
 
@@ -347,7 +347,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
   centerContainer: {
     flex: 1,
@@ -355,144 +355,144 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    ...typography.body,
-    color: colors.gray600,
+    ...theme.typography.body,
+    color: theme.colors.gray600,
   },
   doneButton: {
-    ...typography.bodyBold,
-    color: colors.black,
+    ...theme.typography.bodyBold,
+    color: theme.colors.black,
   },
   scrollView: {
     flex: 1,
   },
   form: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 16,
   },
   avatarSection: {
     alignItems: 'center',
-    paddingVertical: spacing.xl,
+    paddingVertical: theme.spacing['6'],
   },
   avatarContainer: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: colors.gray100,
+    backgroundColor: theme.colors.gray100,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: spacing.md,
+    marginBottom: 12,
   },
   changePhotoButton: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: 16,
+    paddingVertical: theme.spacing['2'],
   },
   changePhotoText: {
-    ...typography.caption,
-    color: colors.black,
+    ...theme.typography.caption,
+    color: theme.colors.black,
     fontWeight: '500',
   },
   sectionTitle: {
-    ...typography.h2,
-    color: colors.black,
-    marginTop: spacing.xl,
-    marginBottom: spacing.lg,
+    ...theme.typography.h2,
+    color: theme.colors.black,
+    marginTop: theme.spacing['6'],
+    marginBottom: 16,
   },
   dangerSectionTitle: {
-    ...typography.h2,
+    ...theme.typography.h2,
     color: '#DC2626',
-    marginTop: spacing.xl,
-    marginBottom: spacing.lg,
+    marginTop: theme.spacing['6'],
+    marginBottom: 16,
   },
   inputGroup: {
-    marginBottom: spacing.lg,
+    marginBottom: 16,
   },
   inputRow: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: 12,
   },
   inputHalf: {
     flex: 1,
   },
   label: {
-    ...typography.caption,
-    color: colors.black,
+    ...theme.typography.caption,
+    color: theme.colors.black,
     fontWeight: '500',
-    marginBottom: spacing.xs,
+    marginBottom: theme.spacing['1'],
   },
   input: {
-    ...typography.body,
-    color: colors.black,
+    ...theme.typography.body,
+    color: theme.colors.black,
     borderWidth: 1,
-    borderColor: colors.gray300,
+    borderColor: theme.colors.gray300,
     borderRadius: 12,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.white,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: theme.colors.white,
   },
   inputDisabled: {
-    backgroundColor: colors.gray100,
-    color: colors.gray600,
+    backgroundColor: theme.colors.gray100,
+    color: theme.colors.gray600,
   },
   textArea: {
     height: 80,
-    paddingTop: spacing.md,
+    paddingTop: 12,
   },
   helperText: {
-    ...typography.tiny,
-    color: colors.gray600,
-    marginTop: spacing.xs,
+    ...theme.typography.tiny,
+    color: theme.colors.gray600,
+    marginTop: theme.spacing['1'],
   },
   pickerContainer: {
     borderWidth: 1,
-    borderColor: colors.gray300,
+    borderColor: theme.colors.gray300,
     borderRadius: 12,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
     overflow: 'hidden',
   },
   pickerOption: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray200,
+    borderBottomColor: theme.colors.gray200,
   },
   pickerOptionSelected: {
-    backgroundColor: colors.black,
+    backgroundColor: theme.colors.black,
   },
   pickerOptionText: {
-    ...typography.body,
-    color: colors.black,
+    ...theme.typography.body,
+    color: theme.colors.black,
   },
   pickerOptionTextSelected: {
-    color: colors.white,
+    color: theme.colors.white,
   },
   primaryButton: {
-    backgroundColor: colors.black,
-    paddingVertical: spacing.lg,
+    backgroundColor: theme.colors.black,
+    paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: spacing.lg,
+    marginTop: 16,
   },
   primaryButtonText: {
-    ...typography.bodyBold,
-    color: colors.white,
+    ...theme.typography.bodyBold,
+    color: theme.colors.white,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   dangerButton: {
     backgroundColor: '#DC2626',
-    paddingVertical: spacing.lg,
+    paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: spacing.sm,
+    gap: theme.spacing['2'],
   },
   dangerButtonText: {
-    ...typography.bodyBold,
-    color: colors.white,
+    ...theme.typography.bodyBold,
+    color: theme.colors.white,
   },
 });
 

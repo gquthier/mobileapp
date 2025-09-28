@@ -1,6 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
-import { colors } from '../styles/theme';
+import { theme } from '../styles';
 
 interface ChipProps {
   children: React.ReactNode;
@@ -34,21 +34,21 @@ export const Chip: React.FC<ChipProps> = ({
 
 const styles = StyleSheet.create({
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    fontSize: 12,
+    paddingHorizontal: theme.spacing['3'],
+    paddingVertical: theme.spacing['1.5'],
+    borderRadius: theme.layout.borderRadius.full,
+    ...theme.typography.caption,
     borderWidth: 1,
     textAlign: 'center',
   },
   active: {
-    backgroundColor: colors.black,
-    color: colors.white,
-    borderColor: colors.black,
+    backgroundColor: theme.colors.brand.primary,
+    color: theme.colors.white,
+    borderColor: theme.colors.brand.primary,
   },
   inactive: {
-    backgroundColor: colors.white,
-    color: colors.black,
-    borderColor: colors.gray300,
+    backgroundColor: theme.colors.white,
+    color: theme.colors.text.primary,
+    borderColor: theme.colors.ui.border,
   },
 });

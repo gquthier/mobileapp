@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { colors } from '../styles/theme';
+import { theme } from '../styles';
 
 interface ChapterCardProps {
   title: string;
@@ -42,11 +42,11 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    padding: 16,
+    padding: theme.spacing['4'],
     borderWidth: 1,
-    borderColor: colors.gray300,
-    borderRadius: 16,
-    marginBottom: 12,
+    borderColor: theme.colors.ui.border,
+    borderRadius: theme.layout.borderRadius.card,
+    marginBottom: theme.spacing['3'],
   },
   header: {
     flexDirection: 'row',
@@ -57,30 +57,30 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   title: {
-    fontSize: 14,
+    ...theme.typography.body2,
     fontWeight: '500',
-    color: colors.black,
-    marginBottom: 2,
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing['0.5'],
   },
   period: {
-    fontSize: 12,
-    color: colors.gray600,
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
   },
   count: {
-    fontSize: 12,
-    color: colors.gray600,
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
   },
   progressContainer: {
-    marginTop: 12,
+    marginTop: theme.spacing['3'],
   },
   progressBar: {
     height: 4,
-    backgroundColor: colors.gray300,
-    borderRadius: 2,
+    backgroundColor: theme.colors.ui.border,
+    borderRadius: theme.layout.borderRadius.xs,
   },
   progressFill: {
     height: 4,
-    backgroundColor: colors.black,
-    borderRadius: 2,
+    backgroundColor: theme.colors.brand.primary,
+    borderRadius: theme.layout.borderRadius.xs,
   },
 });

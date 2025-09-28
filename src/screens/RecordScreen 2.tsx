@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as Haptics from 'expo-haptics';
 import * as MediaLibrary from 'expo-media-library';
-import { colors } from '../styles/theme';
+import { theme } from '../styles';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { PromptCard } from '../components/PromptCard';
@@ -402,7 +402,7 @@ const RecordScreen: React.FC = () => {
   if (!cameraPermission || !microphonePermission) {
     return (
       <SafeAreaView style={styles.container}>
-        <TopBar title="Record" right={<Icon name="clock" size={20} color={colors.black} />} />
+        <TopBar title="Record" right={<Icon name="clock" size={20} color={theme.colors.black} />} />
         <View style={styles.centerContainer}>
           <Text style={styles.loadingText}>Loading camera...</Text>
         </View>
@@ -414,10 +414,10 @@ const RecordScreen: React.FC = () => {
   if (!allPermissionsGranted) {
     return (
       <SafeAreaView style={styles.container}>
-        <TopBar title="Record" right={<Icon name="clock" size={20} color={colors.black} />} />
+        <TopBar title="Record" right={<Icon name="clock" size={20} color={theme.colors.black} />} />
         <View style={styles.centerContainer}>
           <View style={styles.permissionCard}>
-            <Icon name="camera" size={48} color={colors.gray400} />
+            <Icon name="camera" size={48} color={theme.colors.gray400} />
             <Text style={styles.permissionTitle}>Camera & Microphone Access</Text>
             <Text style={styles.permissionText}>
               Allow camera and microphone access to record your video reflections.
@@ -449,7 +449,7 @@ const RecordScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        <TopBar title="Record" right={<Icon name="clock" size={20} color={colors.black} />} />
+        <TopBar title="Record" right={<Icon name="clock" size={20} color={theme.colors.black} />} />
 
         {/* Camera Preview */}
         <View style={styles.cameraContainer}>
@@ -473,7 +473,7 @@ const RecordScreen: React.FC = () => {
             {/* Camera overlay when not recording */}
             {!isRecording && !showPostRecording && (
               <View style={styles.cameraOverlay}>
-                <Icon name="cameraFilled" size={40} color={colors.white} />
+                <Icon name="cameraFilled" size={40} color={theme.colors.white} />
                 <Text style={styles.overlayText}>Press to start recording</Text>
                 <Text style={styles.overlaySubtext}>
                   Press again to stop • Vertical format
@@ -491,7 +491,7 @@ const RecordScreen: React.FC = () => {
                     value={videoName}
                     onChangeText={setVideoName}
                     placeholder="Video title"
-                    placeholderTextColor={colors.white}
+                    placeholderTextColor={theme.colors.white}
                     maxLength={50}
                     returnKeyType="done"
                   />
@@ -512,7 +512,7 @@ const RecordScreen: React.FC = () => {
                       activeOpacity={0.7}
                       disabled={isTranscribing}
                     >
-                      <Icon name="check" size={18} color={colors.white} />
+                      <Icon name="check" size={18} color={theme.colors.white} />
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -521,7 +521,7 @@ const RecordScreen: React.FC = () => {
                       activeOpacity={0.7}
                       disabled={isTranscribing}
                     >
-                      <Icon name="rotateCcw" size={18} color={colors.white} />
+                      <Icon name="rotateCcw" size={18} color={theme.colors.white} />
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -530,7 +530,7 @@ const RecordScreen: React.FC = () => {
                       activeOpacity={0.7}
                       disabled={isTranscribing}
                     >
-                      <Icon name="trash" size={18} color={colors.white} />
+                      <Icon name="trash" size={18} color={theme.colors.white} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -592,7 +592,7 @@ const RecordScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
   content: {
     flex: 1,
@@ -607,27 +607,27 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 16,
-    color: colors.gray600,
+    color: theme.colors.gray600,
   },
   permissionCard: {
     alignItems: 'center',
     padding: 32,
     borderWidth: 1,
-    borderColor: colors.gray300,
+    borderColor: theme.colors.gray300,
     borderRadius: 16,
-    backgroundColor: colors.gray100,
+    backgroundColor: theme.colors.gray100,
   },
   permissionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: colors.black,
+    color: theme.colors.black,
     marginTop: 16,
     marginBottom: 8,
     textAlign: 'center',
   },
   permissionText: {
     fontSize: 14,
-    color: colors.gray600,
+    color: theme.colors.gray600,
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 20,
@@ -638,17 +638,17 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 14,
-    color: colors.gray700,
+    color: theme.colors.gray700,
     marginBottom: 4,
   },
   permissionButton: {
-    backgroundColor: colors.black,
+    backgroundColor: theme.colors.black,
     paddingHorizontal: 32,
     paddingVertical: 16,
     borderRadius: 12,
   },
   permissionButtonText: {
-    color: colors.white,
+    color: theme.colors.white,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -659,7 +659,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: colors.gray300,
+    borderColor: theme.colors.gray300,
   },
   camera: {
     flex: 1,
@@ -689,7 +689,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   recordingTime: {
-    color: colors.white,
+    color: theme.colors.white,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -701,14 +701,14 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   overlayText: {
-    color: colors.white,
+    color: theme.colors.white,
     fontSize: 16,
     fontWeight: '600',
     marginTop: 12,
     marginBottom: 4,
   },
   overlaySubtext: {
-    color: colors.white,
+    color: theme.colors.white,
     fontSize: 12,
     opacity: 0.8,
     textAlign: 'center',
@@ -718,13 +718,13 @@ const styles = StyleSheet.create({
   },
   debugInfo: {
     padding: 8,
-    backgroundColor: colors.gray100,
+    backgroundColor: theme.colors.gray100,
     borderRadius: 8,
     marginBottom: 16,
   },
   debugText: {
     fontSize: 10,
-    color: colors.gray600,
+    color: theme.colors.gray600,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   recordButtonContainer: {
@@ -738,10 +738,10 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: colors.black,
+    backgroundColor: theme.colors.black,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: colors.black,
+    shadowColor: theme.colors.black,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -754,7 +754,7 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
   recordButtonInnerActive: {
     borderRadius: 4,
@@ -777,7 +777,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   videoTitleInput: {
-    color: colors.white,
+    color: theme.colors.white,
     fontSize: 16,
     fontWeight: '500',
     textAlign: 'center',
@@ -809,27 +809,27 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   transcriptionStatusText: {
-    color: colors.white,
+    color: theme.colors.white,
     fontSize: 12,
     textAlign: 'center',
   },
   transcriptionPreview: {
     marginBottom: 16,
     padding: 16,
-    backgroundColor: colors.gray100,
+    backgroundColor: theme.colors.gray100,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.gray300,
+    borderColor: theme.colors.gray300,
   },
   transcriptionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.black,
+    color: theme.colors.black,
     marginBottom: 8,
   },
   transcriptionText: {
     fontSize: 12,
-    color: colors.gray700,
+    color: theme.colors.gray700,
     lineHeight: 16,
   },
 });

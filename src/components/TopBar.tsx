@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Icon } from './Icon';
-import { colors } from '../styles/theme';
+import { theme } from '../styles';
 
 interface TopBarProps {
   title: string;
@@ -12,12 +12,12 @@ export const TopBar: React.FC<TopBarProps> = ({ title, right }) => {
   return (
     <View style={styles.container}>
       <View style={styles.left}>
-        <Icon name="bookOpen" size={20} color={colors.black} />
+        <Icon name="bookOpen" size={20} color={theme.colors.text.primary} />
         <Text style={styles.title}>{title}</Text>
       </View>
       <View style={styles.right}>
         {right}
-        <Icon name="settings" size={20} color={colors.black} />
+        <Icon name="settings" size={20} color={theme.colors.text.primary} />
       </View>
     </View>
   );
@@ -28,21 +28,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: theme.spacing['4'],
   },
   left: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: theme.spacing['2'],
   },
   title: {
-    fontSize: 16,
+    ...theme.typography.body,
     fontWeight: '500',
-    color: colors.black,
+    color: theme.colors.text.primary,
   },
   right: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: theme.spacing['3'],
   },
 });

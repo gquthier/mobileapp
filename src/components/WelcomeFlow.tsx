@@ -208,14 +208,14 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingHorizontal: theme.spacing.xl,
+    paddingHorizontal: theme.spacing['6'],
   },
   content: {
     flex: 1,
   },
   logoContainer: {
     alignItems: 'center',
-    marginBottom: theme.spacing.xxl,
+    marginBottom: theme.spacing['8'],
   },
   logoCircle: {
     width: 88,
@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    marginBottom: theme.spacing.lg,
+    marginBottom: 16,
   },
   heroWord: {
     fontSize: 36,
@@ -264,20 +264,20 @@ const styles = StyleSheet.create({
   },
   featuresContent: {
     flex: 1,
-    paddingTop: theme.spacing.xl,
+    paddingTop: theme.spacing['6'],
   },
   featuresTitle: {
     fontSize: 28,
     fontWeight: '800',
     color: theme.colors.white,
-    marginBottom: theme.spacing.xl,
+    marginBottom: theme.spacing['6'],
     lineHeight: 34,
   },
   featuresList: {
-    gap: theme.spacing.md,
+    gap: 12,
   },
   featureCard: {
-    borderRadius: theme.radius.lg,
+    borderRadius: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.25)',
@@ -285,8 +285,8 @@ const styles = StyleSheet.create({
   featureCardInner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    padding: theme.spacing.lg,
-    gap: theme.spacing.md,
+    padding: 16,
+    gap: 12,
   },
   featureIcon: {
     marginTop: 2,
@@ -307,15 +307,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   bottomSection: {
-    paddingBottom: theme.spacing.xl,
+    paddingBottom: theme.spacing['6'],
   },
   button: {
-    borderRadius: theme.radius.lg,
+    borderRadius: 12,
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.25)',
-    marginBottom: theme.spacing.lg,
-    paddingVertical: theme.spacing.lg,
+    marginBottom: 16,
+    paddingVertical: 16,
     alignItems: 'center',
   },
   buttonText: {
@@ -325,10 +325,10 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: theme.colors.white,
-    borderRadius: theme.radius.lg,
-    paddingVertical: theme.spacing.lg,
+    borderRadius: 12,
+    paddingVertical: 16,
     alignItems: 'center',
-    marginBottom: theme.spacing.md,
+    marginBottom: 12,
   },
   primaryButtonText: {
     fontSize: 16,

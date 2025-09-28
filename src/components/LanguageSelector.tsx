@@ -8,7 +8,7 @@ import {
   ScrollView,
   FlatList,
 } from 'react-native';
-import { colors, typography, spacing } from '../styles/theme';
+import { theme } from '../styles';
 import { Icon } from './Icon';
 
 interface Language {
@@ -80,7 +80,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
         <Text style={styles.languageNativeName}>{item.nativeName}</Text>
       </View>
       {item.code === selectedLanguage && (
-        <Icon name="check" size={20} color={colors.primary} />
+        <Icon name="check" size={20} color={theme.colors.primary} />
       )}
     </TouchableOpacity>
   );
@@ -106,7 +106,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
             <Text style={styles.placeholder}>{placeholder}</Text>
           )}
         </View>
-        <Icon name="chevron-down" size={20} color={colors.gray600} />
+        <Icon name="chevron-down" size={20} color={theme.colors.gray600} />
       </TouchableOpacity>
 
       <Modal
@@ -121,7 +121,7 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
               style={styles.closeButton}
               onPress={() => setModalVisible(false)}
             >
-              <Icon name="x" size={24} color={colors.gray600} />
+              <Icon name="x" size={24} color={theme.colors.gray600} />
             </TouchableOpacity>
           </View>
 
@@ -145,23 +145,23 @@ export const LanguageSelector: React.FC<LanguageSelectorProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: spacing.md,
+    marginBottom: 12,
   },
   label: {
-    ...typography.body,
+    ...theme.typography.body,
     fontWeight: '600',
-    color: colors.gray900,
-    marginBottom: spacing.xs,
+    color: theme.colors.gray900,
+    marginBottom: theme.spacing['1'],
   },
   selector: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: colors.gray100,
+    backgroundColor: theme.colors.gray100,
     borderRadius: 12,
-    padding: spacing.md,
+    padding: 12,
     borderWidth: 1,
-    borderColor: colors.gray300,
+    borderColor: theme.colors.gray300,
   },
   selectedLanguage: {
     flexDirection: 'row',
@@ -170,47 +170,47 @@ const styles = StyleSheet.create({
   },
   selectedFlag: {
     fontSize: 24,
-    marginRight: spacing.sm,
+    marginRight: theme.spacing['2'],
   },
   selectedName: {
-    ...typography.body,
+    ...theme.typography.body,
     fontWeight: '600',
-    color: colors.gray900,
+    color: theme.colors.gray900,
   },
   selectedNativeName: {
-    ...typography.caption,
-    color: colors.gray600,
+    ...theme.typography.caption,
+    color: theme.colors.gray600,
   },
   placeholder: {
-    ...typography.body,
-    color: colors.gray500,
+    ...theme.typography.body,
+    color: theme.colors.gray500,
   },
   modal: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: spacing.lg,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray200,
+    borderBottomColor: theme.colors.gray200,
   },
   modalTitle: {
-    ...typography.h3,
+    ...theme.typography.h3,
     fontWeight: '600',
-    color: colors.gray900,
+    color: theme.colors.gray900,
   },
   closeButton: {
-    padding: spacing.xs,
+    padding: theme.spacing['1'],
   },
   modalDescription: {
-    ...typography.body,
-    color: colors.gray600,
-    padding: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
+    ...theme.typography.body,
+    color: theme.colors.gray600,
+    padding: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   languageList: {
     flex: 1,
@@ -218,27 +218,27 @@ const styles = StyleSheet.create({
   languageItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.lg,
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray100,
+    borderBottomColor: theme.colors.gray100,
   },
   selectedLanguageItem: {
-    backgroundColor: colors.primary + '10',
+    backgroundColor: theme.colors.primary + '10',
   },
   languageFlag: {
     fontSize: 24,
-    marginRight: spacing.md,
+    marginRight: 12,
   },
   languageTextContainer: {
     flex: 1,
   },
   languageName: {
-    ...typography.body,
+    ...theme.typography.body,
     fontWeight: '600',
-    color: colors.gray900,
+    color: theme.colors.gray900,
   },
   languageNativeName: {
-    ...typography.caption,
-    color: colors.gray600,
+    ...theme.typography.caption,
+    color: theme.colors.gray600,
   },
 });

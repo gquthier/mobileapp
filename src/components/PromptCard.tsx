@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { colors } from '../styles/theme';
+import { theme } from '../styles';
 
 interface PromptCardProps {
   title: string;
@@ -23,19 +23,19 @@ export const PromptCard: React.FC<PromptCardProps> = ({ title, items }) => {
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: colors.gray300,
+    borderColor: theme.colors.ui.border,
     borderRadius: 12,
-    padding: 12,
+    padding: theme.spacing['3'],
   },
   title: {
-    fontSize: 12,
+    ...theme.typography.caption,
     fontWeight: '500',
-    color: colors.black,
-    marginBottom: 8,
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing['2'],
   },
   item: {
-    fontSize: 12,
-    color: colors.gray700,
-    marginBottom: 4,
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
+    marginBottom: theme.spacing['1'],
   },
 });

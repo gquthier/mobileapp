@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { VideoRecord } from '../lib/supabase';
-import { colors, typography } from '../styles/theme';
+import { theme } from '../styles';
 import { Icon } from './Icon';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -88,7 +88,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Icon name="close" size={24} color={colors.white} />
+            <Icon name="close" size={24} color={theme.colors.white} />
           </TouchableOpacity>
           <Text style={styles.title} numberOfLines={1}>
             {video.title || 'Untitled Video'}
@@ -112,7 +112,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           {/* Loading */}
           {isLoading && (
             <View style={styles.loadingOverlay}>
-              <Icon name="loading" size={32} color={colors.white} />
+              <Icon name="loading" size={32} color={theme.colors.white} />
               <Text style={styles.loadingText}>Loading video...</Text>
             </View>
           )}
@@ -127,7 +127,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <Icon
                 name={isPlaying ? "pause" : "play"}
                 size={48}
-                color={colors.white}
+                color={theme.colors.white}
               />
             </TouchableOpacity>
           )}
@@ -186,7 +186,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: theme.colors.black,
   },
   header: {
     flexDirection: 'row',
@@ -199,8 +199,8 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   title: {
-    ...typography.bodyBold,
-    color: colors.white,
+    ...theme.typography.bodyBold,
+    color: theme.colors.white,
     fontSize: 16,
     flex: 1,
     marginLeft: 16,
@@ -226,8 +226,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
   },
   loadingText: {
-    ...typography.body,
-    color: colors.white,
+    ...theme.typography.body,
+    color: theme.colors.white,
     marginTop: 16,
   },
   playButton: {
@@ -250,8 +250,8 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   timeText: {
-    ...typography.caption,
-    color: colors.white,
+    ...theme.typography.caption,
+    color: theme.colors.white,
     fontSize: 12,
     fontWeight: '500',
   },
@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     height: '100%',
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
     borderRadius: 2,
   },
   progressThumb: {
@@ -281,21 +281,21 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
     marginLeft: -8,
   },
   videoInfo: {
     alignItems: 'flex-start',
   },
   videoTitle: {
-    ...typography.h3,
-    color: colors.white,
+    ...theme.typography.h3,
+    color: theme.colors.white,
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 4,
   },
   videoDate: {
-    ...typography.body,
+    ...theme.typography.body,
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 14,
   },

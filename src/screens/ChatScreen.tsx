@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors } from '../styles/theme';
+import { theme } from '../styles';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 
@@ -11,10 +11,10 @@ const ChatScreen: React.FC = () => {
       <View style={styles.content}>
         <TopBar
           title="AI Chat"
-          right={<Icon name="sparkles" size={20} color={colors.black} />}
+          right={<Icon name="sparkles" size={20} color={theme.colors.black} />}
         />
         <View style={styles.centerContent}>
-          <Icon name="messageSquare" size={48} color={colors.gray400} />
+          <Icon name="messageSquare" size={48} color={theme.colors.gray400} />
           <Text style={styles.title}>AI Chat</Text>
           <Text style={styles.subtitle}>Coming soon</Text>
         </View>
@@ -26,7 +26,7 @@ const ChatScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
   content: {
     flex: 1,
@@ -41,13 +41,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: '600',
-    color: colors.black,
+    color: theme.colors.black,
     marginTop: 16,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: colors.gray600,
+    color: theme.colors.gray600,
   },
 });
 

@@ -11,7 +11,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, typography, spacing } from '../styles/theme';
+import { theme } from '../styles';
 import { Icon } from '../components/Icon';
 import { LanguageSelector } from '../components/LanguageSelector';
 import { AuthService } from '../services/authService';
@@ -173,7 +173,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
       >
         <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
           <View style={styles.header}>
-            <Icon name="bookOpen" size={48} color={colors.black} />
+            <Icon name="bookOpen" size={48} color={theme.colors.black} />
             <Text style={styles.title}>Chapters</Text>
             <Text style={styles.subtitle}>
               {isSignUp ? 'Create your account' : 'Welcome back'}
@@ -325,98 +325,98 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
   scrollView: {
     flex: 1,
   },
   header: {
     alignItems: 'center',
-    paddingTop: spacing.xxxl,
-    paddingBottom: spacing.xl,
-    paddingHorizontal: spacing.lg,
+    paddingTop: theme.spacing['12'],
+    paddingBottom: theme.spacing['6'],
+    paddingHorizontal: 16,
   },
   title: {
-    ...typography.h1,
-    color: colors.black,
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
+    ...theme.typography.h1,
+    color: theme.colors.black,
+    marginTop: 16,
+    marginBottom: theme.spacing['2'],
   },
   subtitle: {
-    ...typography.body,
-    color: colors.gray600,
+    ...theme.typography.body,
+    color: theme.colors.gray600,
     textAlign: 'center',
   },
   form: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xxxl,
+    paddingHorizontal: 16,
+    paddingBottom: theme.spacing['12'],
   },
   inputGroup: {
-    marginBottom: spacing.lg,
+    marginBottom: 16,
   },
   inputRow: {
     flexDirection: 'row',
-    gap: spacing.md,
+    gap: 12,
   },
   inputHalf: {
     flex: 1,
   },
   label: {
-    ...typography.caption,
-    color: colors.black,
+    ...theme.typography.caption,
+    color: theme.colors.black,
     fontWeight: '500',
-    marginBottom: spacing.xs,
+    marginBottom: theme.spacing['1'],
   },
   input: {
-    ...typography.body,
-    color: colors.black,
+    ...theme.typography.body,
+    color: theme.colors.black,
     borderWidth: 1,
-    borderColor: colors.gray300,
+    borderColor: theme.colors.gray300,
     borderRadius: 12,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.white,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: theme.colors.white,
   },
   primaryButton: {
-    backgroundColor: colors.black,
-    paddingVertical: spacing.lg,
+    backgroundColor: theme.colors.black,
+    paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: spacing.md,
+    marginTop: 12,
   },
   primaryButtonText: {
-    ...typography.bodyBold,
-    color: colors.white,
+    ...theme.typography.bodyBold,
+    color: theme.colors.white,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   forgotButton: {
     alignItems: 'center',
-    marginTop: spacing.lg,
+    marginTop: 16,
   },
   forgotButtonText: {
-    ...typography.caption,
-    color: colors.gray600,
+    ...theme.typography.caption,
+    color: theme.colors.gray600,
   },
   switchContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: spacing.xl,
-    gap: spacing.xs,
+    marginTop: theme.spacing['6'],
+    gap: theme.spacing['1'],
   },
   switchText: {
-    ...typography.caption,
-    color: colors.gray600,
+    ...theme.typography.caption,
+    color: theme.colors.gray600,
   },
   switchButton: {
-    ...typography.caption,
-    color: colors.black,
+    ...theme.typography.caption,
+    color: theme.colors.black,
     fontWeight: '600',
   },
   languageSelector: {
-    marginBottom: spacing.lg,
+    marginBottom: 16,
   },
 });
 

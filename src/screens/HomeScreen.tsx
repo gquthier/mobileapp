@@ -5,7 +5,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors } from '../styles/theme';
+import { theme } from '../styles';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { Chip } from '../components/Chip';
@@ -43,7 +43,7 @@ const HomeScreen: React.FC = () => {
       <View style={styles.content}>
         <TopBar
           title="Your Chapters"
-          right={<Icon name="search" size={20} color={colors.black} />}
+          right={<Icon name="search" size={20} color={theme.colors.text.primary} />}
         />
 
         <View style={styles.filters}>
@@ -91,23 +91,23 @@ const HomeScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.ui.background,
   },
   content: {
     flex: 1,
-    paddingTop: 16,
-    paddingHorizontal: 16,
+    paddingTop: theme.spacing['4'],
+    paddingHorizontal: theme.spacing['4'],
   },
   filters: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
+    gap: theme.spacing['2'],
+    marginBottom: theme.spacing['4'],
   },
   scrollView: {
     flex: 1,
   },
   wordOfDaySection: {
-    marginTop: 16,
+    marginTop: theme.spacing['4'],
   },
 });
 

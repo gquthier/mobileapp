@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { VideoRecord } from '../lib/supabase';
-import { colors, typography, theme } from '../styles/theme';
+import { theme } from '../styles/theme';
 import { Icon } from './Icon';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('screen'); // Use 'screen' for true fullscreen
@@ -259,7 +259,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       statusBarTranslucent={true}
       onRequestClose={onClose}
     >
-      <StatusBar hidden={isFullscreen} backgroundColor={colors.black} />
+      <StatusBar hidden={isFullscreen} backgroundColor={theme.colors.black} />
       <View style={styles.container}>
         {isFullscreen ? (
           // Fullscreen Mode
@@ -299,10 +299,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <SafeAreaView style={styles.fullscreenHeader}>
                 <View style={styles.fullscreenHeaderContent}>
                   <TouchableOpacity onPress={toggleFullscreen} style={styles.fullscreenButton}>
-                    <Icon name="minimize" size={24} color={colors.white} />
+                    <Icon name="minimize" size={24} color={theme.colors.white} />
                   </TouchableOpacity>
                   <TouchableOpacity onPress={onClose} style={styles.fullscreenButton}>
-                    <Icon name="close" size={24} color={colors.white} />
+                    <Icon name="close" size={24} color={theme.colors.white} />
                   </TouchableOpacity>
                 </View>
               </SafeAreaView>
@@ -317,7 +317,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   <Icon
                     name={isPlaying ? "pause" : "play"}
                     size={48}
-                    color={colors.white}
+                    color={theme.colors.white}
                   />
                 </TouchableOpacity>
               )}
@@ -359,22 +359,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         ) : (
           // Split Screen Mode
           <>
-            {/* Header */}
-            <SafeAreaView style={styles.splitHeader}>
-              <View style={styles.splitHeaderContent}>
-                <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-                  <Icon name="close" size={24} color={colors.black} />
-                </TouchableOpacity>
-                <Text style={styles.splitTitle} numberOfLines={1}>
-                  {video.title || 'Untitled Video'}
-                </Text>
-                <TouchableOpacity onPress={toggleFullscreen} style={styles.headerButton}>
-                  <Icon name="maximize" size={24} color={colors.black} />
-                </TouchableOpacity>
-              </View>
-            </SafeAreaView>
-
-            {/* Video Player Section */}
+            {/* Video Player Section - Now takes full top half */}
             <View style={styles.videoSection}>
               <Video
                 ref={videoRef}
@@ -401,6 +386,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 }}
               />
 
+              {/* Back Button - Simple Arrow */}
+              <TouchableOpacity
+                style={styles.backButtonOverlay}
+                onPress={() => {
+                  console.log('🔙 Back button pressed - closing video player');
+                  onClose();
+                }}
+                activeOpacity={0.8}
+                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+              >
+                <Icon
+                  name="arrowLeft"
+                  size={32}
+                  color={theme.colors.white}
+                  style={styles.backButtonIcon}
+                />
+              </TouchableOpacity>
+
               {/* Play Button - Centered on video */}
               {!isLoading && !hasError && (
                 <TouchableOpacity
@@ -411,7 +414,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   <Icon
                     name={isPlaying ? "pause" : "play"}
                     size={40}
-                    color={colors.white}
+                    color={theme.colors.white}
                   />
                 </TouchableOpacity>
               )}
@@ -432,11 +435,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   {/* Speed Control Button */}
                   <TouchableOpacity onPress={toggleSpeedMenu} style={styles.speedMenuButton}>
                     <Text style={styles.speedMenuButtonText}>{playbackRate}x</Text>
-                  </TouchableOpacity>
-
-                  {/* Fullscreen Button */}
-                  <TouchableOpacity onPress={toggleFullscreen} style={styles.fullscreenControlButton}>
-                    <Icon name="maximize" size={20} color={colors.white} />
                   </TouchableOpacity>
                 </View>
 
@@ -499,8 +497,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         {/* Loading State */}
         {isLoading && !hasError && (
           <View style={styles.loadingOverlay}>
-            <Icon name="loading" size={32} color={isFullscreen ? colors.white : colors.black} />
-            <Text style={[styles.loadingText, { color: isFullscreen ? colors.white : colors.black }]}>
+            <Icon name="loading" size={32} color={isFullscreen ? theme.colors.white : theme.colors.black} />
+            <Text style={[styles.loadingText, { color: isFullscreen ? theme.colors.white : theme.colors.black }]}>
               Loading video...
             </Text>
           </View>
@@ -509,8 +507,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         {/* Error State */}
         {hasError && (
           <View style={styles.errorOverlay}>
-            <Icon name="close" size={32} color={isFullscreen ? colors.white : colors.black} />
-            <Text style={[styles.errorTitle, { color: isFullscreen ? colors.white : colors.black }]}>Video Unavailable</Text>
+            <Icon name="close" size={32} color={isFullscreen ? theme.colors.white : theme.colors.black} />
+            <Text style={[styles.errorTitle, { color: isFullscreen ? theme.colors.white : theme.colors.black }]}>Video Unavailable</Text>
             <Text style={[styles.errorText, { color: isFullscreen ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.8)' }]}>{errorMessage}</Text>
             <TouchableOpacity
               style={styles.retryButton}
@@ -536,13 +534,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
 
   // Fullscreen Mode Styles
   fullscreenContainer: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: theme.colors.black,
   },
   fullscreenVideo: {
     flex: 1,
@@ -555,19 +553,19 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   fullscreenHeader: {
-    paddingTop: theme.spacing.md,
+    paddingTop: theme.spacing['3'],
   },
   fullscreenHeaderContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['3'],
   },
   fullscreenButton: {
-    padding: theme.spacing.sm,
+    padding: theme.spacing['2'],
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: theme.radius.sm,
+    borderRadius: theme.layout.borderRadius.sm,
   },
   fullscreenPlayButton: {
     position: 'absolute',
@@ -583,58 +581,54 @@ const styles = StyleSheet.create({
     marginLeft: -40,
   },
   fullscreenBottomControls: {
-    paddingBottom: theme.spacing.lg,
+    paddingBottom: theme.spacing['4'],
   },
   fullscreenProgressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
+    paddingHorizontal: theme.spacing['4'],
+    marginBottom: theme.spacing['3'],
   },
 
-  // Split Screen Mode Styles
-  splitHeader: {
-    backgroundColor: colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray200,
-  },
-  splitHeaderContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
-    minHeight: 56,
-  },
-  headerButton: {
-    padding: theme.spacing.sm,
-  },
-  splitTitle: {
-    ...typography.h3,
-    color: colors.black,
-    fontSize: 18,
-    fontWeight: '600',
-    flex: 1,
-    marginHorizontal: theme.spacing.md,
-    textAlign: 'center',
-  },
+  // Split Screen Mode Styles (Header removed)
+  // No more split header styles needed
 
   videoSection: {
     flex: 0.5,
-    backgroundColor: colors.black,
+    backgroundColor: theme.colors.black,
     position: 'relative',
   },
   splitVideo: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: theme.colors.black,
   },
+
+  // New overlay button styles
+  backButtonOverlay: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    width: 50,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+  },
+
+  backButtonIcon: {
+    textShadowColor: 'rgba(0, 0, 0, 0.7)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
+  },
+
   videoControls: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['3'],
     zIndex: 5,
   },
   splitPlayButton: {
@@ -652,16 +646,16 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   videoProgressContainer: {
-    gap: theme.spacing.sm,
+    gap: theme.spacing['2'],
   },
   videoProgressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.md,
+    gap: theme.spacing['3'],
   },
   videoTimeText: {
-    ...typography.caption,
-    color: colors.white,
+    ...theme.typography.caption,
+    color: theme.colors.white,
     fontSize: 12,
     fontWeight: '500',
     minWidth: 40,
@@ -670,51 +664,44 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 4,
     position: 'relative',
-    marginHorizontal: theme.spacing.sm,
+    marginHorizontal: theme.spacing['2'],
   },
   singleControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.sm,
+    gap: theme.spacing['2'],
   },
   speedMenuButton: {
-    paddingHorizontal: theme.spacing.sm,
+    paddingHorizontal: theme.spacing['2'],
     paddingVertical: 4,
-    borderRadius: theme.radius.xs,
+    borderRadius: theme.layout.borderRadius.xs,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
     minWidth: 40,
   },
   speedMenuButtonText: {
-    ...typography.caption,
-    color: colors.white,
+    ...theme.typography.caption,
+    color: theme.colors.white,
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
-  },
-  fullscreenControlButton: {
-    padding: 4,
-    borderRadius: theme.radius.xs,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   speedDropdown: {
     position: 'absolute',
     bottom: '100%',
     right: 48,
     backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    borderRadius: theme.radius.sm,
+    borderRadius: theme.layout.borderRadius.sm,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
-    marginBottom: theme.spacing.xs,
+    marginBottom: theme.spacing['1'],
     minWidth: 60,
     zIndex: 20,
   },
   speedDropdownItem: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing['3'],
+    paddingVertical: theme.spacing['2'],
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -722,40 +709,40 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   speedDropdownText: {
-    ...typography.caption,
-    color: colors.white,
+    ...theme.typography.caption,
+    color: theme.colors.white,
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
   },
   activeSpeedDropdownText: {
-    color: colors.white,
+    color: theme.colors.white,
     fontWeight: '600',
   },
 
   transcriptionSection: {
     flex: 0.5,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
     borderTopWidth: 1,
-    borderTopColor: colors.gray200,
+    borderTopColor: theme.colors.gray200,
   },
   transcriptionHeader: {
-    paddingHorizontal: theme.spacing.lg,
-    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['3'],
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray100,
-    backgroundColor: colors.gray50,
+    borderBottomColor: theme.colors.gray100,
+    backgroundColor: theme.colors.gray50,
   },
   transcriptionTitle: {
-    ...typography.h3,
-    color: colors.black,
+    ...theme.typography.h3,
+    color: theme.colors.black,
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 2,
   },
   transcriptionSubtitle: {
-    ...typography.caption,
-    color: theme.colors.accent,
+    ...theme.typography.caption,
+    color: theme.colors.primary400,
     fontSize: 12,
     fontWeight: '500',
   },
@@ -763,26 +750,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   transcriptionTextContainer: {
-    padding: theme.spacing.lg,
+    padding: theme.spacing['4'],
   },
   transcriptionText: {
-    ...typography.body,
-    color: colors.gray800,
+    ...theme.typography.body,
+    color: theme.colors.gray800,
     fontSize: 14,
     lineHeight: 20,
-    marginBottom: theme.spacing.lg,
+    marginBottom: theme.spacing['4'],
   },
   highlightArea: {
     backgroundColor: 'rgba(154, 101, 255, 0.1)',
-    borderRadius: theme.radius.sm,
-    padding: theme.spacing.md,
+    borderRadius: theme.layout.borderRadius.sm,
+    padding: theme.spacing['3'],
     borderWidth: 1,
     borderColor: 'rgba(154, 101, 255, 0.3)',
     borderStyle: 'dashed',
   },
   highlightInstruction: {
-    ...typography.caption,
-    color: theme.colors.accent,
+    ...theme.typography.caption,
+    color: theme.colors.primary400,
     fontSize: 12,
     fontStyle: 'italic',
     textAlign: 'center',
@@ -799,55 +786,55 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 2,
+    borderRadius: theme.layout.borderRadius.xs,
   },
   progressFill: {
     position: 'absolute',
     top: 0,
     left: 0,
     height: '100%',
-    backgroundColor: colors.white,
-    borderRadius: 2,
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.layout.borderRadius.xs,
   },
 
   // Speed Controls
   speedControls: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.sm,
+    gap: theme.spacing['2'],
   },
   speedButton: {
-    paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
-    borderRadius: theme.radius.sm,
+    paddingHorizontal: theme.spacing['3'],
+    paddingVertical: theme.spacing['2'],
+    borderRadius: theme.layout.borderRadius.sm,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   activeSpeedButton: {
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
   },
   speedButtonText: {
-    ...typography.caption,
-    color: colors.white,
+    ...theme.typography.caption,
+    color: theme.colors.white,
     fontSize: 12,
     fontWeight: '500',
   },
   activeSpeedButtonText: {
-    color: colors.black,
+    color: theme.colors.black,
   },
   compactSpeedButton: {
-    paddingHorizontal: theme.spacing.sm,
+    paddingHorizontal: theme.spacing['2'],
     paddingVertical: 4,
-    borderRadius: theme.radius.xs,
+    borderRadius: theme.layout.borderRadius.xs,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
     minWidth: 32,
   },
   compactSpeedButtonText: {
-    ...typography.caption,
-    color: colors.white,
+    ...theme.typography.caption,
+    color: theme.colors.white,
     fontSize: 10,
     fontWeight: '500',
     textAlign: 'center',
@@ -855,8 +842,8 @@ const styles = StyleSheet.create({
 
   // Time Text
   timeText: {
-    ...typography.caption,
-    color: colors.white,
+    ...theme.typography.caption,
+    color: theme.colors.white,
     fontSize: 12,
     fontWeight: '500',
     minWidth: 40,
@@ -871,7 +858,7 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   loadingText: {
-    ...typography.body,
+    ...theme.typography.body,
     marginTop: 16,
   },
   errorOverlay: {
@@ -883,7 +870,7 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   errorTitle: {
-    ...typography.h3,
+    ...theme.typography.h3,
     fontSize: 18,
     fontWeight: '600',
     marginTop: 16,
@@ -891,21 +878,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   errorText: {
-    ...typography.body,
+    ...theme.typography.body,
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 20,
     lineHeight: 18,
   },
   retryButton: {
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
   },
   retryButtonText: {
-    ...typography.bodyBold,
-    color: colors.black,
+    ...theme.typography.bodyBold,
+    color: theme.colors.black,
     fontSize: 14,
   },
 });

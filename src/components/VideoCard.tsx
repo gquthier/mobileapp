@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { VideoRecord } from '../lib/supabase';
-import { colors, typography } from '../styles/theme';
+import { theme } from '../styles';
 import { Icon } from './Icon';
 
 const { width } = Dimensions.get('window');
@@ -121,7 +121,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onPress }) => {
           />
         ) : !showPreview && (
           <View style={styles.placeholderThumbnail}>
-            <Icon name="cameraFilled" size={24} color={colors.gray400} />
+            <Icon name="cameraFilled" size={24} color={theme.colors.text.disabled} />
           </View>
         )}
 
@@ -142,7 +142,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onPress }) => {
 
         {/* Play icon overlay */}
         <View style={styles.playOverlay}>
-          <Icon name="play" size={20} color={colors.white} />
+          <Icon name="play" size={20} color={theme.colors.white} />
         </View>
 
         {/* Duration badge */}
@@ -170,20 +170,13 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onPress }) => {
 const styles = StyleSheet.create({
   card: {
     width: cardWidth,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.white,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.gray200,
-    marginBottom: 16,
+    borderColor: theme.colors.ui.muted,
+    marginBottom: theme.spacing['4'],
     overflow: 'hidden',
-    shadowColor: colors.black,
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    ...theme.layout.shadows.sm,
   },
   thumbnailContainer: {
     height: 120,
@@ -196,7 +189,7 @@ const styles = StyleSheet.create({
   placeholderThumbnail: {
     width: '100%',
     height: '100%',
-    backgroundColor: colors.gray100,
+    backgroundColor: theme.colors.ui.surface,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -221,23 +214,21 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   durationText: {
-    color: colors.white,
-    fontSize: 10,
+    color: theme.colors.white,
+    ...theme.typography.tiny,
     fontWeight: '600',
   },
   info: {
-    padding: 12,
+    padding: theme.spacing['3'],
   },
   title: {
-    ...typography.bodyBold,
-    fontSize: 13,
-    color: colors.black,
-    marginBottom: 4,
-    lineHeight: 16,
+    ...theme.typography.body2,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing['1'],
   },
   date: {
-    ...typography.caption,
-    fontSize: 11,
-    color: colors.gray600,
+    ...theme.typography.tiny,
+    color: theme.colors.text.secondary,
   },
 });

@@ -9,7 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, typography, spacing } from '../styles/theme';
+import { theme } from '../styles';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { AuthService, Profile } from '../services/authService';
@@ -47,7 +47,7 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
   >
     <View style={styles.itemLeft}>
       <View style={styles.iconContainer}>
-        <Icon name={icon} size={20} color={colors.black} />
+        <Icon name={icon} size={20} color={theme.colors.text.primary} />
       </View>
       <View style={styles.itemContent}>
         <Text style={styles.itemTitle}>{title}</Text>
@@ -60,12 +60,12 @@ const SettingsItem: React.FC<SettingsItemProps> = ({
         <Switch
           value={switchValue}
           onValueChange={onSwitchChange}
-          trackColor={{ false: colors.gray300, true: colors.black }}
-          thumbColor={colors.white}
-          ios_backgroundColor={colors.gray300}
+          trackColor={{ false: theme.colors.ui.border, true: theme.colors.brand.primary }}
+          thumbColor={theme.colors.white}
+          ios_backgroundColor={theme.colors.ui.border}
         />
       )}
-      {showChevron && <Icon name="chevronRight" size={16} color={colors.gray400} />}
+      {showChevron && <Icon name="chevronRight" size={16} color={theme.colors.text.disabled} />}
     </View>
   </TouchableOpacity>
 );
@@ -378,29 +378,29 @@ const SettingsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.white,
+    backgroundColor: theme.colors.ui.background,
   },
   content: {
     flex: 1,
-    paddingTop: spacing.lg,
-    paddingHorizontal: spacing.lg,
+    paddingTop: theme.spacing['4'],
+    paddingHorizontal: theme.spacing['4'],
   },
   scrollView: {
     flex: 1,
   },
   section: {
-    marginBottom: spacing.xl,
+    marginBottom: theme.spacing['6'],
   },
   sectionTitle: {
-    ...typography.caption,
-    color: colors.gray600,
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: spacing.sm,
-    marginLeft: spacing.xs,
+    marginBottom: theme.spacing['2'],
+    marginLeft: theme.spacing['1'],
   },
   sectionContent: {
-    backgroundColor: colors.gray100,
+    backgroundColor: theme.colors.ui.surface,
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -408,11 +408,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.white,
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['3'],
+    backgroundColor: theme.colors.white,
     borderBottomWidth: 1,
-    borderBottomColor: colors.gray200,
+    borderBottomColor: theme.colors.ui.muted,
   },
   itemLeft: {
     flexDirection: 'row',
@@ -423,32 +423,32 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: colors.gray100,
+    backgroundColor: theme.colors.ui.surface,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: spacing.md,
+    marginRight: theme.spacing['3'],
   },
   itemContent: {
     flex: 1,
   },
   itemTitle: {
-    ...typography.body,
-    color: colors.black,
+    ...theme.typography.body,
+    color: theme.colors.text.primary,
     fontWeight: '500',
   },
   itemSubtitle: {
-    ...typography.caption,
-    color: colors.gray600,
-    marginTop: 2,
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
+    marginTop: theme.spacing['0.5'],
   },
   itemRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: theme.spacing['2'],
   },
   itemValue: {
-    ...typography.caption,
-    color: colors.gray600,
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
   },
 });
 
