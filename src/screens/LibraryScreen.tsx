@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../styles';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
-import { CalendarGallery } from '../components/CalendarGallery';
+import { CalendarGallerySimple as CalendarGallery } from '../components/CalendarGallerySimple';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { VideoRecord } from '../lib/supabase';
 import { VideoService } from '../services/videoService';

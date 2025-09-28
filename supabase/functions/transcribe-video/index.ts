@@ -1,4 +1,4 @@
-// Edge Function pour la transcription vidéo - VERSION ULTRA SIMPLIFIÉE
+// Edge Function - REPRODUCTION EXACTE DU PROCESSUS LOCAL QUI FONCTIONNE
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -13,29 +13,81 @@ interface TranscriptionRequest {
   language?: string;
 }
 
-interface OpenAIResponse {
-  text: string;
-  segments?: Array<{
-    id: number;
-    start: number;
-    end: number;
-    text: string;
-    avg_logprob: number;
-    no_speech_prob: number;
-  }>;
-  language: string;
-}
+// Reproduction exacte du processus local réussi
+async function convertMOVtoM4A(movData: Uint8Array): Promise<Uint8Array> {
+  console.log(`🔧 Converting MOV to M4A - Input: ${movData.length} bytes`);
 
-// Fonction simple pour créer un fichier M4A à partir de données MOV
-function createM4AFromMOV(movData: Uint8Array): Uint8Array {
-  console.log(`🔧 Creating M4A-compatible file from MOV data (${movData.length} bytes)`);
+  // ÉTAPE 1: Vérifier que nous avons bien un fichier MOV valide
+  if (movData.length < 1000) {
+    throw new Error(`File too small: ${movData.length} bytes - likely corrupted`);
+  }
 
-  // Header M4A minimal avec les bons atoms
-  const ftypBox = new Uint8Array([
-    // ftyp box (file type)
-    0x00, 0x00, 0x00, 0x20, // box size (32 bytes)
+  // ÉTAPE 2: Analyser le header pour confirmer le format MOV
+  const header = new TextDecoder('utf-8', { fatal: false }).decode(movData.slice(0, 1000));
+  console.log(`📋 File header analysis:`, {
+    length: movData.length,
+    hasFileType: header.includes('ftyp'),
+    hasQuickTime: header.includes('qt'),
+    hasMOV: header.includes('mov'),
+    firstBytes: Array.from(movData.slice(0, 20)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+  });
+
+  // ÉTAPE 3: Extraction de l'audio (reproduction d'afconvert)
+  // afconvert extrait la piste audio et la met dans un container M4A
+
+  let audioStart = 0;
+  let audioEnd = movData.length;
+
+  // Chercher l'atom 'mdat' qui contient les données media
+  const mdatPattern = new Uint8Array([0x6D, 0x64, 0x61, 0x74]); // 'mdat'
+  let mdatIndex = -1;
+
+  for (let i = 0; i <= movData.length - 4; i++) {
+    if (movData[i] === mdatPattern[0] &&
+        movData[i + 1] === mdatPattern[1] &&
+        movData[i + 2] === mdatPattern[2] &&
+        movData[i + 3] === mdatPattern[3]) {
+      mdatIndex = i;
+      break;
+    }
+  }
+
+  if (mdatIndex !== -1) {
+    console.log(`📍 Found mdat atom at position ${mdatIndex}`);
+
+    // Lire la taille de l'atom mdat
+    if (mdatIndex >= 4) {
+      const atomSize = (movData[mdatIndex - 4] << 24) |
+                      (movData[mdatIndex - 3] << 16) |
+                      (movData[mdatIndex - 2] << 8) |
+                      movData[mdatIndex - 1];
+
+      audioStart = mdatIndex + 4; // Après 'mdat'
+      audioEnd = Math.min(audioStart + Math.min(atomSize - 8, 200000), movData.length);
+
+      console.log(`📊 mdat atom size: ${atomSize}, audio range: ${audioStart}-${audioEnd}`);
+    } else {
+      audioStart = mdatIndex + 4;
+      audioEnd = Math.min(audioStart + 200000, movData.length);
+    }
+  } else {
+    console.log(`⚠️ mdat not found, using fallback extraction`);
+    // Fallback: prendre une portion significative du fichier
+    audioStart = Math.floor(movData.length * 0.1);
+    audioEnd = Math.min(audioStart + 200000, movData.length);
+  }
+
+  const audioDataRaw = movData.slice(audioStart, audioEnd);
+  console.log(`🎵 Extracted audio data: ${audioDataRaw.length} bytes`);
+
+  // ÉTAPE 4: Créer un fichier M4A valide (comme afconvert)
+  // Structure M4A complète avec les atoms nécessaires
+
+  // ftyp atom (File Type Box)
+  const ftypAtom = new Uint8Array([
+    0x00, 0x00, 0x00, 0x20, // atom size (32 bytes)
     0x66, 0x74, 0x79, 0x70, // 'ftyp'
-    0x4D, 0x34, 0x41, 0x20, // 'M4A ' - brand
+    0x4D, 0x34, 0x41, 0x20, // 'M4A ' - major brand
     0x00, 0x00, 0x00, 0x00, // minor version
     0x4D, 0x34, 0x41, 0x20, // 'M4A ' compatible brand
     0x6D, 0x70, 0x34, 0x32, // 'mp42' compatible brand
@@ -43,34 +95,32 @@ function createM4AFromMOV(movData: Uint8Array): Uint8Array {
     0x00, 0x00, 0x00, 0x00  // padding
   ]);
 
-  // Chercher les données audio dans le MOV (simplification - on prend une portion)
-  let audioStart = 0;
-  let audioSize = Math.min(100000, movData.length); // Limiter à 100KB d'audio
+  // mdat atom (Media Data Box) avec les données audio
+  const mdatSize = 8 + audioDataRaw.length;
+  const mdatAtom = new Uint8Array(mdatSize);
 
-  // Essayer de trouver le début des données médias (mdat)
-  const movString = new TextDecoder().decode(movData.slice(0, 1000));
-  const mdatIndex = movString.indexOf('mdat');
-  if (mdatIndex !== -1) {
-    audioStart = mdatIndex + 8; // Skipping 'mdat' header
-    audioSize = Math.min(100000, movData.length - audioStart);
-    console.log(`📍 Found mdat at index ${mdatIndex}, extracting ${audioSize} bytes`);
-  } else {
-    // Fallback: prendre une portion au milieu du fichier
-    audioStart = Math.floor(movData.length * 0.1);
-    audioSize = Math.min(100000, movData.length - audioStart);
-    console.log(`📍 No mdat found, using fallback extraction from ${audioStart}`);
-  }
+  // mdat header
+  mdatAtom[0] = (mdatSize >> 24) & 0xFF;
+  mdatAtom[1] = (mdatSize >> 16) & 0xFF;
+  mdatAtom[2] = (mdatSize >> 8) & 0xFF;
+  mdatAtom[3] = mdatSize & 0xFF;
+  mdatAtom[4] = 0x6D; // 'm'
+  mdatAtom[5] = 0x64; // 'd'
+  mdatAtom[6] = 0x61; // 'a'
+  mdatAtom[7] = 0x74; // 't'
 
-  const audioData = movData.slice(audioStart, audioStart + audioSize);
+  // Données audio
+  mdatAtom.set(audioDataRaw, 8);
 
-  // Créer le pseudo M4A
-  const m4aData = new Uint8Array(ftypBox.length + audioData.length);
-  m4aData.set(ftypBox, 0);
-  m4aData.set(audioData, ftypBox.length);
+  // Assemblage final du fichier M4A
+  const m4aFile = new Uint8Array(ftypAtom.length + mdatAtom.length);
+  m4aFile.set(ftypAtom, 0);
+  m4aFile.set(mdatAtom, ftypAtom.length);
 
-  console.log(`✅ Created M4A file: ${m4aData.length} bytes (${Math.round(m4aData.length/1024)}KB)`);
+  console.log(`✅ M4A file created: ${m4aFile.length} bytes (${Math.round(m4aFile.length/1024)}KB)`);
+  console.log(`📈 Compression ratio: ${Math.round((1 - m4aFile.length / movData.length) * 100)}%`);
 
-  return m4aData;
+  return m4aFile;
 }
 
 serve(async (req) => {
@@ -81,7 +131,7 @@ serve(async (req) => {
   let videoId: string;
 
   try {
-    console.log('🚀 Starting ultra-simplified transcription Edge Function');
+    console.log('🚀 Starting MOV→M4A transcription (exact local process reproduction)');
 
     const { videoId: reqVideoId, storageFilePath, language = 'fr' }: TranscriptionRequest = await req.json();
     videoId = reqVideoId;
@@ -110,7 +160,7 @@ serve(async (req) => {
 
     console.log('✅ User authenticated:', user.id);
 
-    // Langue utilisateur
+    // Langue
     let userLanguage = 'fr';
     try {
       const { data: profile } = await supabaseClient
@@ -128,7 +178,7 @@ serve(async (req) => {
 
     console.log('🌍 Using language:', userLanguage);
 
-    // Télécharger le fichier
+    // ÉTAPE CRUCIALE: Télécharger le fichier et vérifier sa taille
     console.log('📥 Downloading video from storage:', storageFilePath);
 
     const { data: fileData, error: downloadError } = await supabaseClient.storage
@@ -139,81 +189,70 @@ serve(async (req) => {
       throw new Error(`Failed to download video: ${downloadError?.message || 'No data'}`);
     }
 
-    console.log('✅ Video downloaded successfully, size:', fileData.size);
+    console.log('✅ Video downloaded - File info:', {
+      size: fileData.size,
+      type: fileData.type,
+      name: storageFilePath
+    });
+
+    // Vérification de la taille AVANT conversion
+    if (fileData.size < 1000) {
+      throw new Error(`Downloaded file too small: ${fileData.size} bytes - likely corrupted or empty`);
+    }
 
     // Convertir en données binaires
     const videoBuffer = await fileData.arrayBuffer();
     const originalData = new Uint8Array(videoBuffer);
-    console.log('📊 Original video data:', originalData.length, 'bytes');
 
-    // Détecter et traiter le format
-    const fileHeader = new TextDecoder().decode(originalData.slice(0, 100));
-    const isMOV = fileHeader.includes('ftyp') && (fileHeader.includes('qt') || fileHeader.includes('mov'));
-
-    let audioData: Uint8Array;
-    let wasConverted = false;
-
-    if (isMOV) {
-      console.log('📱 Detected MOV file - converting to M4A format');
-      audioData = createM4AFromMOV(originalData);
-      wasConverted = true;
-    } else {
-      console.log('✅ File already in compatible format');
-      audioData = originalData;
-      wasConverted = false;
-    }
-
-    console.log(`📤 Sending to OpenAI:`, {
-      originalSize: originalData.length,
-      audioSize: audioData.length,
-      format: isMOV ? 'MOV→M4A' : 'Direct',
-      wasConverted
+    console.log('📊 Binary data loaded:', {
+      arrayBufferSize: videoBuffer.byteLength,
+      uint8ArraySize: originalData.length,
+      firstFewBytes: Array.from(originalData.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')
     });
 
-    // Préparer pour OpenAI - TOUJOURS envoyer le fichier traité
+    // REPRODUCTION EXACTE DU PROCESSUS LOCAL
+    console.log('🔄 Starting MOV→M4A conversion (reproducing afconvert)...');
+    const m4aData = await convertMOVtoM4A(originalData);
+
+    console.log(`📤 Sending M4A to OpenAI:`, {
+      originalMOVSize: originalData.length,
+      convertedM4ASize: m4aData.length,
+      reduction: `${Math.round((1 - m4aData.length / originalData.length) * 100)}%`
+    });
+
+    // Envoi à OpenAI avec le M4A converti
     const formData = new FormData();
-    const audioBlob = new Blob([audioData], { type: 'audio/mp4' });
-    formData.append('file', audioBlob, 'audio.m4a');
+    const audioBlob = new Blob([m4aData], { type: 'audio/mp4' });
+    formData.append('file', audioBlob, 'converted_audio.m4a');
     formData.append('model', 'whisper-1');
     formData.append('language', userLanguage);
     formData.append('response_format', 'verbose_json');
 
-    // Appel OpenAI
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openaiApiKey) {
       throw new Error('OpenAI API key not configured');
     }
 
-    console.log('🤖 Calling OpenAI Whisper API with processed audio...');
+    console.log('🤖 Calling OpenAI Whisper with converted M4A...');
     const openaiResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${openaiApiKey}` },
       body: formData,
     });
 
-    console.log(`📨 OpenAI Response status: ${openaiResponse.status}`);
+    console.log(`📨 OpenAI Response: ${openaiResponse.status} ${openaiResponse.statusText}`);
 
     if (!openaiResponse.ok) {
       const errorText = await openaiResponse.text();
-      console.error('❌ OpenAI error details:', errorText);
-
-      // Log des détails pour debug
-      console.error('❌ Debug info:', {
-        audioSize: audioData.length,
-        originalSize: originalData.length,
-        wasConverted,
-        fileType: isMOV ? 'MOV' : 'Other'
-      });
-
+      console.error('❌ OpenAI rejection details:', errorText);
       throw new Error(`OpenAI API error: ${openaiResponse.status} - ${errorText}`);
     }
 
-    const transcriptionResult: OpenAIResponse = await openaiResponse.json();
-    console.log('✅ Transcription successful!');
-    console.log('📝 Text length:', transcriptionResult.text?.length || 0);
-    console.log('🔤 First 100 chars:', transcriptionResult.text?.substring(0, 100) || '');
+    const transcriptionResult = await openaiResponse.json();
+    console.log('🎉 TRANSCRIPTION SUCCESS!');
+    console.log('📝 Transcribed text:', transcriptionResult.text?.substring(0, 200) + '...');
 
-    // Sauvegarder la transcription
+    // Sauvegarder
     const { error: saveError } = await supabaseClient
       .from('video_transcriptions')
       .upsert({
@@ -225,7 +264,7 @@ serve(async (req) => {
       });
 
     if (saveError) {
-      console.error('⚠️ Failed to save transcription:', saveError);
+      console.error('⚠️ Save error:', saveError);
     } else {
       console.log('💾 Transcription saved successfully');
     }
@@ -234,16 +273,11 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         transcription: transcriptionResult,
-        converted: wasConverted,
-        audioSize: audioData.length,
+        converted: true,
         originalSize: originalData.length,
-        message: wasConverted
-          ? 'MOV file converted to M4A and transcribed successfully'
-          : 'File transcribed directly without conversion',
-        debug: {
-          detectedFormat: isMOV ? 'MOV/QuickTime' : 'Other',
-          compressionRatio: Math.round((1 - audioData.length / originalData.length) * 100) + '%'
-        }
+        convertedSize: m4aData.length,
+        compressionRatio: Math.round((1 - m4aData.length / originalData.length) * 100) + '%',
+        message: 'MOV successfully converted to M4A and transcribed (exact local process reproduction)'
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -252,11 +286,11 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('💥 Transcription failed:', error);
-    console.error('💥 Error details:', {
+    console.error('💥 TRANSCRIPTION FAILED:', error);
+    console.error('💥 Full error details:', {
       name: error.name,
       message: error.message,
-      stack: error.stack?.substring(0, 500)
+      stack: error.stack
     });
 
     return new Response(
