@@ -1,150 +1,167 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
-
-interface VideoRecord {
-  id: string;
-  file_path: string;
-  thumbnail_path?: string;
-}
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
+};
 
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', {
+      headers: corsHeaders
+    });
   }
 
   try {
     // Initialize Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    const { video_id, file_path, duration } = await req.json();
 
-    const { video_id, file_path } = await req.json()
-
-    console.log(`🎬 Generating thumbnail for video ${video_id} at ${file_path}`)
+    console.log(`🎬 Generating 6 animated frames for video ${video_id} at ${file_path}`);
+    console.log(`⏱️ Video duration: ${duration}s`);
 
     // Download the video from Supabase Storage
     const { data: videoData, error: downloadError } = await supabase.storage
       .from('videos')
-      .download(file_path)
+      .download(file_path);
 
     if (downloadError) {
-      console.error('❌ Error downloading video:', downloadError)
-      throw new Error(`Failed to download video: ${downloadError.message}`)
+      console.error('❌ Error downloading video:', downloadError);
+      throw new Error(`Failed to download video: ${downloadError.message}`);
     }
 
-    // Convert video to ArrayBuffer
-    const videoBuffer = await videoData.arrayBuffer()
+    console.log('✅ Video downloaded successfully');
 
-    // Generate thumbnail using a simplified approach
-    // For now, we'll create a placeholder thumbnail
-    // In production, you'd use FFmpeg or a video processing service
-    const thumbnailPath = file_path.replace(/\.(mp4|mov|avi|mkv)$/i, '_thumb.jpg')
+    // Save video to temp file for FFmpeg processing
+    const videoBlob = videoData;
+    const videoArrayBuffer = await videoBlob.arrayBuffer();
+    const videoPath = `/tmp/video_${video_id}.mp4`;
+    await Deno.writeFile(videoPath, new Uint8Array(videoArrayBuffer));
 
-    // Create a simple placeholder thumbnail (1x1 pixel image)
-    // In production, extract actual frame from video
-    const placeholderThumbnail = await generatePlaceholderThumbnail()
+    console.log(`💾 Video saved to: ${videoPath}`);
 
-    // Upload thumbnail to Supabase Storage
-    const { error: uploadError } = await supabase.storage
-      .from('videos')
-      .upload(thumbnailPath, placeholderThumbnail, {
-        contentType: 'image/jpeg',
-        upsert: true
-      })
+    // Generate 6 frames at different timestamps
+    const frameCount = 6;
+    const durationMs = duration * 1000;
+    const frameUrls: string[] = [];
 
-    if (uploadError) {
-      console.error('❌ Error uploading thumbnail:', uploadError)
-      throw new Error(`Failed to upload thumbnail: ${uploadError.message}`)
+    for (let i = 0; i < frameCount; i++) {
+      const baseTime = (durationMs / (frameCount + 1)) * (i + 1);
+      const randomOffset = (Math.random() - 0.5) * 1000; // ±500ms
+      const frameTimeMs = Math.floor(Math.max(500, Math.min(durationMs - 500, baseTime + randomOffset)));
+      const frameTimeSec = frameTimeMs / 1000;
+
+      console.log(`📸 Extracting frame ${i + 1} at ${frameTimeSec.toFixed(2)}s...`);
+
+      const framePath = `/tmp/frame_${video_id}_${i}.jpg`;
+
+      // Use FFmpeg to extract frame
+      const ffmpegCmd = new Deno.Command("ffmpeg", {
+        args: [
+          "-ss", frameTimeSec.toFixed(2),
+          "-i", videoPath,
+          "-vframes", "1",
+          "-q:v", "5", // Quality (2-31, lower is better)
+          "-y",
+          framePath
+        ],
+        stdout: "null",
+        stderr: "null"
+      });
+
+      const process = ffmpegCmd.spawn();
+      const status = await process.status;
+
+      if (!status.success) {
+        console.error(`❌ FFmpeg failed for frame ${i + 1}`);
+        continue;
+      }
+
+      console.log(`✅ Frame ${i + 1} extracted`);
+
+      // Read the frame file
+      const frameData = await Deno.readFile(framePath);
+
+      // Upload frame to Supabase Storage
+      const frameFileName = `thumbnail_${Date.now()}_frame${i}.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from('videos')
+        .upload(frameFileName, frameData, {
+          contentType: 'image/jpeg',
+          upsert: false
+        });
+
+      if (uploadError) {
+        console.error(`❌ Error uploading frame ${i + 1}:`, uploadError);
+        continue;
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('videos')
+        .getPublicUrl(frameFileName);
+
+      frameUrls.push(urlData.publicUrl);
+      console.log(`✅ Frame ${i + 1} uploaded: ${urlData.publicUrl}`);
+
+      // Clean up frame file
+      await Deno.remove(framePath);
     }
 
-    // Update video record with thumbnail path
+    // Clean up video file
+    await Deno.remove(videoPath);
+
+    if (frameUrls.length === 0) {
+      throw new Error('Failed to generate any frames');
+    }
+
+    // Update video record with frames
     const { error: updateError } = await supabase
       .from('videos')
-      .update({ thumbnail_path: thumbnailPath })
-      .eq('id', video_id)
+      .update({
+        thumbnail_path: frameUrls[0],
+        thumbnail_frames: frameUrls
+      })
+      .eq('id', video_id);
 
     if (updateError) {
-      console.error('❌ Error updating video record:', updateError)
-      throw new Error(`Failed to update video record: ${updateError.message}`)
+      console.error('❌ Error updating video record:', updateError);
+      throw new Error(`Failed to update video record: ${updateError.message}`);
     }
 
-    console.log(`✅ Thumbnail generated successfully: ${thumbnailPath}`)
+    console.log(`✅ All ${frameUrls.length} frames generated and saved`);
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        thumbnail_path: thumbnailPath,
-        message: 'Thumbnail generated successfully'
-      }),
-      {
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json'
-        }
+    return new Response(JSON.stringify({
+      success: true,
+      thumbnail_path: frameUrls[0],
+      thumbnail_frames: frameUrls,
+      frame_count: frameUrls.length,
+      message: `${frameUrls.length} animated frames generated successfully`
+    }), {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json'
       }
-    )
-
+    });
   } catch (error) {
-    console.error('❌ Thumbnail generation failed:', error)
-
-    return new Response(
-      JSON.stringify({
-        error: error.message,
-        success: false
-      }),
-      {
-        status: 500,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json'
-        }
+    console.error('❌ Thumbnail generation failed:', error);
+    return new Response(JSON.stringify({
+      error: error.message,
+      success: false
+    }), {
+      status: 500,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json'
       }
-    )
+    });
   }
-})
-
-async function generatePlaceholderThumbnail(): Promise<Uint8Array> {
-  // Create a simple 200x200 gray placeholder image
-  // This is a minimal JPEG header + data for a gray square
-  const width = 200
-  const height = 200
-
-  // For a real implementation, you would use FFmpeg WebAssembly or a video processing service
-  // This creates a simple placeholder
-  const canvas = new OffscreenCanvas(width, height)
-  const ctx = canvas.getContext('2d')!
-
-  // Fill with gray background
-  ctx.fillStyle = '#CCCCCC'
-  ctx.fillRect(0, 0, width, height)
-
-  // Add play icon in center
-  ctx.fillStyle = '#666666'
-  ctx.beginPath()
-  const centerX = width / 2
-  const centerY = height / 2
-  const size = 40
-
-  // Draw triangle (play button)
-  ctx.moveTo(centerX - size/2, centerY - size/2)
-  ctx.lineTo(centerX + size/2, centerY)
-  ctx.lineTo(centerX - size/2, centerY + size/2)
-  ctx.closePath()
-  ctx.fill()
-
-  // Convert to blob then to array buffer
-  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 })
-  const arrayBuffer = await blob.arrayBuffer()
-
-  return new Uint8Array(arrayBuffer)
-}
+});
 
 /* Deno.json dependencies:
 {

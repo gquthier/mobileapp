@@ -47,33 +47,37 @@ export const CustomTabBar: React.FC<BottomTabBarProps> = ({
   const isRecordActive = state.routes[state.index].name === 'Record';
   const currentRoute = state.routes[state.index];
   const isRecording = currentRoute.params?.isRecording || false;
+  const isPaused = currentRoute.params?.isPaused || false;
 
   return (
     <View style={[styles.container, isRecordActive && styles.containerTransparent]}>
       <View style={styles.contentContainer}>
-        {/* Bouton gauche - Barres verticales + inclinée */}
-        <TouchableOpacity
-          style={[styles.sideButton, isRecordActive && styles.sideButtonRecording]}
-          onPress={handleLeftPress}
-          activeOpacity={0.8}
-          accessible={true}
-          accessibilityRole="button"
-          accessibilityLabel="Navigation gauche"
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Image
-            source={require('../../assets/icon-nav-gauche.png')}
-            style={[styles.sideIcon, isRecordActive && styles.sideIconRecording]}
-            resizeMode="contain"
-          />
-        </TouchableOpacity>
+        {/* Bouton gauche - Barres verticales + inclinée - Caché pendant l'enregistrement */}
+        {!isRecording && (
+          <TouchableOpacity
+            style={[styles.sideButton, isRecordActive && styles.sideButtonRecording]}
+            onPress={handleLeftPress}
+            activeOpacity={0.8}
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityLabel="Navigation gauche"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Image
+              source={require('../../assets/icon-nav-gauche.png')}
+              style={[styles.sideIcon, isRecordActive && styles.sideIconRecording]}
+              resizeMode="contain"
+            />
+          </TouchableOpacity>
+        )}
 
-        {/* Bouton central - Cercle noir avec sablier blanc */}
+        {/* Bouton central - Rouge pendant l'enregistrement, noir transparent en pause */}
         <TouchableOpacity
           style={[
             styles.centerButton,
             isRecordActive && styles.centerButtonRecordScreen,
-            isRecording && styles.centerButtonRecording
+            isRecording && !isPaused && styles.centerButtonRecording, // Rouge si enregistrement actif
+            isPaused && styles.centerButtonPaused // Noir transparent si en pause
           ]}
           onPress={handleCenterPress}
           activeOpacity={0.96}
@@ -89,22 +93,41 @@ export const CustomTabBar: React.FC<BottomTabBarProps> = ({
           />
         </TouchableOpacity>
 
-        {/* Bouton droite - Menu hamburger */}
-        <TouchableOpacity
-          style={[styles.sideButton, isRecordActive && styles.sideButtonRecording]}
-          onPress={handleRightPress}
-          activeOpacity={0.8}
-          accessible={true}
-          accessibilityRole="button"
-          accessibilityLabel="Menu options"
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Image
-            source={require('../../assets/icon-nav-droite.png')}
-            style={[styles.sideIcon, isRecordActive && styles.sideIconRecording]}
-            resizeMode="contain"
-          />
-        </TouchableOpacity>
+        {/* Bouton Stop - Visible uniquement quand en pause */}
+        {isRecording && isPaused && isRecordActive && (
+          <TouchableOpacity
+            style={styles.stopButton}
+            onPress={() => {
+              // Naviguer vers RecordScreen avec l'action stop
+              navigation.navigate('Record', { triggerStop: true });
+            }}
+            activeOpacity={0.8}
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityLabel="Arrêter l'enregistrement"
+          >
+            <View style={styles.stopButtonInner} />
+          </TouchableOpacity>
+        )}
+
+        {/* Bouton droite - Menu hamburger - Caché pendant l'enregistrement */}
+        {!isRecording && (
+          <TouchableOpacity
+            style={[styles.sideButton, isRecordActive && styles.sideButtonRecording]}
+            onPress={handleRightPress}
+            activeOpacity={0.8}
+            accessible={true}
+            accessibilityRole="button"
+            accessibilityLabel="Menu options"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Image
+              source={require('../../assets/icon-nav-droite.png')}
+              style={[styles.sideIcon, isRecordActive && styles.sideIconRecording]}
+              resizeMode="contain"
+            />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -182,5 +205,37 @@ const styles = StyleSheet.create({
   centerIconRecording: {
     width: 52, // Icon encore plus grand pendant l'enregistrement
     height: 52,
+  },
+  centerButtonPaused: {
+    width: 100, // Revient à taille normale en pause
+    height: 100,
+    borderRadius: theme.layout.borderRadius.full,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)', // Gris foncé semi-transparent comme les icônes du timer
+  },
+  stopButton: {
+    position: 'absolute',
+    right: '50%',
+    marginRight: -100, // Positionné à droite du bouton central
+    bottom: 36, // Même hauteur que le bouton central
+    width: 50,
+    height: 50,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)', // Noir transparent comme les icônes du timer
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  stopButtonInner: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    backgroundColor: theme.colors.white,
   },
 });

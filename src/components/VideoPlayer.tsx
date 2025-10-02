@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,11 +10,15 @@ import {
   StatusBar,
   ScrollView,
   Animated,
+  Image,
+  ActivityIndicator,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { VideoRecord } from '../lib/supabase';
 import { theme } from '../styles/theme';
 import { Icon } from './Icon';
+import { TranscriptionJobService, TranscriptionJob } from '../services/transcriptionJobService';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('screen'); // Use 'screen' for true fullscreen
 
@@ -38,9 +42,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1.0);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [tempPosition, setTempPosition] = useState(0);
+  const [transcriptionJob, setTranscriptionJob] = useState<TranscriptionJob | null>(null);
+  const [loadingHighlights, setLoadingHighlights] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
   const videoRef = useRef<Video>(null);
   const loadingTimeoutRef = useRef<NodeJS.Timeout>();
   const controlsOpacity = useRef(new Animated.Value(1)).current;
+  const progressBarRef = useRef<View>(null);
 
   useEffect(() => {
     // Set loading timeout to prevent infinite loading
@@ -69,13 +79,43 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setPosition(0);
       setDuration(0);
       setIsPlaying(false);
+      setTranscriptionJob(null);
 
       // Test video URL accessibility
       getVideoUri().catch(() => {
         // Error handling is done inside getVideoUri
       });
+
+      // Fetch transcription highlights for this video
+      fetchTranscriptionHighlights();
     }
   }, [visible, video]);
+
+  const fetchTranscriptionHighlights = async () => {
+    if (!video?.id) return;
+
+    setLoadingHighlights(true);
+    try {
+      console.log('🎯 Fetching highlights for video:', video.id);
+
+      // Récupérer les jobs de transcription pour cette vidéo
+      const jobs = await TranscriptionJobService.getUserTranscriptionJobs();
+
+      // Trouver le job correspondant à cette vidéo
+      const jobForVideo = jobs.find(job => job.video_id === video.id && job.status === 'completed');
+
+      if (jobForVideo && jobForVideo.transcript_highlight) {
+        console.log('✅ Highlights found:', jobForVideo.transcript_highlight);
+        setTranscriptionJob(jobForVideo);
+      } else {
+        console.log('ℹ️ No highlights available for this video');
+      }
+    } catch (error) {
+      console.error('❌ Error fetching highlights:', error);
+    } finally {
+      setLoadingHighlights(false);
+    }
+  };
 
   if (!video) return null;
 
@@ -201,6 +241,44 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
+  const handleProgressBarTouch = (event: any) => {
+    if (duration > 0 && progressBarRef.current) {
+      progressBarRef.current.measure((x, y, width, height, pageX, pageY) => {
+        const touchX = event.nativeEvent.locationX;
+        const progressPercentage = Math.max(0, Math.min(100, (touchX / width) * 100));
+        const newPosition = (progressPercentage / 100) * duration;
+
+        setTempPosition(newPosition);
+        if (videoRef.current) {
+          videoRef.current.setPositionAsync(newPosition);
+        }
+      });
+    }
+  };
+
+  const handleProgressBarPanStart = () => {
+    setIsDragging(true);
+  };
+
+  const handleProgressBarPan = (event: any) => {
+    if (duration > 0 && progressBarRef.current && isDragging) {
+      progressBarRef.current.measure((x, y, width, height, pageX, pageY) => {
+        const touchX = event.nativeEvent.x - pageX;
+        const progressPercentage = Math.max(0, Math.min(100, (touchX / width) * 100));
+        const newPosition = (progressPercentage / 100) * duration;
+
+        setTempPosition(newPosition);
+      });
+    }
+  };
+
+  const handleProgressBarPanEnd = () => {
+    if (isDragging && videoRef.current) {
+      videoRef.current.setPositionAsync(tempPosition);
+      setIsDragging(false);
+    }
+  };
+
   const handleSpeedChange = async (speed: number) => {
     if (videoRef.current) {
       await videoRef.current.setRateAsync(speed, true);
@@ -211,6 +289,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const toggleSpeedMenu = () => {
     setShowSpeedMenu(!showSpeedMenu);
+  };
+
+  const toggleControlsVisibility = () => {
+    setControlsVisible(!controlsVisible);
   };
 
   const toggleFullscreen = () => {
@@ -249,6 +331,66 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  const getImportanceColor = (importance: number): string => {
+    if (importance >= 8) return theme.colors.brand.primary;
+    if (importance >= 6) return '#FFA500'; // Orange for medium importance
+    return theme.colors.text.secondary;
+  };
+
+
+
+
+  const handleHighlightPress = async (highlight: any) => {
+    // Support pour start_time (snake_case) et startTime (camelCase)
+    const startTime = highlight.start_time || highlight.startTime;
+
+    if (!startTime || !videoRef.current) {
+      console.log('⚠️ No start_time found for highlight:', highlight);
+      return;
+    }
+
+    try {
+      console.log(`🎯 Jumping to highlight: "${highlight.title}" at ${startTime}s`);
+
+      // Convertir secondes en millisecondes et naviguer
+      await videoRef.current.setPositionAsync(startTime * 1000);
+
+      // S'assurer que la vidéo joue après le saut
+      await videoRef.current.playAsync();
+      setIsPlaying(true);
+
+      // Feedback visuel
+      console.log(`✅ Successfully jumped to timestamp: ${startTime}s`);
+    } catch (error) {
+      console.error('❌ Error jumping to timestamp:', error);
+    }
+  };
+
+  const formatVideoDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    const dayName = days[date.getDay()];
+    const day = date.getDate();
+    const month = months[date.getMonth()];
+
+    const getOrdinalSuffix = (day: number) => {
+      if (day >= 11 && day <= 13) return 'th';
+      switch (day % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+      }
+    };
+
+    return `${dayName}, ${day}${getOrdinalSuffix(day)} ${month}`;
+  };
+
   const progressPercentage = duration > 0 ? (position / duration) * 100 : 0;
 
   return (
@@ -263,231 +405,397 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <View style={styles.container}>
         {isFullscreen ? (
           // Fullscreen Mode
-          <TouchableOpacity
-            style={styles.fullscreenContainer}
-            activeOpacity={1}
-            onPress={showControls}
-          >
-            <Video
-              ref={videoRef}
-              source={{ uri: getVideoUriSync() }}
-              style={styles.fullscreenVideo}
-              resizeMode={ResizeMode.CONTAIN}
-              shouldPlay={false}
-              isLooping={false}
-              onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-              useNativeControls={false}
-              rate={playbackRate}
-              onLoadStart={() => {
-                console.log('⏳ Video loading started');
-                setIsLoading(true);
-              }}
-              onLoad={() => {
-                console.log('📹 Video metadata loaded');
-              }}
-              onError={(error) => {
-                console.error('❌ Video loading error:', error);
-                setIsLoading(false);
-                setHasError(true);
-                setErrorMessage('Failed to load video. Please check your connection and try again.');
-              }}
-            />
+          <View style={styles.fullscreenContainer}>
+            <TouchableWithoutFeedback onPress={toggleControlsVisibility}>
+              <View style={styles.fullscreenTouchable}>
+                <Video
+                  ref={videoRef}
+                  source={{ uri: getVideoUriSync() }}
+                  style={styles.fullscreenVideo}
+                  resizeMode={ResizeMode.CONTAIN}
+                  shouldPlay={false}
+                  isLooping={false}
+                  onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+                  useNativeControls={false}
+                  rate={playbackRate}
+                  onLoadStart={() => {
+                    console.log('⏳ Video loading started');
+                    setIsLoading(true);
+                  }}
+                  onLoad={() => {
+                    console.log('📹 Video metadata loaded');
+                  }}
+                  onError={(error) => {
+                    console.error('❌ Video loading error:', error);
+                    setIsLoading(false);
+                    setHasError(true);
+                    setErrorMessage('Failed to load video. Please check your connection and try again.');
+                  }}
+                />
+              </View>
+            </TouchableWithoutFeedback>
 
             {/* Fullscreen Controls */}
-            <Animated.View style={[styles.fullscreenControls, { opacity: controlsOpacity }]}>
-              {/* Header */}
-              <SafeAreaView style={styles.fullscreenHeader}>
-                <View style={styles.fullscreenHeaderContent}>
-                  <TouchableOpacity onPress={toggleFullscreen} style={styles.fullscreenButton}>
-                    <Icon name="minimize" size={24} color={theme.colors.white} />
+            {controlsVisible && (
+              <>
+                {/* Top Left - Back Arrow */}
+                <SafeAreaView style={styles.fullscreenTopLeft}>
+                  <TouchableOpacity onPress={toggleFullscreen} style={styles.fullscreenBackButton}>
+                    <Icon name="chevronLeft" size={28} color={theme.colors.white} />
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={onClose} style={styles.fullscreenButton}>
-                    <Icon name="close" size={24} color={theme.colors.white} />
+                </SafeAreaView>
+
+                {/* Top Right - Hourglass/Timer Icon */}
+                <SafeAreaView style={styles.fullscreenTopRight}>
+                  <TouchableOpacity style={styles.fullscreenIconButton}>
+                    <Icon name="clock" size={24} color={theme.colors.white} />
                   </TouchableOpacity>
-                </View>
-              </SafeAreaView>
+                </SafeAreaView>
 
-              {/* Play Button */}
-              {!isLoading && !hasError && (
-                <TouchableOpacity
-                  style={styles.fullscreenPlayButton}
-                  onPress={handlePlayPause}
-                  activeOpacity={0.8}
-                >
-                  <Icon
-                    name={isPlaying ? "pause" : "play"}
-                    size={48}
-                    color={theme.colors.white}
-                  />
-                </TouchableOpacity>
-              )}
-
-              {/* Bottom Controls */}
-              <SafeAreaView style={styles.fullscreenBottomControls}>
-                <View style={styles.fullscreenProgressContainer}>
-                  <Text style={styles.timeText}>{formatTime(position)}</Text>
-                  <View style={styles.progressBar}>
-                    <View style={styles.progressTrack} />
-                    <View style={[styles.progressFill, { width: `${progressPercentage}%` }]} />
-                  </View>
-                  <Text style={styles.timeText}>{formatTime(duration)}</Text>
-                </View>
-
-                {/* Speed Controls */}
-                <View style={styles.speedControls}>
-                  {[0.5, 1.0, 1.25, 1.5, 2.0].map((speed) => (
-                    <TouchableOpacity
-                      key={speed}
-                      style={[
-                        styles.speedButton,
-                        playbackRate === speed && styles.activeSpeedButton
-                      ]}
-                      onPress={() => handleSpeedChange(speed)}
-                    >
-                      <Text style={[
-                        styles.speedButtonText,
-                        playbackRate === speed && styles.activeSpeedButtonText
-                      ]}>
-                        {speed}x
+                {/* Bottom Overlay */}
+                <SafeAreaView style={styles.fullscreenBottomOverlay}>
+                  {/* Current Highlight Text */}
+                  {transcriptionJob?.transcript_highlight?.highlights &&
+                   transcriptionJob.transcript_highlight.highlights.length > 0 && (
+                    <View style={styles.fullscreenHighlightContainer}>
+                      <Text style={styles.fullscreenHighlightText}>
+                        {transcriptionJob.transcript_highlight.highlights[0].title}
                       </Text>
+                    </View>
+                  )}
+
+                  {/* Date and Chapter/Arc Info */}
+                  <View style={styles.fullscreenMetadataRow}>
+                    <Text style={styles.fullscreenDateText}>
+                      {formatVideoDate(video.created_at)}
+                    </Text>
+                    <Text style={styles.fullscreenChapterText}>
+                      Chap 3, Arc 7
+                    </Text>
+                  </View>
+
+                  {/* Controls Row */}
+                  <View style={styles.fullscreenControlsRow}>
+                    {/* Play/Pause Button */}
+                    <TouchableOpacity onPress={handlePlayPause} style={styles.fullscreenPlayPauseButton}>
+                      <Icon
+                        name={isPlaying ? "pause" : "play"}
+                        size={24}
+                        color={theme.colors.white}
+                      />
                     </TouchableOpacity>
-                  ))}
-                </View>
-              </SafeAreaView>
-            </Animated.View>
-          </TouchableOpacity>
+
+                    {/* Progress Bar */}
+                    <View
+                      ref={progressBarRef}
+                      style={styles.fullscreenProgressBarContainer}
+                      onTouchEnd={handleProgressBarTouch}
+                    >
+                      <View style={styles.fullscreenProgressTrack} />
+                      <View style={[
+                        styles.fullscreenProgressFill,
+                        { width: `${isDragging ? (tempPosition / duration) * 100 : progressPercentage}%` }
+                      ]} />
+
+                      {/* Progress Markers */}
+                      <View style={styles.fullscreenProgressMarkers}>
+                        {[0, 25, 50, 75, 100].map((pos) => (
+                          <View key={pos} style={styles.fullscreenProgressMarker} />
+                        ))}
+                      </View>
+
+                      {/* Progress Thumb */}
+                      <View style={[
+                        styles.fullscreenProgressThumb,
+                        { left: `${isDragging ? (tempPosition / duration) * 100 : progressPercentage}%` }
+                      ]} />
+                    </View>
+
+                    {/* Speed Control Button */}
+                    <TouchableOpacity
+                      onPress={toggleSpeedMenu}
+                      style={styles.fullscreenSpeedButton}
+                    >
+                      <Text style={styles.fullscreenSpeedText}>{playbackRate}x</Text>
+                    </TouchableOpacity>
+
+                    {/* Next Button */}
+                    <TouchableOpacity style={styles.fullscreenNextButton}>
+                      <Icon name="chevronRight" size={24} color={theme.colors.white} />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Speed Menu Popup */}
+                  {showSpeedMenu && (
+                    <View style={styles.fullscreenSpeedMenu}>
+                      {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((speed) => (
+                        <TouchableOpacity
+                          key={speed}
+                          style={[
+                            styles.fullscreenSpeedMenuItem,
+                            playbackRate === speed && styles.fullscreenSpeedMenuItemActive
+                          ]}
+                          onPress={() => handleSpeedChange(speed)}
+                        >
+                          <Text style={[
+                            styles.fullscreenSpeedMenuText,
+                            playbackRate === speed && styles.fullscreenSpeedMenuTextActive
+                          ]}>
+                            {speed}x
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </SafeAreaView>
+              </>
+            )}
+          </View>
         ) : (
           // Split Screen Mode
           <>
-            {/* Video Player Section - Now takes full top half */}
+            {/* Video Player Section - Takes 50% of screen */}
             <View style={styles.videoSection}>
-              <Video
-                ref={videoRef}
-                source={{ uri: getVideoUriSync() }}
-                style={styles.splitVideo}
-                resizeMode={ResizeMode.COVER}
-                shouldPlay={false}
-                isLooping={false}
-                onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-                useNativeControls={false}
-                rate={playbackRate}
-                onLoadStart={() => {
-                  console.log('⏳ Video loading started');
-                  setIsLoading(true);
-                }}
-                onLoad={() => {
-                  console.log('📹 Video metadata loaded');
-                }}
-                onError={(error) => {
-                  console.error('❌ Video loading error:', error);
-                  setIsLoading(false);
-                  setHasError(true);
-                  setErrorMessage('Failed to load video. Please check your connection and try again.');
-                }}
-              />
+              {/* Container carré parfait avec tous les éléments à l'intérieur */}
+              <View style={styles.splitVideo}>
+                <TouchableWithoutFeedback onPress={toggleControlsVisibility}>
+                  <View style={styles.videoTouchable}>
+                    <Video
+                      ref={videoRef}
+                      source={{ uri: getVideoUriSync() }}
+                      style={styles.videoElement}
+                      resizeMode={ResizeMode.COVER} // Remplit le carré en gardant le centre
+                      shouldPlay={false}
+                      isLooping={false}
+                      onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+                      useNativeControls={false}
+                      rate={playbackRate}
+                      onLoadStart={() => {
+                        console.log('⏳ Video loading started');
+                        setIsLoading(true);
+                      }}
+                      onLoad={() => {
+                        console.log('📹 Video metadata loaded');
+                      }}
+                      onError={(error) => {
+                        console.error('❌ Video loading error:', error);
+                        setIsLoading(false);
+                        setHasError(true);
+                        setErrorMessage('Failed to load video. Please check your connection and try again.');
+                      }}
+                    />
+                  </View>
+                </TouchableWithoutFeedback>
 
-              {/* Back Button - Simple Arrow */}
-              <TouchableOpacity
-                style={styles.backButtonOverlay}
-                onPress={() => {
-                  console.log('🔙 Back button pressed - closing video player');
-                  onClose();
-                }}
-                activeOpacity={0.8}
-                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-              >
-                <Icon
-                  name="arrowLeft"
-                  size={32}
-                  color={theme.colors.white}
-                  style={styles.backButtonIcon}
-                />
-              </TouchableOpacity>
+                {/* Back Arrow - Top Left */}
+                {controlsVisible && (
+                  <TouchableOpacity
+                    style={styles.backArrowOverlay}
+                    onPress={() => {
+                      console.log('🔙 Back arrow pressed - returning to gallery');
+                      onClose();
+                    }}
+                    activeOpacity={0.8}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Icon
+                      name="chevronLeft"
+                      size={20}
+                      color={theme.colors.white}
+                    />
+                  </TouchableOpacity>
+                )}
 
-              {/* Play Button - Centered on video */}
-              {!isLoading && !hasError && (
+                {/* Date Overlay - Top Right */}
+                {controlsVisible && (
+                  <View style={styles.dateOverlayRight}>
+                    <Text style={styles.dateText}>
+                      {formatVideoDate(video.created_at)}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Play Button - Centered on video */}
+                {controlsVisible && !isLoading && !hasError && (
+                  <TouchableOpacity
+                    style={styles.splitPlayButton}
+                    onPress={handlePlayPause}
+                    activeOpacity={0.8}
+                  >
+                    <Icon
+                      name={isPlaying ? "pause" : "play"}
+                      size={40}
+                      color={theme.colors.white}
+                    />
+                  </TouchableOpacity>
+                )}
+
+                {/* Video Controls HUD - à l'intérieur du cadre */}
+                {controlsVisible && (
+                  <View style={styles.videoControlsHUD}>
+                  {/* Timeline centrée avec boutons aux extrémités */}
+                  <View style={styles.controlsRow}>
+                    {/* Play/Pause - Bas gauche */}
+                    <TouchableOpacity onPress={handlePlayPause} style={styles.playPauseButton}>
+                      <Icon
+                        name={isPlaying ? "pause" : "play"}
+                        size={20}
+                        color={theme.colors.white}
+                      />
+                    </TouchableOpacity>
+
+                    {/* Timeline interactive avec curseur et marqueurs */}
+                    <View
+                      ref={progressBarRef}
+                      style={styles.timelineContainer}
+                      onTouchEnd={handleProgressBarTouch}
+                    >
+                      <View style={styles.progressTrack} />
+                      <View style={[
+                        styles.progressFill,
+                        { width: `${isDragging ? (tempPosition / duration) * 100 : progressPercentage}%` }
+                      ]} />
+
+                      {/* Marqueurs espacés régulièrement */}
+                      <View style={styles.progressMarkers}>
+                        {[0, 25, 50, 75, 100].map((position) => (
+                          <View key={position} style={styles.progressMarker} />
+                        ))}
+                      </View>
+
+                      {/* Curseur (thumb) circulaire */}
+                      <View style={[
+                        styles.progressThumb,
+                        { left: `${isDragging ? (tempPosition / duration) * 100 : progressPercentage}%` }
+                      ]} />
+                    </View>
+
+                    {/* Fullscreen - Bas droite */}
+                    <TouchableOpacity onPress={toggleFullscreen} style={styles.fullscreenButton}>
+                      <Icon
+                        name="maximize"
+                        size={20}
+                        color={theme.colors.white}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                )}
+              </View>
+
+              {/* Back Button - Outside the video container */}
+              {controlsVisible && (
                 <TouchableOpacity
-                  style={styles.splitPlayButton}
-                  onPress={handlePlayPause}
+                  style={styles.backButtonOverlay}
+                  onPress={() => {
+                    console.log('🔙 Back button pressed - returning to calendar');
+                    onClose();
+                  }}
                   activeOpacity={0.8}
+                  hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
                 >
                   <Icon
-                    name={isPlaying ? "pause" : "play"}
-                    size={40}
+                    name="chevronLeft"
+                    size={24}
                     color={theme.colors.white}
+                    style={styles.backButtonIcon}
                   />
                 </TouchableOpacity>
               )}
 
-              {/* Video Controls Overlay */}
-              <View style={styles.videoControls}>
-                {/* Single Row with all controls */}
-                <View style={styles.singleControlsRow}>
-                  <Text style={styles.videoTimeText}>{formatTime(position)}</Text>
-
-                  <View style={styles.videoProgressBar}>
-                    <View style={styles.progressTrack} />
-                    <View style={[styles.progressFill, { width: `${progressPercentage}%` }]} />
-                  </View>
-
-                  <Text style={styles.videoTimeText}>{formatTime(duration)}</Text>
-
-                  {/* Speed Control Button */}
-                  <TouchableOpacity onPress={toggleSpeedMenu} style={styles.speedMenuButton}>
-                    <Text style={styles.speedMenuButtonText}>{playbackRate}x</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Speed Menu Dropdown */}
-                {showSpeedMenu && (
-                  <View style={styles.speedDropdown}>
-                    {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((speed) => (
-                      <TouchableOpacity
-                        key={speed}
-                        style={[
-                          styles.speedDropdownItem,
-                          playbackRate === speed && styles.activeSpeedDropdownItem
-                        ]}
-                        onPress={() => handleSpeedChange(speed)}
-                      >
-                        <Text style={[
-                          styles.speedDropdownText,
-                          playbackRate === speed && styles.activeSpeedDropdownText
-                        ]}>
-                          {speed}x
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
+              {/* Close Button - Outside the video container */}
+              {controlsVisible && (
+                <TouchableOpacity
+                  style={styles.closeButtonOverlay}
+                  onPress={() => {
+                    console.log('🔙 Close button pressed - closing video player');
+                    onClose();
+                  }}
+                  activeOpacity={0.8}
+                  hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                >
+                  <Icon
+                    name="close"
+                    size={24}
+                    color={theme.colors.white}
+                    style={styles.closeButtonIcon}
+                  />
+                </TouchableOpacity>
+              )}
             </View>
 
-            {/* Transcription Section */}
-            <View style={styles.transcriptionSection}>
-              <View style={styles.transcriptionHeader}>
-                <Text style={styles.transcriptionTitle}>Transcription Summary</Text>
-                <Text style={styles.transcriptionSubtitle}>Generated by Alia</Text>
-              </View>
-              <ScrollView style={styles.transcriptionContent} showsVerticalScrollIndicator={false}>
-                <View style={styles.transcriptionTextContainer}>
-                  <Text style={styles.transcriptionText}>
-                    {/* Mock transcription content - this will be replaced with real data */}
-                    Welcome to your video journal entry. Today we'll be discussing your goals and progress towards achieving them.
-                    {"\n\n"}
-                    This is where the AI-generated transcription summary will appear. You can highlight specific parts of this text to create clips or references for future use.
-                    {"\n\n"}
-                    The transcription will be automatically generated when you record your videos, providing you with a searchable text version of your spoken content.
-                    {"\n\n"}
-                    Click and drag to highlight text sections that you want to save or reference later. These highlights will be synchronized with the video timeline for easy navigation.
-                  </Text>
+            {/* Video Information Section */}
+            <View style={styles.videoInfoSection}>
+              <ScrollView style={styles.videoInfoContent} showsVerticalScrollIndicator={false}>
+                {/* Video Title */}
+                <Text style={styles.videoTitle}>{video.title}</Text>
 
-                  {/* Highlight placeholder areas */}
-                  <View style={styles.highlightArea}>
-                    <Text style={styles.highlightInstruction}>
-                      💡 Tap to highlight important sections
-                    </Text>
-                  </View>
+                {/* Video Metadata */}
+                <Text style={styles.videoMetadata}>
+                  {video.arc_number ? `Arc ${video.arc_number}, ` : ''}
+                  {video.chapter_number ? `Chapters ${video.chapter_number}, ` : ''}
+                  {video.location ? `${video.location}, ` : ''}
+                  {formatTime(duration)}
+                </Text>
+
+                {/* Video Highlights from AI Analysis */}
+                <View style={styles.themesSection}>
+                  {loadingHighlights ? (
+                    <View style={styles.loadingHighlightsContainer}>
+                      <ActivityIndicator size="small" color={theme.colors.brand.primary} />
+                      <Text style={styles.loadingHighlightsText}>Chargement des moments clés...</Text>
+                    </View>
+                  ) : transcriptionJob?.transcript_highlight?.highlights ? (
+                    <>
+                      {transcriptionJob.transcript_highlight.highlights.map((highlight: any, index: number) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={styles.themeTag}
+                          onPress={() => handleHighlightPress(highlight)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={styles.highlightHeader}>
+                            <Text style={styles.themeText}>{highlight.title}</Text>
+                            {highlight.importance && (
+                              <View style={[
+                                styles.importanceBadge,
+                                { backgroundColor: getImportanceColor(highlight.importance) }
+                              ]}>
+                                <Text style={styles.importanceText}>{highlight.importance}</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={styles.themeSubtext}>
+                            {highlight.summary?.toString() || 'Pas de résumé disponible'}
+                          </Text>
+                          <View style={styles.highlightFooter}>
+                            {(highlight.start_time || highlight.startTime) && (
+                              <View style={styles.timestampContainer}>
+                                <Icon name="clock" size={12} color={theme.colors.brand.primary} />
+                                <Text style={styles.timestampText}>
+                                  {formatTime((highlight.start_time || highlight.startTime) * 1000)}
+                                </Text>
+                                <Text style={styles.clickableHint}>• Toucher pour aller au moment</Text>
+                              </View>
+                            )}
+                            <View style={styles.playIconContainer}>
+                              <Icon name="play" size={16} color={theme.colors.brand.primary} />
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  ) : (
+                    <View style={styles.noHighlightsContainer}>
+                      <Icon name="lightbulb" size={24} color={theme.colors.text.disabled} />
+                      <Text style={styles.noHighlightsText}>
+                        Aucun moment clé disponible
+                      </Text>
+                      <Text style={styles.noHighlightsSubtext}>
+                        Les highlights apparaîtront après la transcription
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </ScrollView>
             </View>
@@ -541,118 +849,376 @@ const styles = StyleSheet.create({
   fullscreenContainer: {
     flex: 1,
     backgroundColor: theme.colors.black,
+    position: 'relative',
+  },
+  fullscreenTouchable: {
+    width: '100%',
+    height: '100%',
   },
   fullscreenVideo: {
     flex: 1,
     width: screenWidth,
     height: screenHeight,
   },
-  fullscreenControls: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'space-between',
+
+  // Top Controls
+  fullscreenTopLeft: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
     zIndex: 10,
   },
-  fullscreenHeader: {
-    paddingTop: theme.spacing['3'],
+  fullscreenBackButton: {
+    padding: theme.spacing['3'],
   },
-  fullscreenHeaderContent: {
+  fullscreenTopRight: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  fullscreenIconButton: {
+    padding: theme.spacing['3'],
+  },
+
+  // Bottom Overlay
+  fullscreenBottomOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: theme.spacing['4'],
+    paddingBottom: theme.spacing['2'],
+    zIndex: 10,
+  },
+  fullscreenHighlightContainer: {
+    marginBottom: theme.spacing['3'],
+    marginTop: theme.spacing['3'],
+  },
+  fullscreenHighlightText: {
+    color: theme.colors.white,
+    fontSize: 15,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  fullscreenMetadataRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: theme.spacing['4'],
-    paddingVertical: theme.spacing['3'],
+    marginBottom: theme.spacing['3'],
   },
-  fullscreenButton: {
-    padding: theme.spacing['2'],
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: theme.layout.borderRadius.sm,
+  fullscreenDateText: {
+    color: theme.colors.white,
+    fontSize: 14,
+    fontWeight: '400',
   },
-  fullscreenPlayButton: {
-    position: 'absolute',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    top: '50%',
-    left: '50%',
-    marginTop: -40,
-    marginLeft: -40,
+  fullscreenChapterText: {
+    color: theme.colors.white,
+    fontSize: 14,
+    fontWeight: '500',
   },
-  fullscreenBottomControls: {
-    paddingBottom: theme.spacing['4'],
-  },
-  fullscreenProgressContainer: {
+
+  // Controls Row
+  fullscreenControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: theme.spacing['2'],
+    marginBottom: theme.spacing['2'],
+  },
+  fullscreenPlayPauseButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fullscreenProgressBarContainer: {
+    flex: 1,
+    height: 40,
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  fullscreenProgressTrack: {
+    height: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 2,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+  },
+  fullscreenProgressFill: {
+    height: 3,
+    backgroundColor: theme.colors.white,
+    borderRadius: 2,
+    position: 'absolute',
+    left: 0,
+  },
+  fullscreenProgressMarkers: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '50%',
+    marginTop: -2,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 0,
+  },
+  fullscreenProgressMarker: {
+    width: 2,
+    height: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    borderRadius: 1,
+  },
+  fullscreenProgressThumb: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -6,
+    marginLeft: -6,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: theme.colors.white,
+  },
+  fullscreenSpeedButton: {
+    paddingHorizontal: theme.spacing['2'],
+    paddingVertical: theme.spacing['1'],
+    minWidth: 44,
+    alignItems: 'center',
+  },
+  fullscreenSpeedText: {
+    color: theme.colors.white,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  fullscreenNextButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Speed Menu Popup
+  fullscreenSpeedMenu: {
+    position: 'absolute',
+    bottom: 80,
+    right: theme.spacing['4'],
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    borderRadius: 8,
+    paddingVertical: theme.spacing['2'],
+    minWidth: 80,
+  },
+  fullscreenSpeedMenuItem: {
+    paddingVertical: theme.spacing['2'],
     paddingHorizontal: theme.spacing['4'],
-    marginBottom: theme.spacing['3'],
+  },
+  fullscreenSpeedMenuItemActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  fullscreenSpeedMenuText: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  fullscreenSpeedMenuTextActive: {
+    color: theme.colors.white,
+    fontWeight: '600',
   },
 
   // Split Screen Mode Styles (Header removed)
   // No more split header styles needed
 
   videoSection: {
-    flex: 0.5,
-    backgroundColor: theme.colors.black,
+    flex: 0.5, // Prend exactement 50% de l'écran
+    backgroundColor: theme.colors.white,
+    paddingHorizontal: 16, // Marges latérales extérieures
+    paddingTop: 72, // Marge supérieure extérieure
+    paddingBottom: 24, // Marge inférieure extérieure
     position: 'relative',
   },
   splitVideo: {
-    flex: 1,
+    flex: 1, // Remplit les 50% disponibles
+    aspectRatio: 1, // CARRÉ parfait (1:1)
     backgroundColor: theme.colors.black,
+    borderRadius: 16, // Coins arrondis égaux sur les 4 côtés
+    overflow: 'hidden', // Force tous les éléments dans le carré
+    position: 'relative',
+    alignSelf: 'center', // Centre le carré horizontalement
+  },
+  videoElement: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    // La vidéo remplit tout le carré, centrée
+  },
+  videoTouchable: {
+    width: '100%',
+    height: '100%',
   },
 
-  // New overlay button styles
-  backButtonOverlay: {
+  // Video overlay elements - HUD positioning
+  backArrowOverlay: {
     position: 'absolute',
-    top: 60,
-    left: 20,
-    width: 50,
-    height: 50,
+    top: 12, // Plus proche du bord pour un HUD intégré
+    left: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 9999,
+    zIndex: 10,
+    // Respecte les coins arrondis du container
   },
-
+  dateOverlayRight: {
+    position: 'absolute',
+    top: 12, // Aligné avec backArrow pour cohérence HUD
+    right: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 18,
+    zIndex: 10,
+  },
+  dateText: {
+    ...theme.typography.body,
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.colors.white,
+    // Plus compact pour HUD intégré
+  },
+  backButtonOverlay: {
+    position: 'absolute',
+    top: -60, // Placé au-dessus du cadre vidéo dans la marge
+    left: 0,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 22,
+    zIndex: 15,
+  },
   backButtonIcon: {
     textShadowColor: 'rgba(0, 0, 0, 0.7)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 3,
   },
-
-  videoControls: {
+  closeButtonOverlay: {
     position: 'absolute',
-    bottom: 0,
+    top: -60, // Placé au-dessus du cadre vidéo dans la marge
+    right: 0,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 22,
+    zIndex: 15,
+  },
+  closeButtonIcon: {
+    textShadowColor: 'rgba(0, 0, 0, 0.7)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
+  },
+
+  // HUD intégré avec positionnement précis
+  videoControlsHUD: {
+    position: 'absolute',
+    bottom: 12, // Plus près du bord pour intégration HUD
+    left: 12,
+    right: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)', // Fond semi-transparent pour HUD
+    borderRadius: 24, // Forme capsule pour HUD moderne
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    zIndex: 5,
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16, // Espacement optimisé pour HUD
+    height: 44, // Hauteur fixe pour alignement parfait
+  },
+  playPauseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Style HUD intégré
+  },
+  timelineContainer: {
+    flex: 1,
+    height: 8, // Légèrement plus épais pour meilleure visibilité HUD
+    position: 'relative',
+    marginHorizontal: 16, // Plus d'espace pour HUD
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressThumb: {
+    position: 'absolute',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: theme.colors.white,
+    borderWidth: 2,
+    borderColor: 'rgba(0, 0, 0, 0.3)',
+    top: -5, // Centrer sur la piste
+    marginLeft: -9, // Compenser la largeur
+    zIndex: 3,
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+  },
+  progressMarkers: {
+    position: 'absolute',
+    top: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    paddingHorizontal: theme.spacing['4'],
-    paddingVertical: theme.spacing['3'],
-    zIndex: 5,
+    height: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  progressMarker: {
+    width: 2,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  fullscreenButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Style HUD intégré cohérent avec playPause
   },
   splitPlayButton: {
     position: 'absolute',
     justifyContent: 'center',
     alignItems: 'center',
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
     top: '50%',
     left: '50%',
-    marginTop: -32,
-    marginLeft: -32,
+    marginTop: -36,
+    marginLeft: -36,
     zIndex: 10,
+    // Bouton play central plus proéminent
   },
-  videoProgressContainer: {
-    gap: theme.spacing['2'],
-  },
-  videoProgressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing['3'],
-  },
+  // Simplified progress container
   videoTimeText: {
     ...theme.typography.caption,
     color: theme.colors.white,
@@ -669,109 +1235,157 @@ const styles = StyleSheet.create({
   singleControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing['2'],
+    gap: theme.spacing['3'],
   },
-  speedMenuButton: {
-    paddingHorizontal: theme.spacing['2'],
-    paddingVertical: 4,
+  fullscreenButton: {
+    padding: theme.spacing['2'],
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: theme.layout.borderRadius.xs,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    minWidth: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  speedMenuButtonText: {
-    ...theme.typography.caption,
-    color: theme.colors.white,
-    fontSize: 12,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  speedDropdown: {
-    position: 'absolute',
-    bottom: '100%',
-    right: 48,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    borderRadius: theme.layout.borderRadius.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    marginBottom: theme.spacing['1'],
-    minWidth: 60,
-    zIndex: 20,
-  },
-  speedDropdownItem: {
-    paddingHorizontal: theme.spacing['3'],
-    paddingVertical: theme.spacing['2'],
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  activeSpeedDropdownItem: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  speedDropdownText: {
-    ...theme.typography.caption,
-    color: theme.colors.white,
-    fontSize: 12,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  activeSpeedDropdownText: {
-    color: theme.colors.white,
-    fontWeight: '600',
-  },
+  // Removed old speed dropdown styles
 
-  transcriptionSection: {
+  videoInfoSection: {
     flex: 0.5,
     backgroundColor: theme.colors.white,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.gray200,
   },
-  transcriptionHeader: {
-    paddingHorizontal: theme.spacing['4'],
-    paddingVertical: theme.spacing['3'],
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.gray100,
-    backgroundColor: theme.colors.gray50,
-  },
-  transcriptionTitle: {
-    ...theme.typography.h3,
-    color: theme.colors.black,
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  transcriptionSubtitle: {
-    ...theme.typography.caption,
-    color: theme.colors.primary400,
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  transcriptionContent: {
+  videoInfoContent: {
     flex: 1,
   },
-  transcriptionTextContainer: {
-    padding: theme.spacing['4'],
+  videoTitle: {
+    ...theme.typography.h2,
+    fontSize: 24,
+    fontWeight: '700',
+    color: theme.colors.black,
+    marginBottom: theme.spacing['2'],
+    paddingHorizontal: theme.spacing['4'],
+    paddingTop: theme.spacing['4'],
   },
-  transcriptionText: {
+  videoMetadata: {
     ...theme.typography.body,
-    color: theme.colors.gray800,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 16,
+    color: theme.colors.gray600,
+    marginBottom: theme.spacing['6'],
+    paddingHorizontal: theme.spacing['4'],
+  },
+  themesSection: {
+    paddingHorizontal: theme.spacing['4'],
+    paddingBottom: theme.spacing['4'],
+  },
+  themeTag: {
     marginBottom: theme.spacing['4'],
-  },
-  highlightArea: {
-    backgroundColor: 'rgba(154, 101, 255, 0.1)',
-    borderRadius: theme.layout.borderRadius.sm,
-    padding: theme.spacing['3'],
     borderWidth: 1,
-    borderColor: 'rgba(154, 101, 255, 0.3)',
-    borderStyle: 'dashed',
+    borderColor: theme.colors.ui.border,
+    borderRadius: 12,
+    padding: theme.spacing['4'],
+    backgroundColor: theme.colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  highlightInstruction: {
+  themeText: {
+    ...theme.typography.h3,
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.black,
+    marginBottom: theme.spacing['1'],
+  },
+  themeSubtext: {
+    ...theme.typography.body,
+    fontSize: 14,
+    color: theme.colors.gray600,
+    lineHeight: 20,
+  },
+  // Highlights Styles
+  highlightHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing['1'],
+  },
+  importanceBadge: {
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  importanceText: {
+    ...theme.typography.tiny,
+    fontWeight: '700',
+    color: theme.colors.white,
+    fontSize: 10,
+  },
+  highlightFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: theme.spacing['3'],
+  },
+  timestampContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  timestampText: {
     ...theme.typography.caption,
-    color: theme.colors.primary400,
+    color: theme.colors.brand.primary,
     fontSize: 12,
-    fontStyle: 'italic',
+    fontWeight: '600',
+  },
+  clickableHint: {
+    ...theme.typography.caption,
+    color: theme.colors.text.tertiary,
+    fontSize: 10,
+    marginLeft: 8,
+  },
+  playIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.colors.brand.primary + '20',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  highlightMarker: {
+    position: 'absolute',
+    width: 4,
+    height: 12,
+    backgroundColor: '#FFA500',
+    borderRadius: 2,
+    top: -4,
+    marginLeft: -2,
+    zIndex: 2,
+  },
+  loadingHighlightsContainer: {
+    padding: theme.spacing['6'],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingHighlightsText: {
+    ...theme.typography.body,
+    color: theme.colors.text.secondary,
+    marginTop: theme.spacing['2'],
+  },
+  noHighlightsContainer: {
+    padding: theme.spacing['6'],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noHighlightsText: {
+    ...theme.typography.body,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginTop: theme.spacing['2'],
+  },
+  noHighlightsSubtext: {
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
+    marginTop: theme.spacing['1'],
     textAlign: 'center',
   },
 
@@ -795,49 +1409,6 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: theme.colors.white,
     borderRadius: theme.layout.borderRadius.xs,
-  },
-
-  // Speed Controls
-  speedControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing['2'],
-  },
-  speedButton: {
-    paddingHorizontal: theme.spacing['3'],
-    paddingVertical: theme.spacing['2'],
-    borderRadius: theme.layout.borderRadius.sm,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  activeSpeedButton: {
-    backgroundColor: theme.colors.white,
-  },
-  speedButtonText: {
-    ...theme.typography.caption,
-    color: theme.colors.white,
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  activeSpeedButtonText: {
-    color: theme.colors.black,
-  },
-  compactSpeedButton: {
-    paddingHorizontal: theme.spacing['2'],
-    paddingVertical: 4,
-    borderRadius: theme.layout.borderRadius.xs,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    minWidth: 32,
-  },
-  compactSpeedButtonText: {
-    ...theme.typography.caption,
-    color: theme.colors.white,
-    fontSize: 10,
-    fontWeight: '500',
-    textAlign: 'center',
   },
 
   // Time Text

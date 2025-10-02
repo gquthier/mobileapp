@@ -20,6 +20,7 @@ export const AppNavigator = () => {
   const [loading, setLoading] = useState(true);
   const { isFirstTime, isLoading: firstTimeLoading, markWelcomeComplete } = useFirstTimeUser();
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [hideTabBar, setHideTabBar] = useState(false);
 
   useEffect(() => {
     // Get initial session
@@ -46,39 +47,34 @@ export const AppNavigator = () => {
     return null; // Show loading screen
   }
 
+  // Déterminer quel contenu afficher
+  let content;
+
   if (!session) {
-    return (
-      <NavigationContainer>
-        <AuthScreen onAuthSuccess={() => {}} />
-      </NavigationContainer>
-    );
-  }
-
-  // Show welcome flow for first-time users
-  if (isFirstTime && !showOnboarding) {
-    return (
-      <NavigationContainer>
-        <WelcomeFlow onComplete={() => setShowOnboarding(true)} />
-      </NavigationContainer>
-    );
-  }
-
-  // Show onboarding after welcome
-  if (showOnboarding) {
-    return (
-      <NavigationContainer>
-        <OnboardingScreens onComplete={markWelcomeComplete} />
-      </NavigationContainer>
-    );
-  }
-
-  return (
-    <NavigationContainer>
+    content = <AuthScreen onAuthSuccess={() => {}} />;
+  } else if (isFirstTime && !showOnboarding) {
+    content = <WelcomeFlow onComplete={() => setShowOnboarding(true)} />;
+  } else if (showOnboarding) {
+    content = <OnboardingScreens onComplete={markWelcomeComplete} />;
+  } else {
+    content = (
       <Tab.Navigator
-        tabBar={(props) => <CustomTabBar {...props} />}
+        tabBar={(props) => hideTabBar ? null : <CustomTabBar {...props} />}
         screenOptions={{
           headerShown: false,
         }}
+        screenListeners={({ route, navigation }) => ({
+          state: (e) => {
+            // Vérifier si on est sur RecordScreen et en mode enregistrement
+            const currentRoute = e.data.state.routes[e.data.state.index];
+            if (currentRoute.name === 'Record') {
+              const isRecording = currentRoute.params?.isRecording;
+              const showControls = currentRoute.params?.showControls;
+              // Masquer la barre si on enregistre ET que les contrôles sont masqués
+              setHideTabBar(isRecording && !showControls);
+            }
+          },
+        })}
       >
         <Tab.Screen
           name="Home"
@@ -109,6 +105,12 @@ export const AppNavigator = () => {
           }}
         />
       </Tab.Navigator>
+    );
+  }
+
+  return (
+    <NavigationContainer>
+      {content}
     </NavigationContainer>
   );
 };

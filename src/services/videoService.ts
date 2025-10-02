@@ -3,9 +3,57 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Audio } from 'expo-av';
 
 export class VideoService {
+  // Limite de taille pour Supabase (5GB configuré dans les settings)
+  private static readonly MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5GB
+
+  /**
+   * Compresse une vidéo si elle dépasse la limite de taille
+   */
+  private static async compressVideoIfNeeded(videoUri: string): Promise<string> {
+    try {
+      console.log('🔍 Checking video file size...');
+
+      // Vérifier la taille du fichier
+      const fileInfo = await FileSystem.getInfoAsync(videoUri);
+      if (!fileInfo.exists) {
+        throw new Error('Video file not found');
+      }
+
+      const fileSizeMB = fileInfo.size / 1024 / 1024;
+      const maxSizeMB = this.MAX_FILE_SIZE / 1024 / 1024;
+      const maxSizeGB = this.MAX_FILE_SIZE / 1024 / 1024 / 1024;
+
+      console.log(`📏 Original file size: ${fileSizeMB.toFixed(2)}MB`);
+
+      // Si le fichier est déjà sous la limite, on retourne tel quel
+      if (fileInfo.size <= this.MAX_FILE_SIZE) {
+        console.log(`✅ File size OK (${fileSizeMB.toFixed(2)}MB / ${maxSizeGB.toFixed(1)}GB limit), no compression needed`);
+        return videoUri;
+      }
+
+      console.log('🗜️ File too large, would need compression...');
+
+      // Pour l'instant, on affiche juste un avertissement
+      // La vraie compression vidéo nécessite des packages natifs plus complexes
+      console.warn('⚠️ VIDEO TOO LARGE: This should not happen with 5GB limit!');
+      console.warn('📊 File size:', `${fileSizeMB.toFixed(2)}MB`);
+      console.warn('📊 Max allowed:', `${maxSizeGB.toFixed(1)}GB (${maxSizeMB.toFixed(0)}MB)`);
+
+      // Normalement ne devrait jamais arriver avec 5GB
+      throw new Error(`Video file too large (${fileSizeMB.toFixed(2)}MB). Maximum allowed: ${maxSizeGB.toFixed(1)}GB. This is unexpected - please contact support.`);
+
+    } catch (error) {
+      console.error('❌ Error checking/compressing video:', error);
+      throw error;
+    }
+  }
+
   static async uploadVideo(videoUri: string, title: string, userId?: string): Promise<VideoRecord | null> {
     try {
       console.log('📤 Starting video upload to Supabase...', { uri: videoUri, title, userId });
+
+      // Step 0: Check and compress video if needed
+      const processedVideoUri = await this.compressVideoIfNeeded(videoUri);
 
       // Step 1: Get current user if not provided
       let currentUserId = userId;
@@ -42,69 +90,79 @@ export class VideoService {
         }
       }
 
-      // Step 2: Validate video file exists
-      const fileInfo = await FileSystem.getInfoAsync(videoUri);
+      // Step 2: Validate processed video file exists
+      const fileInfo = await FileSystem.getInfoAsync(processedVideoUri);
       if (!fileInfo.exists) {
-        throw new Error('Video file not found');
+        throw new Error('Processed video file not found');
       }
 
-      console.log('📁 Video file info:', {
+      console.log('📁 Processed video file info:', {
         exists: fileInfo.exists,
         size: fileInfo.size,
-        uri: fileInfo.uri
+        uri: fileInfo.uri,
+        sizeMB: (fileInfo.size / 1024 / 1024).toFixed(2) + 'MB'
       });
-
-      // Step 2: Convert video to base64 for React Native
-      console.log('🔄 Reading video file as base64...');
-      const base64Data = await FileSystem.readAsStringAsync(videoUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      console.log('📦 Base64 data length:', base64Data.length);
 
       // Step 3: Create filename and path
       const timestamp = new Date().getTime();
       const fileName = `video_${timestamp}.mp4`;
-      const filePath = fileName; // Just the filename, 'videos' bucket is specified in .from()
+      const filePath = fileName;
 
       console.log('📝 Upload path:', filePath);
 
-      // Step 4: Convert base64 to ArrayBuffer for Supabase
-      const binaryString = atob(base64Data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      // Step 4: Upload directly using fetch with multipart/form-data
+      // This avoids base64 conversion and string length limits
+      console.log('⬆️ Uploading to Supabase Storage (direct file upload)...');
+
+      // Create FormData for multipart upload
+      const formData = new FormData();
+
+      // For React Native, we need to create a proper file object
+      const videoFile = {
+        uri: processedVideoUri,
+        type: 'video/mp4',
+        name: fileName,
+      } as any;
+
+      formData.append('file', videoFile);
+
+      // Get Supabase auth token
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      // Upload using fetch API directly
+      const supabaseUrl = 'https://eenyzudwktcjpefpoapi.supabase.co';
+      const uploadUrl = `${supabaseUrl}/storage/v1/object/videos/${filePath}`;
+
+      const uploadResponse = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          // Don't set Content-Type - let FormData set it with boundary
+        },
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text();
+        console.error('❌ Upload failed:', uploadResponse.status, errorText);
+        throw new Error(`Upload failed: ${uploadResponse.status} - ${errorText}`);
       }
 
-      console.log('🔧 ArrayBuffer size:', bytes.length);
-
-      // Step 5: Upload to Supabase Storage
-      console.log('⬆️ Uploading to Supabase Storage...');
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('videos')
-        .upload(filePath, bytes, {
-          contentType: 'video/mp4',
-          upsert: false,
-        });
-
-      if (uploadError) {
-        console.error('❌ Upload error:', uploadError);
-        throw uploadError;
-      }
-
+      const uploadData = await uploadResponse.json();
       console.log('✅ Video uploaded successfully:', uploadData);
 
-      // Step 6: Get the public URL
+      // Step 5: Get the public URL
       const { data: urlData } = supabase.storage
         .from('videos')
         .getPublicUrl(filePath);
 
       console.log('🔗 Public URL generated:', urlData.publicUrl);
 
-      // Step 7: Get video duration
+      // Step 6: Get video duration
       let duration = 0;
       try {
-        const { sound } = await Audio.Sound.createAsync({ uri: videoUri });
+        const { sound } = await Audio.Sound.createAsync({ uri: processedVideoUri });
         const status = await sound.getStatusAsync();
         if (status.isLoaded && status.durationMillis) {
           duration = Math.round(status.durationMillis / 1000);
@@ -118,7 +176,7 @@ export class VideoService {
         console.log('📏 Estimated duration:', duration + 's');
       }
 
-      // Step 8: Save to database
+      // Step 7: Save to database
       const videoRecord: Omit<VideoRecord, 'id' | 'created_at'> = {
         title,
         file_path: urlData.publicUrl,
@@ -140,6 +198,39 @@ export class VideoService {
       }
 
       console.log('✅ Video record saved successfully:', dbData);
+
+      // Step 8: Call Supabase Edge Function to generate 6 animated frames
+      try {
+        console.log('📸 Calling Supabase Edge Function to generate frames...');
+
+        // Extract just the filename from the full URL for the Edge Function
+        const filePathForFunction = filePath; // Just the filename like "video_123456.mp4"
+
+        const { data: functionData, error: functionError } = await supabase.functions.invoke('generate-thumbnail', {
+          body: {
+            video_id: dbData.id,
+            file_path: filePathForFunction,
+            duration: duration
+          }
+        });
+
+        if (functionError) {
+          console.error('❌ Edge Function error:', functionError);
+          throw functionError;
+        }
+
+        if (functionData?.success) {
+          console.log(`✅ ${functionData.frame_count} frames generated by Edge Function`);
+          dbData.thumbnail_path = functionData.thumbnail_path;
+          dbData.thumbnail_frames = functionData.thumbnail_frames;
+        } else {
+          console.error('❌ Edge Function returned error:', functionData?.error);
+        }
+      } catch (thumbnailError) {
+        console.error('⚠️ Animated frames generation failed (non-critical):', thumbnailError);
+        // Continue without thumbnails - not critical
+      }
+
       return dbData;
 
     } catch (error) {
@@ -215,8 +306,36 @@ export class VideoService {
         return [];
       }
 
-      console.log('✅ Videos fetched successfully for user:', data?.length || 0);
-      return data || [];
+      const videos = data || [];
+      console.log('✅ Videos fetched successfully for user:', videos.length);
+
+      // Enrichir avec le statut de transcription pour chaque vidéo
+      const videosWithStatus = await Promise.all(
+        videos.map(async (video) => {
+          try {
+            const { data: jobs } = await supabase
+              .from('transcription_jobs')
+              .select('status, completed_at')
+              .eq('video_id', video.id)
+              .order('created_at', { ascending: false })
+              .limit(1);
+
+            const latestJob = jobs && jobs.length > 0 ? jobs[0] : null;
+
+            return {
+              ...video,
+              transcription_status: latestJob?.status || null,
+              transcription_completed: latestJob?.completed_at || null
+            };
+          } catch (err) {
+            console.error('⚠️ Error fetching transcription status for video:', video.id, err);
+            return video;
+          }
+        })
+      );
+
+      console.log('✅ Videos enriched with transcription status');
+      return videosWithStatus;
     } catch (error) {
       console.error('❌ Error fetching videos:', error);
       return [];

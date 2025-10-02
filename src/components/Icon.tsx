@@ -325,6 +325,31 @@ export const Icon: React.FC<IconProps> = ({
         <Path d="M21 12a9 9 0 11-6.219-8.56" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
     ),
+    zap: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+        <Path
+          d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"
+          fill={color}
+          stroke="none"
+        />
+      </Svg>
+    ),
+    grid: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Rect x="3" y="3" width="7" height="7" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Rect x="14" y="3" width="7" height="7" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Rect x="3" y="14" width="7" height="7" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Rect x="14" y="14" width="7" height="7" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    calendar: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Rect x="3" y="4" width="18" height="18" rx="2" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Line x1="16" y1="2" x2="16" y2="6" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Line x1="8" y1="2" x2="8" y2="6" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Line x1="3" y1="10" x2="21" y2="10" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
   };
 
   return icons[name] || <Svg width={size} height={size} />;

@@ -11,10 +11,12 @@ import {
 } from 'react-native';
 import { theme } from '../styles';
 import { Icon } from './Icon';
+import { AnimatedThumbnail } from './AnimatedThumbnail';
 import { VideoRecord } from '../lib/supabase';
 
 const { width: screenWidth } = Dimensions.get('window');
 const CELL_SIZE = (screenWidth - 32) / 7; // 7 columns with padding
+const CELL_HEIGHT = CELL_SIZE * 1.2; // Increased height for better video preview
 
 interface CalendarGalleryProps {
   videos: VideoRecord[];
@@ -54,7 +56,14 @@ export const CalendarGallerySimple: React.FC<CalendarGalleryProps> = ({
   onVideoPress,
   chapters = [],
 }) => {
-  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
+  // Initialize with all months expanded by default
+  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(() => {
+    const allMonths = new Set<string>();
+    for (let month = 0; month < 12; month++) {
+      allMonths.add(`2025-${month}`);
+    }
+    return allMonths;
+  });
 
   // Helper function to construct thumbnail URL
   const getThumbnailUrl = (thumbnailPath: string): string => {
@@ -153,18 +162,6 @@ export const CalendarGallerySimple: React.FC<CalendarGalleryProps> = ({
 
   const calendarData = useMemo(() => generateCalendarData(), [generateCalendarData]);
 
-  const toggleMonth = (monthKey: string) => {
-    setExpandedMonths(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(monthKey)) {
-        newSet.delete(monthKey);
-      } else {
-        newSet.add(monthKey);
-      }
-      return newSet;
-    });
-  };
-
   const renderDayCell = (day: DayData) => {
     const hasVideos = day.videos.length > 0;
     const videoCount = day.videos.length;
@@ -178,7 +175,13 @@ export const CalendarGallerySimple: React.FC<CalendarGalleryProps> = ({
       >
         {hasVideos && day.isCurrentMonth ? (
           <View style={styles.dayWithVideo}>
-            {day.videos[0].thumbnail_path ? (
+            {day.videos[0].thumbnail_frames && day.videos[0].thumbnail_frames.length > 0 ? (
+              <AnimatedThumbnail
+                frames={day.videos[0].thumbnail_frames}
+                style={styles.thumbnail}
+                interval={500}
+              />
+            ) : day.videos[0].thumbnail_path ? (
               <Image
                 source={{ uri: getThumbnailUrl(day.videos[0].thumbnail_path) }}
                 style={styles.thumbnail}
@@ -193,6 +196,16 @@ export const CalendarGallerySimple: React.FC<CalendarGalleryProps> = ({
             {videoCount > 1 && (
               <View style={styles.countBadge}>
                 <Text style={styles.countText}>{videoCount}</Text>
+              </View>
+            )}
+            {/* Processing indicator */}
+            {day.videos[0].transcription_status &&
+             day.videos[0].transcription_status !== 'completed' &&
+             day.videos[0].transcription_status !== 'failed' && (
+              <View style={styles.processingOverlay}>
+                <View style={styles.processingIndicator}>
+                  <Icon name="loading" size={16} color={theme.colors.white} />
+                </View>
               </View>
             )}
             <Text style={[styles.dayNumber, styles.dayNumberWithVideo]}>
@@ -213,7 +226,6 @@ export const CalendarGallerySimple: React.FC<CalendarGalleryProps> = ({
 
   const renderMonth = (monthData: MonthData) => {
     const monthKey = `${monthData.year}-${monthData.month}`;
-    const isExpanded = expandedMonths.has(monthKey);
 
     // Count total videos in month
     const monthVideoCount = monthData.days.reduce((sum, day) =>
@@ -232,37 +244,26 @@ export const CalendarGallerySimple: React.FC<CalendarGalleryProps> = ({
         )}
 
         {/* Month Header */}
-        <TouchableOpacity
-          style={styles.monthHeader}
-          onPress={() => toggleMonth(monthKey)}
-          activeOpacity={0.7}
-        >
+        <View style={styles.monthHeader}>
           <Text style={styles.monthTitle}>{monthData.monthName} {monthData.year}</Text>
-          <Icon
-            name={isExpanded ? "chevronUp" : "chevronDown"}
-            size={18}
-            color={theme.colors.text.secondary}
-          />
-        </TouchableOpacity>
+        </View>
 
-        {/* Content (without animation) */}
-        {isExpanded && (
-          <View>
-            {/* Day Labels */}
-            <View style={styles.dayLabelsRow}>
-              {DAYS.map(day => (
-                <View key={day} style={styles.dayLabelCell}>
-                  <Text style={styles.dayLabel}>{day}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* Calendar Grid */}
-            <View style={styles.calendarGrid}>
-              {monthData.days.map(day => renderDayCell(day))}
-            </View>
+        {/* Content - Always visible */}
+        <View>
+          {/* Day Labels */}
+          <View style={styles.dayLabelsRow}>
+            {DAYS.map((day, index) => (
+              <View key={`day-${index}`} style={styles.dayLabelCell}>
+                <Text style={styles.dayLabel}>{day}</Text>
+              </View>
+            ))}
           </View>
-        )}
+
+          {/* Calendar Grid */}
+          <View style={styles.calendarGrid}>
+            {monthData.days.map(day => renderDayCell(day))}
+          </View>
+        </View>
       </View>
     );
   };
@@ -328,7 +329,7 @@ const styles = StyleSheet.create({
   },
   dayCell: {
     width: CELL_SIZE,
-    height: CELL_SIZE,
+    height: CELL_HEIGHT,
     padding: 2,
   },
   dayWithVideo: {
@@ -380,5 +381,21 @@ const styles = StyleSheet.create({
     ...theme.typography.tiny,
     fontWeight: '700',
     color: theme.colors.white,
+  },
+  processingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  processingIndicator: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 8,
+    borderRadius: 20,
   },
 });

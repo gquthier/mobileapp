@@ -11,6 +11,7 @@ import { Video, ResizeMode } from 'expo-av';
 import { VideoRecord } from '../lib/supabase';
 import { theme } from '../styles';
 import { Icon } from './Icon';
+import { AnimatedThumbnail } from './AnimatedThumbnail';
 
 const { width } = Dimensions.get('window');
 const cardWidth = (width - 48) / 2; // 2 columns with 16px padding on sides and 16px gap
@@ -112,8 +113,14 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onPress }) => {
     >
       {/* Thumbnail/Video Preview */}
       <View style={styles.thumbnailContainer}>
-        {/* Static thumbnail */}
-        {!showPreview && getThumbnailUri() ? (
+        {/* Static thumbnail or animated frames */}
+        {!showPreview && video.thumbnail_frames && video.thumbnail_frames.length > 0 ? (
+          <AnimatedThumbnail
+            frames={video.thumbnail_frames}
+            style={styles.thumbnail}
+            interval={500}
+          />
+        ) : !showPreview && getThumbnailUri() ? (
           <Image
             source={{ uri: getThumbnailUri()! }}
             style={styles.thumbnail}

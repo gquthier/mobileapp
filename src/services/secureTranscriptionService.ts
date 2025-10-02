@@ -108,17 +108,56 @@ export class SecureTranscriptionService {
       let fileData: any;
 
       if (localVideoUri.startsWith('file://') || localVideoUri.startsWith('/')) {
-        // URI local React Native - utiliser une approche compatible
+        // URI local React Native - LIRE LE FICHIER BINAIRE
         console.log('📱 Processing React Native local file...');
 
-        // Pour React Native, nous envoyons directement l'URI avec les métadonnées
-        fileData = {
-          uri: localVideoUri,
-          type: 'video/mp4',
-          name: fileName,
-        };
+        try {
+          // Utiliser expo-file-system pour lire le fichier binaire
+          const { FileSystem } = await import('expo-file-system');
 
-        console.log('📊 File prepared for upload:', { uri: localVideoUri, name: fileName });
+          console.log('📖 Reading binary file data from:', localVideoUri);
+          const fileInfo = await FileSystem.getInfoAsync(localVideoUri);
+          console.log('📋 File info:', fileInfo);
+
+          if (!fileInfo.exists) {
+            throw new Error(`Local file does not exist: ${localVideoUri}`);
+          }
+
+          // Lire le fichier en base64 puis le convertir en blob
+          const base64Data = await FileSystem.readAsStringAsync(localVideoUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
+          console.log('📊 Read file data:', {
+            size: fileInfo.size,
+            base64Length: base64Data.length,
+          });
+
+          // Convertir base64 en ArrayBuffer puis en Blob
+          const binaryString = atob(base64Data);
+          const arrayBuffer = new ArrayBuffer(binaryString.length);
+          const uint8Array = new Uint8Array(arrayBuffer);
+
+          for (let i = 0; i < binaryString.length; i++) {
+            uint8Array[i] = binaryString.charCodeAt(i);
+          }
+
+          const blob = new Blob([arrayBuffer], { type: 'video/mp4' });
+          console.log('✅ Created blob:', { size: blob.size, type: blob.type });
+
+          fileData = blob;
+
+        } catch (fsError) {
+          console.error('❌ FileSystem error:', fsError);
+          console.log('⚠️ Falling back to URI approach...');
+
+          // Fallback vers l'ancienne approche si FileSystem échoue
+          fileData = {
+            uri: localVideoUri,
+            type: 'video/mp4',
+            name: fileName,
+          };
+        }
       } else {
         // Fallback pour d'autres types d'URI
         console.log('📋 Using direct URI approach...');

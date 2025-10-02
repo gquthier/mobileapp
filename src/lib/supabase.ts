@@ -53,8 +53,15 @@ export interface VideoRecord {
   updated_at?: string;
   user_id?: string;
   thumbnail_path?: string;
+  thumbnail_frames?: string[]; // Array of frame URLs for animated thumbnails
   theme_id?: string;
   chapter_id?: string;
+  // Nouvelles colonnes pour le design
+  arc_number?: number;
+  chapter_number?: number;
+  location?: string;
+  transcription_status?: string;
+  transcription_completed?: string;
 }
 
 export interface Chapter {
@@ -65,6 +72,9 @@ export interface Chapter {
   updated_at?: string;
   user_id?: string;
   color?: string;
+  // Nouvelles colonnes pour le design
+  arc_number?: number;
+  chapter_number?: number;
 }
 
 export interface Theme {
