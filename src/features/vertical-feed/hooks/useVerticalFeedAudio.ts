@@ -12,7 +12,7 @@ import { VERTICAL_FEED_CONFIG } from '../constants'
 const AUDIO_PREFERENCE_KEY = '@vertical_feed_audio_preference'
 
 export const useVerticalFeedAudio = () => {
-  const [isMuted, setIsMuted] = useState(true) // Mute par défaut (spec)
+  const [isMuted, setIsMuted] = useState(false) // ✅ Unmute par défaut (son activé)
   const [isLoading, setIsLoading] = useState(true)
   const fadeAnimation = useRef<any>(null)
 

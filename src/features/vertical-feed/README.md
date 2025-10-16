@@ -2,22 +2,21 @@
 
 ## Overview
 
-Mode de lecture plein écran avec scroll vertical pour la librairie vidéo. Offre une expérience immersive style TikTok/Reels avec autoplay, snap, et contrôles minimalistes.
+Mode de lecture plein écran avec scroll vertical pour la librairie vidéo. Offre une expérience immersive style TikTok/Reels avec autoplay, snap, et interface minimaliste.
 
 ## 🎯 Features
 
 - ✅ **Scroll vertical fluide** avec snap automatique (1 vidéo = 1 écran)
 - ✅ **Autoplay intelligent** : démarre à 80% visibilité pendant 150ms
 - ✅ **Pause automatique** : <20% visibilité
-- ✅ **Overlays minimalistes** : top bar (navigation) + bottom bar (infos)
-- ✅ **Auto-hide** : overlays disparaissent après 2s
-- ✅ **Progress bar scrubable** en haut (visible avec overlays)
-- ✅ **Mute/unmute** avec préférence persistée (AsyncStorage)
+- ✅ **Interface épurée** : vidéo plein écran sans UI (mode zen)
+- ✅ **Full screen video** : remplit l'écran avec contentFit="cover"
+- ✅ **Audio activé par défaut** : son joue automatiquement
 - ✅ **Préchargement** : N-1, N, N+1 pour fluidité
 - ✅ **Haptic feedback** : vibration légère au snap
-- ✅ **Bottom sheet options** : lecteur avancé, détails, supprimer
 - ✅ **Safe areas** : respecte notch + home indicator
 - ✅ **Performance optimisée** : max 3 players actifs simultanément
+- ✅ **Retry logic** : 3 tentatives automatiques en cas d'erreur
 
 ## 📁 Structure
 
@@ -26,11 +25,7 @@ src/features/vertical-feed/
 ├── screens/
 │   └── VerticalFeedScreen.tsx       # Screen principal avec FlatList
 ├── components/
-│   ├── VerticalVideoCard.tsx        # Carte vidéo plein écran
-│   ├── VerticalFeedOverlay.tsx      # Overlays top/bottom
-│   ├── VerticalProgressBar.tsx      # Progress bar scrubable
-│   ├── VideoOptionsSheet.tsx        # Bottom sheet options
-│   └── VerticalFeedError.tsx        # [TODO] États erreur
+│   └── VerticalVideoCard.tsx        # Carte vidéo plein écran (interface minimaliste)
 ├── hooks/
 │   ├── useVerticalVisibility.ts     # Détection visibilité 80%
 │   ├── useVerticalFeedAudio.ts      # Gestion audio + mute
@@ -99,14 +94,7 @@ export const VERTICAL_FEED_CONFIG = {
 ### Gestes
 - **Swipe ↑** : Vidéo suivante (snap + haptic)
 - **Swipe ↓** : Vidéo précédente (snap + haptic)
-- **Tap vidéo** : Show/hide overlays (toggle)
-- **Tap mute icon** : Toggle audio (préférence sauvegardée)
-- **Drag progress bar** : Seek vidéo
-
-### Contrôles
-- **← (Back)** : Retour LibraryScreen
-- **⋯ (Options)** : Bottom sheet (lecteur avancé, détails, supprimer)
-- **🔇/🔊 (Mute)** : Toggle audio
+- **Pas d'interactions tactiles** : interface épurée sans overlay
 
 ## 🔧 Technical Details
 
@@ -153,15 +141,14 @@ export const VERTICAL_FEED_CONFIG = {
 - [ ] Snap parfait (25% distance ou 500px/s velocity)
 - [ ] Autoplay à 80% visibilité pendant 150ms
 - [ ] Pause à <20% visibilité
-- [ ] Overlays show/hide au tap (2s auto-hide)
-- [ ] Mute toggle + préférence persistée
-- [ ] Progress bar scrubable avec feedback
+- [ ] Audio joue automatiquement par défaut
+- [ ] Vidéo plein écran sans barres noires
 - [ ] Préchargement ±1 (logs console)
 - [ ] Pas d'overlap audio entre vidéos
 - [ ] Retour restaure LibraryScreen
 - [ ] Haptic feedback au snap
-- [ ] Bottom sheet options fonctionnel
 - [ ] Safe areas respectées (notch + home indicator)
+- [ ] Retry automatique en cas d'erreur (3 tentatives)
 
 ### Performance Tests
 
@@ -211,14 +198,11 @@ git commit -m "🔙 Rollback Vertical Feed feature"
 ## 🐛 Known Issues / TODO
 
 - [ ] **TODO**: Restaurer scroll position au retour LibraryScreen
-- [ ] **TODO**: Implémenter action "Ouvrir dans lecteur avancé"
-- [ ] **TODO**: Implémenter action "Voir détails"
-- [ ] **TODO**: Implémenter action "Supprimer" avec confirmation
 - [ ] **TODO**: Gérer fin de liste (message + rebond)
-- [ ] **TODO**: Gérer états erreur (vidéo non lisible, réseau lent)
 - [ ] **TODO**: Optimiser préchargement (utiliser expo-video preload API)
 - [ ] **TODO**: Ajouter sous-titres (si transcription disponible)
 - [ ] **TODO**: Ajouter analytics (temps de visionnage, skip rate, etc.)
+- [ ] **TODO**: Ajouter overlays optionnels avec tap (titre, contrôles minimaux)
 
 ## 📊 Performance Metrics
 

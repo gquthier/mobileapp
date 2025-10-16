@@ -15,7 +15,7 @@ export interface VerticalFeedParams {
   initialIndex: number
 
   /** Écran d'origine (pour analytics/comportement retour) */
-  sourceScreen: 'library' | 'chapter' | 'search' | 'calendar'
+  sourceScreen: 'library' | 'chapter' | 'search' | 'calendar' | 'FeedTab'
 
   /** État à préserver lors du retour */
   preserveState?: {

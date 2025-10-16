@@ -1,24 +1,21 @@
 /**
  * Component: VerticalVideoCard
  *
- * Carte vidéo plein écran avec player intégré
- * Gère autoplay/pause, overlays, progress bar
+ * Clean full-screen video card with autoplay
+ * No overlays, no interactions - just pure video scrolling
  */
 
 import React, { useRef, useState, useEffect } from 'react'
-import { View, Text, StyleSheet, Dimensions, Pressable, ActivityIndicator } from 'react-native'
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av'
-import { VerticalFeedOverlay } from './VerticalFeedOverlay'
-import { VerticalProgressBar } from './VerticalProgressBar'
-import { VideoRecord } from '../../../types'
-import { VERTICAL_FEED_COLORS, VERTICAL_FEED_CONFIG } from '../constants'
+import { View, Text, StyleSheet, Dimensions, Animated, Easing, TouchableWithoutFeedback } from 'react-native'
+import { VideoView, useVideoPlayer } from 'expo-video'
+import { VideoSegment } from '../../../types'
 
 const SCREEN_HEIGHT = Dimensions.get('window').height
 const SCREEN_WIDTH = Dimensions.get('window').width
 
 interface VerticalVideoCardProps {
-  /** Vidéo à afficher */
-  video: VideoRecord
+  /** Vidéo ou segment à afficher */
+  video: VideoSegment
 
   /** Vidéo active (autoplay) */
   isActive: boolean
@@ -26,219 +23,510 @@ interface VerticalVideoCardProps {
   /** Audio muted globalement */
   isMuted: boolean
 
-  /** Index de la vidéo */
-  videoIndex: number
+  /** URI optimisé de la vidéo (depuis cache ou remote) */
+  videoUri: string
 
-  /** Total de vidéos */
-  totalVideos: number
+  /** Index de la vidéo dans la liste */
+  index: number
 
-  /** Callback retour */
-  onBack: () => void
+  /** Index actuel visible */
+  currentIndex: number
 
-  /** Callback options */
-  onOptions: () => void
+  /** Callback quand la vidéo se termine */
+  onVideoEnd: () => void
 
-  /** Callback toggle mute */
-  onToggleMute: () => void
+  /** 🆕 Callback pour exposer le player au parent */
+  onPlayerReady?: (player: any) => void
 }
 
 export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
   video,
   isActive,
   isMuted,
-  videoIndex,
-  totalVideos,
-  onBack,
-  onOptions,
-  onToggleMute,
+  videoUri,
+  index,
+  currentIndex,
+  onVideoEnd,
+  onPlayerReady,
 }) => {
-  const videoRef = useRef<Video>(null)
-  const [overlayVisible, setOverlayVisible] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [duration, setDuration] = useState(0)
+  // ✅ NOUVELLE STRATÉGIE: Charger N-1, N, N+1 pour fluidité
+  // Cela évite le délai de chargement lors du scroll
+  const isNearby = Math.abs(index - currentIndex) <= 1
+  const [shouldLoadPlayer, setShouldLoadPlayer] = useState(isNearby)
+
+  // Activer loading si on devient nearby
+  useEffect(() => {
+    if (isNearby && !shouldLoadPlayer) {
+      setShouldLoadPlayer(true)
+    }
+  }, [isNearby, shouldLoadPlayer])
+
+  // Créer player si nearby (N-1, N, N+1)
+  // 🚨 NOUVELLE STRATÉGIE: Pause IMMÉDIATE dans le callback
+  // C'est le seul moment où on peut empêcher l'autoplay d'expo-video
+  const player = useVideoPlayer(
+    shouldLoadPlayer ? videoUri : '', // URI vide = player minimal sans ressources
+    (player) => {
+      // ✅ PAUSE IMMÉDIATE - avant que expo-video ne démarre la lecture
+      player.pause()
+      player.currentTime = 0
+      player.muted = true // Mute aussi par sécurité
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🛑 Initial pause in callback`)
+    }
+  )
+
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
-  const autoHideTimer = useRef<NodeJS.Timeout | null>(null)
+  const errorRetryCount = useRef(0)
+  const errorRetryTimer = useRef<NodeJS.Timeout | null>(null)
 
-  /**
-   * Autoplay/pause basé sur isActive
-   */
-  useEffect(() => {
-    const handlePlayback = async () => {
-      try {
-        if (isActive) {
-          console.log(`[VideoCard] Playing video ${video.id}`)
-          await videoRef.current?.playAsync()
-        } else {
-          console.log(`[VideoCard] Pausing video ${video.id}`)
-          await videoRef.current?.pauseAsync()
-        }
-      } catch (error) {
-        console.error('[VideoCard] Playback error:', error)
-      }
-    }
+  // Listeners refs for cleanup
+  const playingListenerRef = useRef<any>(null)
+  const statusListenerRef = useRef<any>(null)
 
-    handlePlayback()
-  }, [isActive, video.id])
+  // 🆕 GUARD: Empêche les doubles play() sans pause() intermédiaire
+  const isPlayingRef = useRef(false)
 
-  /**
-   * Mute/unmute basé sur état global
-   */
-  useEffect(() => {
-    const handleMute = async () => {
-      try {
-        await videoRef.current?.setIsMutedAsync(isMuted)
-      } catch (error) {
-        console.error('[VideoCard] Mute error:', error)
-      }
-    }
+  // 🆕 Speed control (2x playback on long press right side)
+  const [isSpeedUp, setIsSpeedUp] = useState(false) // Vidéo en x2
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null)
+  const speedBadgeOpacity = useRef(new Animated.Value(0)).current
 
-    handleMute()
-  }, [isMuted])
+  // Animation pour le loader (3 points qui pulsent)
+  const dot1Anim = useRef(new Animated.Value(0)).current
+  const dot2Anim = useRef(new Animated.Value(0)).current
+  const dot3Anim = useRef(new Animated.Value(0)).current
 
-  /**
-   * Auto-hide overlays après 2s
-   */
-  const showOverlaysWithAutoHide = () => {
-    setOverlayVisible(true)
+  // 🆕 Handlers pour long press sur partie droite
+  const handlePressIn = () => {
+    if (!isActive) return
 
-    // Clear timer existant
-    if (autoHideTimer.current) {
-      clearTimeout(autoHideTimer.current)
-    }
-
-    // Nouveau timer
-    autoHideTimer.current = setTimeout(() => {
-      setOverlayVisible(false)
-    }, VERTICAL_FEED_CONFIG.OVERLAY_AUTO_HIDE_DURATION)
+    console.log('[VideoCard] Press detected on right side')
+    // Démarrer timer de 0.7s pour activer 1.6x speed
+    longPressTimer.current = setTimeout(() => {
+      console.log('[VideoCard] Activating 1.6x speed')
+      setIsSpeedUp(true)
+      // Fade in badge
+      Animated.timing(speedBadgeOpacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start()
+    }, 700) // 0.7 secondes
   }
 
+  const handlePressOut = () => {
+    // Annuler le timer si pas encore activé
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+
+    // Désactiver 1.6x si actif
+    if (isSpeedUp) {
+      console.log('[VideoCard] Deactivating 1.6x speed')
+      setIsSpeedUp(false)
+      // Fade out badge
+      Animated.timing(speedBadgeOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start()
+    }
+  }
+
+  // Animation des points de chargement
+  useEffect(() => {
+    if (!isLoading) return
+
+    const createPulseAnimation = (animValue: Animated.Value, delay: number) => {
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(animValue, {
+            toValue: 1,
+            duration: 400,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(animValue, {
+            toValue: 0,
+            duration: 400,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ])
+      )
+    }
+
+    const anim1 = createPulseAnimation(dot1Anim, 0)
+    const anim2 = createPulseAnimation(dot2Anim, 150)
+    const anim3 = createPulseAnimation(dot3Anim, 300)
+
+    anim1.start()
+    anim2.start()
+    anim3.start()
+
+    return () => {
+      anim1.stop()
+      anim2.stop()
+      anim3.stop()
+    }
+  }, [isLoading])
+
   /**
-   * Toggle overlays au tap
+   * 🆕 Exposer le player au parent quand il devient actif
    */
-  const handleTap = () => {
-    if (overlayVisible) {
-      // Cacher immédiatement
-      setOverlayVisible(false)
-      if (autoHideTimer.current) {
-        clearTimeout(autoHideTimer.current)
+  useEffect(() => {
+    if (!player || !isActive) return
+
+    // 🆕 Exposer le player au parent pour le seek
+    if (onPlayerReady) {
+      onPlayerReady(player)
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🎮 Player exposed to parent`)
+    }
+  }, [isActive, player, onPlayerReady, video.id])
+
+  /**
+   * 🆕 Autoplay/pause avec expo-video
+   * 🚨 RÈGLES STRICTES:
+   * 1. Play UNIQUEMENT si isActive = true
+   * 2. Restart depuis le début à chaque activation (ou segment_start_time si segment)
+   * 3. Pause immédiate si devient inactive
+   * 4. GUARD: Empêche les doubles play() sans pause() intermédiaire
+   * 5. 🎯 SEGMENT MODE: Démarre au timestamp du highlight si is_segment = true
+   */
+  useEffect(() => {
+    if (!player) return
+
+    const isSegment = video.is_segment || false
+    const segmentStartTime = video.segment_start_time || 0
+
+    console.log(`[VideoCard ${video.id.substring(0, 8)}] 🎯 useEffect trigger - isActive=${isActive}, isSegment=${isSegment}, startTime=${segmentStartTime}s`)
+
+    if (isActive) {
+      // 🚨 GUARD: Ne pas play si déjà en train de jouer
+      if (isPlayingRef.current) {
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ⚠️  BLOCKED duplicate play()`)
+        return
       }
+
+      // ✅ SEGMENT MODE: Start at highlight timestamp
+      const startTime = isSegment ? segmentStartTime : 0
+      player.currentTime = startTime
+      player.muted = isMuted // Respecter la préférence
+      player.volume = isMuted ? 0 : 1
+
+      if (isSegment) {
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ▶️  Playing SEGMENT from ${startTime}s (muted=${isMuted})`)
+      } else {
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ▶️  Playing from start (muted=${isMuted})`)
+      }
+
+      player.play()
+      isPlayingRef.current = true // Marquer comme en lecture
     } else {
-      // Afficher avec auto-hide
-      showOverlaysWithAutoHide()
+      // ✅ TOUJOURS FORCER pause ET mute sur vidéos inactives
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] ⏸️  Forcing pause + mute`)
+      player.pause()
+
+      // Reset to segment start or 0
+      const resetTime = isSegment ? segmentStartTime : 0
+      player.currentTime = resetTime
+
+      player.muted = true // 🚨 FORCE MUTE pour éviter audio en background
+      player.volume = 0 // 🚨 FORCE VOLUME à 0
+      isPlayingRef.current = false // Marquer comme en pause
     }
-  }
+  }, [isActive, player, video.is_segment, video.segment_start_time]) // Réagir aux changements pertinents
 
   /**
-   * Seek vidéo
+   * 🆕 Mute/unmute avec expo-video (séparé pour les changements de préférence)
    */
-  const handleSeek = async (timeInSeconds: number) => {
-    try {
-      await videoRef.current?.setPositionAsync(timeInSeconds * 1000)
-      console.log(`[VideoCard] Seeked to ${timeInSeconds}s`)
-    } catch (error) {
-      console.error('[VideoCard] Seek error:', error)
-    }
-  }
+  useEffect(() => {
+    if (!player || !isActive) return // Only apply to active video
+    player.muted = isMuted
+    player.volume = isMuted ? 0 : 1
+    console.log(`[VideoCard ${video.id.substring(0, 8)}] 🔊 Mute changed: ${isMuted}`)
+  }, [isMuted, player, isActive])
 
   /**
-   * Handler playback status
+   * 🆕 Speed control (1.6x playback)
    */
-  const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
-    if (status.isLoaded) {
-      // Update progress
-      const currentProgress = status.positionMillis / status.durationMillis
-      setProgress(isNaN(currentProgress) ? 0 : currentProgress)
-      setDuration(status.durationMillis / 1000)
+  useEffect(() => {
+    if (!player) return
+    player.playbackRate = isSpeedUp ? 1.6 : 1.0
+    if (isSpeedUp) {
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] Speed: 1.6x ⚡`)
+    }
+  }, [isSpeedUp, player])
 
-      // Loading terminé
-      if (isLoading) {
+  /**
+   * 🆕 Listen to player events (expo-video)
+   */
+  useEffect(() => {
+    if (!player) return
+
+    // Cleanup old listeners
+    playingListenerRef.current?.remove()
+    statusListenerRef.current?.remove()
+
+    // Playing state listener
+    playingListenerRef.current = player.addListener('playingChange', (newStatus) => {
+      if (newStatus.isPlaying && isLoading) {
         setIsLoading(false)
       }
+    })
 
-      // Si fin de vidéo → pause
-      if (status.didJustFinish) {
-        console.log('[VideoCard] Video finished')
+    // Status listener with retry logic
+    statusListenerRef.current = player.addListener('statusChange', (newStatus) => {
+      if (newStatus.status === 'readyToPlay') {
+        setIsLoading(false)
+        setHasError(false) // ✅ Clear error if video loads successfully
+        errorRetryCount.current = 0 // Reset retry count
+      } else if (newStatus.status === 'error') {
+        // ✅ Only log errors for ACTIVE videos (not background players)
+        if (isActive) {
+          console.warn(`⚠️ [VideoCard] Video loading error (attempt ${errorRetryCount.current + 1}/3):`, newStatus.error?.message)
+
+          // ✅ Retry logic: Try 3 times before showing error
+          if (errorRetryCount.current < 3) {
+            errorRetryCount.current++
+
+            // ✅ Wait 1s before retry
+            if (errorRetryTimer.current) {
+              clearTimeout(errorRetryTimer.current)
+            }
+
+            errorRetryTimer.current = setTimeout(() => {
+              console.log(`🔄 [VideoCard] Retrying video load (attempt ${errorRetryCount.current}/3)`)
+              setIsLoading(true)
+              setHasError(false)
+              // 🚨 Force player refresh SEULEMENT si active
+              if (player && isActive) {
+                player.currentTime = 0
+                player.pause()
+                setTimeout(() => {
+                  if (isActive) { // ✅ Double-check avant de play
+                    player.play()
+                  }
+                }, 100)
+              }
+            }, 1000)
+          } else {
+            // ✅ After 3 retries, show error
+            console.error(`❌ [VideoCard] Video failed after 3 retries:`, newStatus.error)
+            setHasError(true)
+            setIsLoading(false)
+          }
+        } else {
+          // ✅ Silent error for background players (they will retry when becoming active)
+          setIsLoading(false)
+        }
       }
-    } else if (status.error) {
-      console.error('[VideoCard] Playback error:', status.error)
-      setHasError(true)
-      setIsLoading(false)
+    })
+
+    // Cleanup
+    return () => {
+      playingListenerRef.current?.remove()
+      statusListenerRef.current?.remove()
     }
-  }
+  }, [player, isLoading])
 
   /**
-   * Cleanup au unmount
+   * 🆕 Listen to playToEnd event - Auto-scroll to next video
+   */
+  useEffect(() => {
+    if (!player || !isActive) return // Only for active video
+
+    const playToEndListener = player.addListener('playToEnd', () => {
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🎬 Video finished, triggering onVideoEnd`)
+      onVideoEnd()
+    })
+
+    return () => {
+      playToEndListener.remove()
+    }
+  }, [player, isActive, onVideoEnd, video.id])
+
+  /**
+   * 🎯 SEGMENT MODE: Monitor playback time and stop at segment_end_time
+   * When a segment reaches its end time, pause and trigger auto-scroll to next segment
+   */
+  useEffect(() => {
+    if (!player || !isActive) return
+    if (!video.is_segment || !video.segment_end_time) return // Only for segments
+
+    const endTime = video.segment_end_time
+    const segmentTitle = video.segment_title || 'segment'
+
+    // Monitor playback time every 100ms
+    const checkPlaybackTime = setInterval(() => {
+      if (player.currentTime >= endTime) {
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ⏹️ Segment "${segmentTitle}" ended at ${endTime}s`)
+        player.pause()
+        isPlayingRef.current = false
+
+        // Trigger onVideoEnd to auto-scroll to next segment
+        onVideoEnd()
+
+        // Clear interval to stop checking
+        clearInterval(checkPlaybackTime)
+      }
+    }, 100) // Check every 100ms for smooth cutoff
+
+    return () => {
+      clearInterval(checkPlaybackTime)
+    }
+  }, [player, isActive, video.is_segment, video.segment_end_time, video.segment_title, video.id, onVideoEnd])
+
+  /**
+   * Reset error when becoming active (give it another chance)
+   */
+  useEffect(() => {
+    if (isActive && hasError) {
+      console.log(`🔄 [VideoCard] Video became active, resetting error state for retry`)
+      setHasError(false)
+      setIsLoading(true)
+      errorRetryCount.current = 0
+    }
+  }, [isActive, hasError])
+
+  /**
+   * Cleanup au unmount - FORCE STOP du player
    */
   useEffect(() => {
     return () => {
-      if (autoHideTimer.current) {
-        clearTimeout(autoHideTimer.current)
+      // 🚨 FORCE: Arrêter complètement le player avant unmount
+      if (player) {
+        try {
+          console.log(`[VideoCard ${video.id.substring(0, 8)}] 🧹 Cleanup: Stopping player`)
+          player.pause()
+          player.currentTime = 0
+          player.volume = 0
+          player.muted = true
+        } catch (error) {
+          // ✅ Silently catch - player already destroyed by expo-video (normal race condition)
+          // No need to log this error, it's expected behavior during fast unmount
+        }
       }
-      // Unload video
-      videoRef.current?.unloadAsync()
-      console.log(`[VideoCard] Unmounted video ${video.id}`)
+
+      // Cleanup timers
+      if (errorRetryTimer.current) {
+        clearTimeout(errorRetryTimer.current)
+      }
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current)
+      }
+
+      // Cleanup listeners
+      playingListenerRef.current?.remove()
+      statusListenerRef.current?.remove()
+      isPlayingRef.current = false // Reset guard
+
+      console.log(`[VideoCard] 🗑️ Unmounted video ${video.id.substring(0, 8)}`)
     }
-  }, [video.id])
+  }, [video.id, player])
 
   return (
     <View style={styles.container}>
-      {/* Vidéo plein écran */}
-      <Pressable onPress={handleTap} style={styles.videoWrapper}>
-        <Video
-          ref={videoRef}
-          source={{ uri: video.file_path }}
-          style={styles.video}
-          resizeMode={ResizeMode.CONTAIN}
-          shouldPlay={false}
-          isLooping={false}
-          isMuted={isMuted}
-          onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-          onLoad={() => {
-            console.log(`[VideoCard] Video loaded: ${video.id}`)
-            setIsLoading(false)
-          }}
-          onError={(error) => {
-            console.error('[VideoCard] Video error:', error)
-            setHasError(true)
-            setIsLoading(false)
-          }}
-        />
-
-        {/* Loading spinner */}
-        {isLoading && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color={VERTICAL_FEED_COLORS.OVERLAY_TEXT} />
-          </View>
-        )}
-
-        {/* Error state */}
-        {hasError && (
-          <View style={styles.errorOverlay}>
-            <Text style={styles.errorText}>Impossible de lire la vidéo</Text>
-          </View>
-        )}
-      </Pressable>
-
-      {/* Progress bar */}
-      <VerticalProgressBar
-        progress={progress}
-        duration={duration}
-        onSeek={handleSeek}
-        visible={overlayVisible}
+      {/* Vidéo plein écran - Clean, no overlays */}
+      <VideoView
+        player={player}
+        style={styles.video}
+        contentFit="cover"
+        nativeControls={false}
+        allowsFullscreen={false}
       />
 
-      {/* Overlays (top + bottom) */}
-      <VerticalFeedOverlay
-        video={video}
-        visible={overlayVisible}
-        isMuted={isMuted}
-        videoIndex={videoIndex}
-        totalVideos={totalVideos}
-        onBack={onBack}
-        onOptions={onOptions}
-        onToggleMute={onToggleMute}
-      />
+      {/* 🆕 Invisible touch zone on right half for speed control */}
+      <TouchableWithoutFeedback onPressIn={handlePressIn} onPressOut={handlePressOut}>
+        <View style={styles.rightTouchZone} />
+      </TouchableWithoutFeedback>
+
+      {/* Loading: 3 dots pulsing animation (subtle and modern) */}
+      {isLoading && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.dotsContainer}>
+            <Animated.View
+              style={[
+                styles.dot,
+                {
+                  opacity: dot1Anim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.3, 1],
+                  }),
+                  transform: [
+                    {
+                      scale: dot1Anim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.8, 1.2],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
+            <Animated.View
+              style={[
+                styles.dot,
+                {
+                  opacity: dot2Anim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.3, 1],
+                  }),
+                  transform: [
+                    {
+                      scale: dot2Anim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.8, 1.2],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
+            <Animated.View
+              style={[
+                styles.dot,
+                {
+                  opacity: dot3Anim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.3, 1],
+                  }),
+                  transform: [
+                    {
+                      scale: dot3Anim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.8, 1.2],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
+          </View>
+        </View>
+      )}
+
+      {/* Error state only */}
+      {hasError && (
+        <View style={styles.errorOverlay}>
+          <Text style={styles.errorText}>Impossible de lire la vidéo</Text>
+        </View>
+      )}
+
+      {/* 🆕 Speed indicator badge (1.6x) */}
+      <Animated.View
+        style={[
+          styles.speedBadge,
+          {
+            opacity: speedBadgeOpacity,
+          },
+        ]}
+      >
+        <Text style={styles.speedBadgeText}>1.6x</Text>
+      </Animated.View>
     </View>
   )
 }
@@ -247,30 +535,64 @@ const styles = StyleSheet.create({
   container: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-    backgroundColor: VERTICAL_FEED_COLORS.BACKGROUND,
-  },
-  videoWrapper: {
-    flex: 1,
+    backgroundColor: '#000000',
   },
   video: {
     width: '100%',
     height: '100%',
   },
+  rightTouchZone: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: SCREEN_WIDTH / 2, // ✅ Moitié droite de l'écran
+    backgroundColor: 'transparent',
+  },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'transparent', // ✅ Pas de fond sombre
+  },
+  dotsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 4, // ✅ Espacement entre les points (gap non supporté)
   },
   errorOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
   },
   errorText: {
-    color: VERTICAL_FEED_COLORS.OVERLAY_TEXT,
+    color: '#FFFFFF',
     fontSize: 16,
     textAlign: 'center',
+  },
+  speedBadge: {
+    position: 'absolute',
+    top: 60, // ✅ En haut de l'écran
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  speedBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    overflow: 'hidden',
   },
 })
