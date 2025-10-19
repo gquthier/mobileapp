@@ -53,16 +53,7 @@ serve(async (req) => {
       videoUrl: job.video_url
     });
 
-    // 2. Mettre à jour le statut
-    await updateJobStatus(supabaseClient, jobId, 'extracting_audio');
-
-    // 3. Télécharger la vidéo depuis Supabase Storage
-    console.log('📥 Downloading video from:', job.video_url);
-    const videoData = await downloadVideoFromStorage(supabaseClient, job.video_url);
-
-    console.log('✅ Video downloaded:', videoData.byteLength, 'bytes');
-
-    // 4. Transcrire avec AssemblyAI uniquement
+    // 2. Passer directement à la transcription (AssemblyAI gère l'URL)
     await updateJobStatus(supabaseClient, jobId, 'transcribing');
 
     console.log('🔤 Starting AssemblyAI transcription (primary method)...');

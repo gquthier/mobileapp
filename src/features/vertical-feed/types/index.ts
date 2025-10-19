@@ -2,7 +2,7 @@
  * Vertical Feed Feature - Type Definitions
  */
 
-import { VideoRecord } from '../../../types'
+import { VideoRecord } from '../../../lib/supabase'
 
 /**
  * Paramètres de navigation pour VerticalFeedScreen

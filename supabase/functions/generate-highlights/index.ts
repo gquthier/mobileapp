@@ -37,9 +37,12 @@ serve(async (req) => {
     console.log('🧠 Starting highlights generation...');
 
     // Générer les highlights avec l'IA
-    const highlights = await generateHighlights(transcription);
+    const highlightsData = await generateHighlights(transcription);
 
     console.log('✅ Highlights generated successfully');
+
+    // Extraire les données
+    const { video_title, video_description, ...highlights } = highlightsData;
 
     // Si on a un jobId, mettre à jour le job avec les highlights
     if (jobId) {
@@ -56,12 +59,40 @@ serve(async (req) => {
       } else {
         console.log('✅ Job updated with highlights');
       }
+
+      // Récupérer le video_id depuis le job pour mettre à jour le titre de la vidéo
+      if (video_title) {
+        const { data: jobData, error: jobError } = await supabaseClient
+          .from('transcription_jobs')
+          .select('video_id')
+          .eq('id', jobId)
+          .single();
+
+        if (!jobError && jobData?.video_id) {
+          console.log(`📝 Updating video title: "${video_title}"`);
+          const { error: videoUpdateError } = await supabaseClient
+            .from('videos')
+            .update({
+              title: video_title,
+              ai_description: video_description
+            })
+            .eq('id', jobData.video_id);
+
+          if (videoUpdateError) {
+            console.error('⚠️ Failed to update video title:', videoUpdateError);
+          } else {
+            console.log('✅ Video title updated successfully');
+          }
+        }
+      }
     }
 
     return new Response(
       JSON.stringify({
         success: true,
         highlights,
+        video_title,
+        video_description,
         jobId
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
@@ -104,7 +135,7 @@ async function generateHighlights(transcription: any): Promise<any> {
 
   // Utilisation du prompt ID avec version mise à jour
   const promptId = "pmpt_68db774e1a6c81959f2860fb8e45a11d01dbf13311e57edd";
-  const promptVersion = "4";
+  const promptVersion = "5";
 
   try {
     const response = await fetch('https://api.openai.com/v1/responses', {

@@ -24,62 +24,119 @@ const opacity = LayoutTokens.opacity;
 const animations = LayoutTokens.animations;
 const borderWidth = LayoutTokens.borderWidth;
 
+// Light theme colors
+const lightColors = {
+  ...colors,
+  // Semantic color mappings for easy customization
+  brand: {
+    primary: colors.primary400,
+    primaryHover: colors.primary500,
+    primaryPressed: colors.primary600,
+    primaryDisabled: colors.primary200,
+    primaryLight: colors.primary100,
+    primaryLighter: colors.primary50,
+  },
+
+  ui: {
+    background: colors.white,
+    surface: colors.white,
+    surfaceHover: colors.gray50,
+    surfacePressed: colors.gray100,
+    border: colors.gray300,
+    borderHover: colors.gray400,
+    divider: colors.gray200,
+    muted: colors.gray200,
+  },
+
+  text: {
+    primary: colors.textPrimary,
+    secondary: colors.textSecondary,
+    tertiary: colors.textTertiary,
+    disabled: colors.textDisabled,
+    inverse: colors.textOnDark,
+    brand: colors.primary500,
+    error: colors.error600,
+    warning: colors.warning600,
+    success: colors.success600,
+  },
+
+  feedback: {
+    error: colors.error500,
+    errorLight: colors.error100,
+    warning: colors.warning500,
+    warningLight: colors.warning100,
+    success: colors.success500,
+    successLight: colors.success100,
+    info: colors.info500,
+    infoLight: colors.info100,
+  },
+
+  overlay: {
+    backdrop: colors.blackOverlay60,
+    surface: colors.blackOverlay80,
+    light: colors.whiteOverlay20,
+    heavy: colors.blackOverlay90,
+  },
+};
+
+// Dark theme colors (inverted)
+const darkColors = {
+  ...colors,
+  brand: {
+    primary: colors.primary400,
+    primaryHover: colors.primary500,
+    primaryPressed: colors.primary600,
+    primaryDisabled: colors.primary200,
+    primaryLight: colors.primary100,
+    primaryLighter: colors.primary50,
+  },
+
+  ui: {
+    background: colors.black,
+    surface: colors.gray900,
+    surfaceHover: colors.gray800,
+    surfacePressed: colors.gray700,
+    border: colors.gray700,
+    borderHover: colors.gray600,
+    divider: colors.gray800,
+    muted: colors.gray800,
+  },
+
+  text: {
+    primary: colors.white,
+    secondary: colors.gray300,
+    tertiary: colors.gray400,
+    disabled: colors.gray600,
+    inverse: colors.black,
+    brand: colors.primary400,
+    error: colors.error400,
+    warning: colors.warning400,
+    success: colors.success400,
+  },
+
+  feedback: {
+    error: colors.error500,
+    errorLight: colors.error900,
+    warning: colors.warning500,
+    warningLight: colors.warning900,
+    success: colors.success500,
+    successLight: colors.success900,
+    info: colors.info500,
+    infoLight: colors.info900,
+  },
+
+  overlay: {
+    backdrop: 'rgba(0, 0, 0, 0.8)',
+    surface: 'rgba(0, 0, 0, 0.9)',
+    light: 'rgba(255, 255, 255, 0.1)',
+    heavy: 'rgba(0, 0, 0, 0.95)',
+  },
+};
+
 // Main theme object - the single source of truth for the design system
 export const theme = {
-  // Color system
-  colors: {
-    ...colors,
-    // Semantic color mappings for easy customization
-    brand: {
-      primary: colors.primary400,
-      primaryHover: colors.primary500,
-      primaryPressed: colors.primary600,
-      primaryDisabled: colors.primary200,
-      primaryLight: colors.primary100,
-      primaryLighter: colors.primary50,
-    },
-
-    ui: {
-      background: colors.white,
-      surface: colors.white,
-      surfaceHover: colors.gray50,
-      surfacePressed: colors.gray100,
-      border: colors.gray300,
-      borderHover: colors.gray400,
-      divider: colors.gray200,
-      muted: colors.gray200,
-    },
-
-    text: {
-      primary: colors.textPrimary,
-      secondary: colors.textSecondary,
-      tertiary: colors.textTertiary,
-      disabled: colors.textDisabled,
-      inverse: colors.textOnDark,
-      brand: colors.primary500,
-      error: colors.error600,
-      warning: colors.warning600,
-      success: colors.success600,
-    },
-
-    feedback: {
-      error: colors.error500,
-      errorLight: colors.error100,
-      warning: colors.warning500,
-      warningLight: colors.warning100,
-      success: colors.success500,
-      successLight: colors.success100,
-      info: colors.info500,
-      infoLight: colors.info100,
-    },
-
-    overlay: {
-      backdrop: colors.blackOverlay60,
-      surface: colors.blackOverlay80,
-      light: colors.whiteOverlay20,
-      heavy: colors.blackOverlay90,
-    },
-  },
+  // Color system (default light)
+  colors: lightColors,
 
   // Typography system
   typography: {
@@ -186,60 +243,17 @@ export const theme = {
   },
 };
 
-// Theme variants (for future dark mode support)
+// Theme variants for dark mode support
 export const lightTheme = theme;
 
 export const darkTheme = {
   ...theme,
-  colors: {
-    ...theme.colors,
-    // Dark mode color overrides
-    ui: {
-      background: colors.gray900,
-      surface: colors.gray800,
-      surfaceHover: colors.gray700,
-      surfacePressed: colors.gray600,
-      border: colors.gray600,
-      borderHover: colors.gray500,
-      divider: colors.gray700,
-      muted: colors.gray700,
-    },
-    text: {
-      primary: colors.white,
-      secondary: colors.gray300,
-      tertiary: colors.gray400,
-      disabled: colors.gray500,
-      inverse: colors.gray900,
-      brand: colors.primary400,
-      error: colors.error400,
-      warning: colors.warning400,
-      success: colors.success400,
-    },
-  },
-  components: {
-    ...theme.components,
-    // Dark mode component overrides
-    card: {
-      default: {
-        backgroundColor: colors.gray800,
-        borderColor: colors.gray600,
-        shadowColor: colors.blackOverlay20,
-      },
-    },
-    navigation: {
-      tabBar: {
-        backgroundColor: colors.gray900,
-        borderColor: colors.gray700,
-        activeColor: colors.white,
-        inactiveColor: colors.gray400,
-      },
-      topBar: {
-        backgroundColor: colors.gray900,
-        borderColor: colors.gray700,
-        titleColor: colors.white,
-      },
-    },
-  },
+  colors: darkColors,
+};
+
+// Function to get theme based on dark mode
+export const getTheme = (isDarkMode: boolean) => {
+  return isDarkMode ? darkTheme : lightTheme;
 };
 
 // Theme context type (for TypeScript)

@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef } from 'react'
-import { VideoRecord } from '../../../types'
+import { VideoRecord } from '../../../lib/supabase'
 
 interface UseVerticalPreloaderProps {
   /** Liste complète des vidéos */

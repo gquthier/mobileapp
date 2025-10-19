@@ -1,0 +1,1476 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  View,
+  StyleSheet,
+  Alert,
+  Platform,
+  Dimensions,
+  StatusBar,
+  Text,
+  TouchableOpacity,
+  Image,
+  Animated,
+  PanResponder,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { useFocusEffect } from '@react-navigation/native';
+import * as Haptics from 'expo-haptics';
+import * as MediaLibrary from 'expo-media-library';
+import * as ScreenOrientation from 'expo-screen-orientation';
+import * as FileSystem from 'expo-file-system/legacy';
+import { Audio } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { theme } from '../styles';
+import { Icon } from '../components/Icon';
+import { VideoService } from '../services/videoService';
+import { TranscriptionJobService, TranscriptionJob } from '../services/transcriptionJobService';
+import { getRandomQuestion, IntrospectionQuestion } from '../data/introspectionQuestions';
+import { UserQuestionsService, UserQuestion } from '../services/userQuestionsService';
+import { useMomentumAnalysis } from '../hooks/useMomentumAnalysis';
+import { supabase } from '../lib/supabase';
+import { getCurrentChapter } from '../services/chapterService';
+import { ImportQueueService } from '../services/importQueueService';
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+// AsyncStorage cache configuration
+const QUESTIONS_CACHE_KEY = '@questions_cache';
+const CACHE_EXPIRY_MS = 1000 * 60 * 60; // 1 heure
+
+const RecordScreen: React.FC = ({ route, navigation }: any) => {
+  // Permissions hooks
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
+  const [mediaLibraryPermission, requestMediaLibraryPermission] = MediaLibrary.usePermissions();
+
+  // Momentum analysis hook
+  const { analyzeMomentum } = useMomentumAnalysis();
+
+  // Recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+
+  // Camera state
+  const [cameraKey, setCameraKey] = useState(0);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+
+  // Recording UI state
+  const [showControls, setShowControls] = useState(true);
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Orientation state
+  const [orientation, setOrientation] = useState<ScreenOrientation.Orientation>(
+    ScreenOrientation.Orientation.PORTRAIT_UP
+  );
+
+  // Flash state
+  const [flashEnabled, setFlashEnabled] = useState(false);
+
+  // Questions state with preloading cache
+  const [showQuestions, setShowQuestions] = useState(false);
+  const [currentQuestion, setCurrentQuestion] = useState<UserQuestion | null>(null);
+  const [fallbackToStatic, setFallbackToStatic] = useState(false);
+  const [questionsCache, setQuestionsCache] = useState<UserQuestion[]>([]);
+  const [cacheIndex, setCacheIndex] = useState(0);
+  const [isLoadingCache, setIsLoadingCache] = useState(false);
+
+  // Polling interval for checking AI questions availability
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Draggable overlay position
+  const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+
+  // PanResponder for draggable overlay
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        pan.setOffset({
+          x: (pan.x as any)._value,
+          y: (pan.y as any)._value,
+        });
+        pan.setValue({ x: 0, y: 0 });
+      },
+      onPanResponderMove: Animated.event(
+        [null, { dx: pan.x, dy: pan.y }],
+        { useNativeDriver: false }
+      ),
+      onPanResponderRelease: () => {
+        pan.flattenOffset();
+      },
+    })
+  ).current;
+
+  // Refs
+  const cameraRef = useRef<CameraView>(null);
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isCancellingRef = useRef(false); // Flag pour indiquer qu'on annule (ne pas sauvegarder)
+
+  // Protection contre race conditions pour preloadQuestionsCache
+  const preloadPromiseRef = useRef<Promise<void> | null>(null);
+  const isPreloadingRef = useRef(false);
+
+  // Timer for recording duration
+  useEffect(() => {
+    if (isRecording && !isPaused) {
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingTime(prev => {
+          const newTime = prev + 1;
+
+          // Avertissement à 28 minutes (1680 secondes)
+          if (newTime === 1680) {
+            Alert.alert(
+              '⏰ Attention',
+              'Il vous reste 2 minutes d\'enregistrement avant la limite de 30 minutes.',
+              [{ text: 'OK' }]
+            );
+          }
+
+          // Avertissement à 29min30s (1770 secondes)
+          if (newTime === 1770) {
+            Alert.alert(
+              '⏰ Dernières secondes',
+              '30 secondes restantes avant l\'arrêt automatique.',
+              [{ text: 'OK' }]
+            );
+          }
+
+          return newTime;
+        });
+      }, 1000);
+    } else {
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+        recordingIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    };
+  }, [isRecording, isPaused]);
+
+  // Check permissions on mount
+  useEffect(() => {
+    checkAllPermissions();
+  }, []);
+
+  // Initialize questions system on mount
+  useEffect(() => {
+    initializeQuestions();
+  }, []);
+
+  // Cleanup polling interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        console.log('🧹 Cleaning up polling interval');
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, []);
+
+  const initializeQuestions = async () => {
+    try {
+      console.log('🔄 Initializing questions system...');
+      await UserQuestionsService.initializeQuestionsIfNeeded();
+      console.log('✅ Questions system initialized');
+
+      // Preload 30 questions into cache for instant access
+      await preloadQuestionsCache();
+    } catch (error) {
+      console.error('❌ Failed to initialize questions:', error);
+      setFallbackToStatic(true);
+    }
+  };
+
+  /**
+   * Start polling for AI questions when in static fallback mode
+   */
+  const startPollingForAIQuestions = () => {
+    // Clear any existing interval
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+    }
+
+    console.log('🔄 Starting polling for AI questions...');
+
+    // Check every 3 seconds
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const questions = await UserQuestionsService.getUnusedQuestions();
+        if (questions.length > 0) {
+          console.log('🎉 AI questions now available! Switching back from static...');
+          // Stop polling
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+          // Reload cache with AI questions
+          await preloadQuestionsCache();
+        }
+      } catch (error) {
+        console.error('⚠️ Polling error (non-critical):', error);
+      }
+    }, 3000); // Check every 3 seconds
+  };
+
+  /**
+   * Preload 30 questions into cache for instant access
+   * This eliminates latency when user clicks on question button
+   */
+  const preloadQuestionsCache = async (): Promise<void> => {
+    // ✅ Si déjà en cours, retourner la Promise existante (pattern de deduplication)
+    if (preloadPromiseRef.current) {
+      console.log('🔄 Questions already loading, returning existing promise');
+      return preloadPromiseRef.current;
+    }
+
+    // ✅ Protection atomique avec ref (synchrone, pas de race condition)
+    if (isPreloadingRef.current) {
+      console.log('⏸️ Questions preload already in progress');
+      return;
+    }
+
+    isPreloadingRef.current = true;
+
+    const loadPromise = (async () => {
+      try {
+        setIsLoadingCache(true);
+
+        // ✅ Vérifier d'abord le cache local AsyncStorage
+        try {
+          const cachedData = await AsyncStorage.getItem(QUESTIONS_CACHE_KEY);
+          if (cachedData) {
+            const parsed = JSON.parse(cachedData);
+            const cacheAge = Date.now() - parsed.timestamp;
+
+            if (cacheAge < CACHE_EXPIRY_MS) {
+              console.log('✅ Using cached questions from AsyncStorage (age: ' + Math.round(cacheAge / 1000) + 's)');
+              setQuestionsCache(parsed.questions);
+              setCacheIndex(0);
+              setFallbackToStatic(false);
+              return; // Cache valide, pas besoin de fetch
+            } else {
+              console.log('⏰ Cache expired, fetching fresh questions');
+            }
+          }
+        } catch (storageError) {
+          console.warn('⚠️ AsyncStorage read error, fetching fresh:', storageError);
+        }
+
+        // Sinon, fetch depuis Supabase
+        console.log('📦 Fetching fresh questions from server...');
+        const questions = await UserQuestionsService.getUnusedQuestions();
+
+        if (questions.length > 0) {
+          // Take up to 30 questions for cache
+          const questionsToCache = questions.slice(0, 30);
+          setQuestionsCache(questionsToCache);
+          setCacheIndex(0);
+          setFallbackToStatic(false); // Switch back to AI questions
+          console.log(`✅ Preloaded ${questionsToCache.length} questions into cache`);
+
+          // ✅ Sauvegarder dans AsyncStorage
+          try {
+            await AsyncStorage.setItem(QUESTIONS_CACHE_KEY, JSON.stringify({
+              questions: questionsToCache,
+              timestamp: Date.now()
+            }));
+            console.log('💾 Questions cached to AsyncStorage');
+          } catch (storageError) {
+            console.warn('⚠️ AsyncStorage write error:', storageError);
+          }
+        } else {
+          console.log('⚠️ No AI questions available for cache, will use static');
+          setFallbackToStatic(true);
+          startPollingForAIQuestions(); // Start checking for AI questions
+        }
+      } catch (error) {
+        console.error('❌ Error preloading questions cache:', error);
+        setFallbackToStatic(true);
+        startPollingForAIQuestions(); // Start checking for AI questions
+        throw error; // Re-throw pour que les appelants puissent gérer l'erreur
+      } finally {
+        setIsLoadingCache(false);
+        isPreloadingRef.current = false;
+        preloadPromiseRef.current = null; // Reset pour permettre futurs appels
+      }
+    })();
+
+    preloadPromiseRef.current = loadPromise;
+    return loadPromise;
+  };
+
+  // Orientation listener
+  useEffect(() => {
+    const setupOrientation = async () => {
+      // Get current orientation
+      const currentOrientation = await ScreenOrientation.getOrientationAsync();
+      setOrientation(currentOrientation);
+
+      // Listen for orientation changes
+      const subscription = ScreenOrientation.addOrientationChangeListener((event) => {
+        console.log('📱 Orientation changed:', event.orientationInfo.orientation);
+        setOrientation(event.orientationInfo.orientation);
+      });
+
+      return () => {
+        ScreenOrientation.removeOrientationChangeListener(subscription);
+      };
+    };
+
+    setupOrientation();
+  }, []);
+
+  // Camera ready timeout - force ready after 5 seconds if no callback
+  useEffect(() => {
+    if (cameraPermission?.granted && microphonePermission?.granted && !isCameraReady) {
+      const timeout = setTimeout(() => {
+        console.log('⚠️ Camera timeout - forcing ready state');
+        setIsCameraReady(true);
+      }, 5000);
+
+      return () => clearTimeout(timeout);
+    }
+  }, [cameraPermission?.granted, microphonePermission?.granted, isCameraReady]);
+
+  // Listen for navigation params to trigger recording
+  useFocusEffect(
+    useCallback(() => {
+      console.log('📱 RecordScreen focused, permissions:', {
+        camera: cameraPermission?.granted,
+        microphone: microphonePermission?.granted
+      });
+
+      const triggerRecording = route.params?.triggerRecording;
+      const triggerStop = route.params?.triggerStop;
+      const triggerCancel = route.params?.triggerCancel;
+
+      if (triggerRecording) {
+        // Clear the parameter to avoid repeated triggers
+        navigation.setParams({ triggerRecording: undefined });
+
+        // Toggle recording state
+        handleCenterPress();
+      }
+
+      if (triggerStop && isRecording) {
+        // Clear the parameter to avoid repeated triggers
+        navigation.setParams({ triggerStop: undefined });
+
+        // Stop recording
+        handleStopPress();
+      }
+
+      if (triggerCancel && isRecording) {
+        // Clear the parameter to avoid repeated triggers
+        navigation.setParams({ triggerCancel: undefined });
+
+        // Cancel recording
+        cancelRecording();
+      }
+    }, [route.params?.triggerRecording, route.params?.triggerStop, route.params?.triggerCancel, isRecording, cameraPermission, microphonePermission])
+  );
+
+  const checkAllPermissions = async () => {
+    try {
+      console.log('🔍 Starting permission check...');
+
+      // Camera permission
+      if (!cameraPermission?.granted) {
+        console.log('📷 Requesting camera permission...');
+        const cameraResult = await requestCameraPermission();
+        console.log('📷 Camera permission result:', cameraResult);
+
+        if (!cameraResult.granted) {
+          Alert.alert(
+            'Camera Permission Required',
+            'Please enable camera access in Settings to use the camera.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        // Force remount camera after permission grant
+        // Wait 300ms to let iOS release the previous camera session
+        console.log('⏳ Waiting for iOS to release camera session...');
+        await new Promise(resolve => setTimeout(resolve, 300));
+        console.log('🔄 Remounting camera after permission grant');
+        setCameraKey(prev => prev + 1);
+      }
+
+      // Microphone permission
+      if (!microphonePermission?.granted) {
+        console.log('🎙️ Requesting microphone permission...');
+        const micResult = await requestMicrophonePermission();
+        console.log('🎙️ Microphone permission result:', micResult);
+
+        if (!micResult.granted) {
+          Alert.alert(
+            'Microphone Permission Required',
+            'Please enable microphone access in Settings to record audio.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      }
+
+      // Media library permission (optional)
+      if (!mediaLibraryPermission?.granted) {
+        console.log('📱 Requesting media library permission...');
+        const mediaResult = await requestMediaLibraryPermission();
+        console.log('📱 Media library permission result:', mediaResult);
+      }
+
+      console.log('✅ All permissions checked');
+    } catch (error) {
+      console.error('❌ Permission error:', error);
+      Alert.alert('Permission Error', 'Failed to request permissions. Please try again.');
+    }
+  };
+
+  // Gestion de l'affichage des contrôles et de la barre de navigation
+  const toggleControls = () => {
+    if (!isRecording) return;
+
+    if (showControls) {
+      // Si les contrôles sont visibles, les masquer
+      setShowControls(false);
+      navigation.setParams({ showControls: false });
+
+      // Clear le timeout s'il existe
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+        controlsTimeoutRef.current = null;
+      }
+    } else {
+      // Si les contrôles sont masqués, les afficher
+      setShowControls(true);
+      navigation.setParams({ showControls: true });
+
+      // Clear existing timeout
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+
+      // Hide controls after 3 seconds
+      controlsTimeoutRef.current = setTimeout(() => {
+        setShowControls(false);
+        navigation.setParams({ showControls: false });
+      }, 3000);
+    }
+  };
+
+  const handleScreenTap = () => {
+    if (isRecording) {
+      toggleControls();
+    }
+  };
+
+  const toggleFlash = () => {
+    setFlashEnabled(!flashEnabled);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const toggleQuestions = async () => {
+    if (!showQuestions) {
+      // Charger la première question quand on ouvre
+      await loadNextQuestion();
+    }
+    setShowQuestions(!showQuestions);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  /**
+   * Load next question from cache (instant, no latency)
+   * Reloads cache when running low (<10 questions)
+   */
+  const loadNextQuestion = async () => {
+    try {
+      // Check if we have questions in cache
+      if (questionsCache.length > 0 && cacheIndex < questionsCache.length) {
+        const nextQuestion = questionsCache[cacheIndex];
+        setCurrentQuestion(nextQuestion);
+        setFallbackToStatic(false);
+        console.log(`✅ Loaded question from cache [${cacheIndex + 1}/${questionsCache.length}]:`, nextQuestion.question_text);
+
+        // Check if cache is running low (<10 questions left)
+        const questionsLeft = questionsCache.length - cacheIndex;
+        if (questionsLeft <= 10 && !isLoadingCache) {
+          console.log(`⚠️ Cache running low (${questionsLeft} left), reloading in background...`);
+          preloadQuestionsCache(); // Reload in background
+        }
+      } else {
+        // Cache empty, try to reload
+        console.log('⚠️ Cache empty, reloading...');
+        await preloadQuestionsCache();
+
+        // Try again from fresh cache
+        if (questionsCache.length > 0) {
+          setCurrentQuestion(questionsCache[0]);
+          setFallbackToStatic(false);
+        } else {
+          // No AI questions available, use static fallback
+          console.log('⚠️ No AI questions available, using static fallback');
+          setFallbackToStatic(true);
+          const staticQuestion = getRandomQuestion();
+          setCurrentQuestion({
+            id: 'static',
+            user_id: '',
+            question_text: staticQuestion.question,
+            batch_number: 0,
+            order_index: 0,
+            is_used: false,
+            created_at: new Date().toISOString()
+          } as UserQuestion);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error loading question:', error);
+      setFallbackToStatic(true);
+    }
+  };
+
+  const getNewQuestion = () => {
+    try {
+      // Calculate next index
+      const nextIndex = cacheIndex + 1;
+
+      // Check if we have the next question in cache
+      if (questionsCache.length > 0 && nextIndex < questionsCache.length) {
+        // 1. AFFICHER LA PROCHAINE QUESTION IMMÉDIATEMENT (synchrone, 0ms!)
+        const nextQuestion = questionsCache[nextIndex];
+        setCurrentQuestion(nextQuestion);
+        setCacheIndex(nextIndex);
+        setFallbackToStatic(false);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        console.log(`✅ Loaded question from cache [${nextIndex + 1}/${questionsCache.length}]:`, nextQuestion.question_text);
+
+        // 2. Marquer la PRÉCÉDENTE question comme "used" en arrière-plan (non-bloquant)
+        if (currentQuestion && !fallbackToStatic && currentQuestion.id !== 'static') {
+          console.log('✓ Marking previous question as used (background):', currentQuestion.id);
+          UserQuestionsService.markQuestionAsUsed(currentQuestion.id)
+            .then(() => {
+              // Check if we need to generate new questions (also in background)
+              return UserQuestionsService.checkAndGenerateIfNeeded();
+            })
+            .catch(err => {
+              console.error('❌ Background marking failed (non-critical):', err);
+            });
+        }
+
+        // 3. Check if cache is running low (<10 questions left)
+        const questionsLeft = questionsCache.length - nextIndex;
+        if (questionsLeft <= 10 && !isLoadingCache) {
+          console.log(`⚠️ Cache running low (${questionsLeft} left), reloading in background...`);
+          preloadQuestionsCache(); // Reload in background
+        }
+      } else {
+        // Cache exhausted - IMMEDIATELY show static question (0ms latency!)
+        console.log('⚠️ Cache exhausted, switching to static question IMMEDIATELY');
+
+        setFallbackToStatic(true);
+        const staticQuestion = getRandomQuestion();
+        setCurrentQuestion({
+          id: 'static',
+          user_id: '',
+          question_text: staticQuestion.question,
+          batch_number: 0,
+          order_index: 0,
+          is_used: false,
+          created_at: new Date().toISOString(),
+        } as UserQuestion);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+        // Start background polling for AI questions
+        startPollingForAIQuestions();
+
+        // Also trigger cache reload in background (non-blocking)
+        preloadQuestionsCache().catch(err => {
+          console.error('⚠️ Background cache reload failed (non-critical):', err);
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error getting new question:', error);
+      // Fallback to static question on error
+      setFallbackToStatic(true);
+      const staticQuestion = getRandomQuestion();
+      setCurrentQuestion({
+        id: 'static',
+        user_id: '',
+        question_text: staticQuestion.question,
+        batch_number: 0,
+        order_index: 0,
+        is_used: false,
+        created_at: new Date().toISOString()
+      } as UserQuestion);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  };
+
+  const generateAutoTitle = () => {
+    const titles = [
+      'Réflexion du jour',
+      'Moment de partage',
+      'Pensées personnelles',
+      'Journal vidéo',
+      'Introspection',
+      'Message personnel',
+      'Vidéo spontanée',
+      'Moment de vérité',
+      'Réflexion libre',
+      'Partage sincère'
+    ];
+
+    const today = new Date();
+    const dateStr = today.toLocaleDateString('fr-FR', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    const randomTitle = titles[Math.floor(Math.random() * titles.length)];
+    return `${randomTitle} - ${dateStr}`;
+  };
+
+  const pauseRecording = async () => {
+    if (!cameraRef.current || !isRecording) return;
+
+    try {
+      console.log('⏸️ Toggling pause state...');
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      // Simplement basculer l'état de pause
+      // Le timer s'arrêtera automatiquement grâce au useEffect
+      setIsPaused(!isPaused);
+      navigation.setParams({ isPaused: !isPaused });
+
+      console.log(`📹 Recording ${!isPaused ? 'paused' : 'resumed'} (UI only)`);
+    } catch (error) {
+      console.error('❌ Pause state error:', error);
+    }
+  };
+
+  const startRecording = async () => {
+    if (!cameraRef.current || isRecording || !isCameraReady) {
+      console.log('⚠️ Cannot start recording:', {
+        hasCamera: !!cameraRef.current,
+        isRecording,
+        isCameraReady
+      });
+
+      if (!isCameraReady) {
+        Alert.alert('Caméra non prête', 'Veuillez attendre que la caméra soit prête avant d\'enregistrer.');
+      }
+      return;
+    }
+
+    try {
+      console.log('🔴 Starting recording...');
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      setIsRecording(true);
+      setIsPaused(false);
+      setRecordingTime(0);
+      setShowControls(false); // Masquer les contrôles quand l'enregistrement commence
+
+      // Notify navigation about recording state and controls visibility
+      navigation.setParams({ isRecording: true, showControls: false });
+
+      // Configuration pour forcer MP4 compatible OpenAI
+      const recordingOptions = Platform.OS === 'ios' ? {
+        maxDuration: 1800, // 30 minutes max (1800 secondes)
+        // Options iOS pour forcer MP4
+        quality: '720p', // Réduit pour taille fichier plus petite
+        videoQuality: '720p',
+        mirror: false, // Pas de miroir pour éviter les problèmes de codec
+      } : {
+        maxDuration: 1800, // 30 minutes max Android (1800 secondes)
+        quality: '720p', // Qualité réduite pour Android aussi
+      };
+
+      console.log('📹 Recording options:', recordingOptions);
+
+      const video = await cameraRef.current.recordAsync(recordingOptions);
+
+      if (video?.uri) {
+        console.log('✅ Recording completed:', video.uri);
+        console.log('📹 Video details:', {
+          uri: video.uri,
+          codec: video.codec,
+          fileType: video.uri.split('.').pop(), // Extension du fichier
+        });
+
+        // Message si arrêt automatique à 30 minutes
+        if (recordingTime >= 1790) { // ~30 minutes (avec marge)
+          Alert.alert(
+            '🎬 Durée maximale atteinte',
+            'Votre enregistrement a été automatiquement arrêté après 30 minutes.',
+            [{ text: 'OK' }]
+          );
+        }
+
+        // Vérifier si l'utilisateur a annulé l'enregistrement
+        if (isCancellingRef.current) {
+          console.log('🗑️ Recording was cancelled, not saving video');
+          isCancellingRef.current = false; // Réinitialiser le flag
+
+          // Réinitialiser l'état d'enregistrement
+          setIsRecording(false);
+          setIsPaused(false);
+          setShowControls(true);
+          setRecordingTime(0);
+
+          // Clear timeout if exists
+          if (controlsTimeoutRef.current) {
+            clearTimeout(controlsTimeoutRef.current);
+            controlsTimeoutRef.current = null;
+          }
+
+          // Notify navigation about recording state
+          navigation.setParams({ isRecording: false, showControls: true, isPaused: false });
+
+          return; // Ne pas sauvegarder
+        }
+
+        // NOUVELLE APPROCHE : Extraire l'audio sur l'iPhone
+        if (Platform.OS === 'ios') {
+          try {
+            console.log('🎵 Extracting audio from video on iOS...');
+
+            // Créer un objet Audio depuis la vidéo
+            const { sound } = await Audio.Sound.createAsync(
+              { uri: video.uri },
+              { shouldPlay: false }
+            );
+
+            // Obtenir l'URI de l'audio
+            const status = await sound.getStatusAsync();
+            console.log('🎵 Audio extracted, status:', status);
+
+            // Libérer la ressource
+            await sound.unloadAsync();
+
+            // Note: Pour l'instant on garde l'URI vidéo originale
+            // car expo-av ne permet pas d'exporter directement l'audio
+            // On va améliorer côté serveur à la place
+            console.log('⚠️ Audio extraction on client not fully supported, will handle server-side');
+          } catch (error) {
+            console.log('❌ Audio extraction failed:', error);
+          }
+        }
+
+        // Réinitialiser l'état d'enregistrement immédiatement
+        setIsRecording(false);
+        setIsPaused(false);
+        setShowControls(true);
+        setRecordingTime(0);
+
+        // Clear timeout if exists
+        if (controlsTimeoutRef.current) {
+          clearTimeout(controlsTimeoutRef.current);
+          controlsTimeoutRef.current = null;
+        }
+
+        // Notify navigation about recording state and controls visibility
+        navigation.setParams({ isRecording: false, showControls: true, isPaused: false });
+
+        // Sauvegarder automatiquement sans titre (le titre sera généré par l'IA lors de la transcription)
+        await handleAutoSaveVideo(video.uri, '');
+      }
+    } catch (error) {
+      console.error('❌ Recording error:', error);
+      Alert.alert('Recording Error', 'Failed to start recording. Please try again.');
+
+      // Réinitialiser l'état même en cas d'erreur
+      setIsRecording(false);
+      setIsPaused(false);
+      setShowControls(true);
+      setRecordingTime(0);
+      navigation.setParams({ isRecording: false, showControls: true, isPaused: false });
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!cameraRef.current || !isRecording) return;
+
+    try {
+      console.log('⏹️ Stopping recording...');
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      cameraRef.current.stopRecording();
+      // Notify navigation about recording state
+      navigation.setParams({ isRecording: false });
+    } catch (error) {
+      console.error('❌ Stop recording error:', error);
+    }
+  };
+
+  const handleCenterPress = () => {
+    if (isRecording) {
+      // En enregistrement : le bouton devient pause/resume
+      pauseRecording();
+    } else {
+      // Pas en enregistrement : démarrer
+      startRecording();
+    }
+  };
+
+  const handleStopPress = () => {
+    // Arrêter définitivement l'enregistrement
+    stopRecording();
+  };
+
+  const cancelRecording = async () => {
+    if (!cameraRef.current || !isRecording) return;
+
+    // Afficher popup de confirmation
+    Alert.alert(
+      'Supprimer la vidéo',
+      'Êtes-vous sûr de vouloir supprimer cette vidéo ? Cette action est irréversible.',
+      [
+        {
+          text: 'Annuler',
+          style: 'cancel',
+          onPress: () => {
+            console.log('❌ Cancellation cancelled by user');
+          }
+        },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('🗑️ Cancelling recording...');
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+              // Définir le flag pour ne pas sauvegarder
+              isCancellingRef.current = true;
+
+              // Arrêter l'enregistrement sans sauvegarder
+              cameraRef.current?.stopRecording();
+
+              // Réinitialiser tous les états
+              setIsRecording(false);
+              setIsPaused(false);
+              setShowControls(true);
+              setRecordingTime(0);
+
+              // Clear timeout if exists
+              if (controlsTimeoutRef.current) {
+                clearTimeout(controlsTimeoutRef.current);
+                controlsTimeoutRef.current = null;
+              }
+
+              // Notify navigation about recording state
+              navigation.setParams({ isRecording: false, showControls: true, isPaused: false });
+
+              console.log('✅ Recording cancelled successfully');
+            } catch (error) {
+              console.error('❌ Cancel recording error:', error);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleLeftPress = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      // Handle pause/menu functionality
+      console.log('Left button pressed');
+    }
+  };
+
+  const handleRightPress = () => {
+    // Handle menu functionality
+    console.log('Right button pressed');
+  };
+
+  const handleAutoSaveVideo = async (videoUri: string, title: string) => {
+    try {
+      console.log('💾 Auto-saving video with title:', title);
+
+      // Get current user for backup
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Get current chapter to assign video
+      const currentChapter = await getCurrentChapter(user.id);
+      const chapterId = currentChapter?.id;
+
+      if (chapterId) {
+        console.log('📖 Assigning video to chapter:', currentChapter.title);
+      } else {
+        console.log('⚠️ No current chapter - video will be unassigned');
+      }
+
+      // ÉTAPE 1: Sauvegarder d'abord localement (protection contre crash)
+      const { VideoBackupService } = require('../services/videoBackupService');
+      const { backupUri, videoId } = await VideoBackupService.backupVideoLocally(videoUri, title, user.id);
+      console.log('✅ Video backed up locally:', backupUri);
+
+      // ✅ ÉTAPE 2: Ajouter à la queue d'upload background (non-bloquant)
+      const uploadJobId = await ImportQueueService.addRecordedVideoToQueue(
+        backupUri,
+        title,
+        user.id,
+        chapterId,
+        recordingTime
+      );
+
+      console.log('✅ Video added to upload queue:', uploadJobId);
+
+      // Show notification to user
+      Alert.alert(
+        '🎬 Vidéo enregistrée',
+        'Votre vidéo est en cours d\'upload en arrière-plan. Vous pouvez continuer à utiliser l\'app.',
+        [{ text: 'OK' }]
+      );
+
+      // Note: Background upload will handle:
+      // - Upload to Supabase Storage
+      // - Creating video record
+      // - Creating transcription job
+      // - Triggering momentum analysis
+      // - Auto-generating questions
+      // - Deleting local backup after success
+      // User can continue using the app without waiting!
+
+      // All post-upload tasks will be handled automatically by ImportQueueService
+
+    } catch (error) {
+      console.error('❌ Auto-save video error:', error);
+      Alert.alert('Erreur', 'Impossible de sauvegarder la vidéo. Veuillez réessayer.');
+    }
+  };
+
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  /* OLD UPLOAD CODE - NOW HANDLED BY ImportQueueService
+      if (videoRecord.file_path.startsWith('http://') || videoRecord.file_path.startsWith('https://')) {
+        try {
+          let fileSize: number | undefined;
+          if (videoUri.startsWith('file://') || videoUri.startsWith('/')) {
+            const fileInfo = await FileSystem.getInfoAsync(videoUri);
+            if (fileInfo.exists && 'size' in fileInfo) {
+              fileSize = fileInfo.size;
+            }
+          }
+
+          const job = await TranscriptionJobService.createTranscriptionJob(
+            videoRecord.file_path,
+            recordingTime || undefined,
+            fileSize,
+            videoRecord.id
+          );
+
+          console.log('✅ Transcription job created:', job.id);
+          // Start background polling without UI updates
+          TranscriptionJobService.pollJobStatus(job.id, () => {}, { maxAttempts: 40, initialDelay: 3000 });
+
+          // 🔥 Trigger momentum analysis in background (non-blocking)
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user && videoRecord.id) {
+            console.log('🎯 Triggering momentum analysis...');
+            analyzeMomentum(videoRecord.id, user.id).then((result) => {
+              if (result?.success) {
+                console.log('✅ Momentum updated!');
+                console.log('   - New score:', result.new_momentum_score);
+                console.log('   - Change:', result.score_change > 0 ? '+' : '', result.score_change);
+                console.log('   - Streak:', result.new_streak, '🔥');
+              }
+            }).catch((err) => {
+              console.log('⚠️ Momentum analysis failed (non-critical):', err);
+            });
+          }
+
+          // 🔥 Trigger auto-generation of questions after transcription (non-blocking)
+          console.log('🔍 Checking if question generation needed after video upload...');
+          UserQuestionsService.autoGenerateAfterTranscription().catch((err) => {
+            console.log('⚠️ Auto-question generation check failed (non-critical):', err);
+          });
+        } catch (transcriptionError) {
+          console.log('⚠️ Transcription job creation failed (video still saved):', transcriptionError);
+        }
+      } else {
+        console.log('⚠️ Video saved locally only - transcription will be processed when upload succeeds');
+      }
+
+      // Show success pop-up et naviguer vers Library
+      Alert.alert(
+        '✅ Vidéo enregistrée',
+        `Votre vidéo "${title}" a été enregistrée avec succès.`,
+        [{
+          text: 'OK',
+          style: 'default',
+          onPress: () => {
+            // Naviguer vers la galerie/library
+            navigation.navigate('Library');
+          }
+        }]
+      );
+    END OF OLD CODE */
+
+  // Obtenir le style du timer selon l'orientation
+  const getTimerStyle = () => {
+    const baseStyle = styles.timerContainerRecording;
+
+    switch (orientation) {
+      case ScreenOrientation.Orientation.LANDSCAPE_LEFT:
+        // Rotation 90° anti-horaire - timer sur le côté droit
+        return {
+          ...baseStyle,
+          top: '50%' as any,
+          left: undefined,
+          right: 20,
+          transform: [{ translateY: -50 }, { rotate: '90deg' }],
+        };
+
+      case ScreenOrientation.Orientation.LANDSCAPE_RIGHT:
+        // Rotation 90° horaire - timer sur le côté gauche
+        return {
+          ...baseStyle,
+          top: '50%' as any,
+          left: 20,
+          right: undefined,
+          transform: [{ translateY: -50 }, { rotate: '-90deg' }],
+        };
+
+      case ScreenOrientation.Orientation.PORTRAIT_DOWN:
+        // Portrait inversé - timer en haut mais inversé
+        return {
+          ...baseStyle,
+          transform: [{ translateX: -50 }, { rotate: '180deg' }],
+        };
+
+      default: // PORTRAIT_UP
+        // Position normale
+        return baseStyle;
+    }
+  };
+
+
+  // Debug logs
+  console.log('🎥 RecordScreen render, camera permission:', cameraPermission);
+  console.log('🎙️ RecordScreen render, microphone permission:', microphonePermission);
+
+  // Show permission request if needed
+  if (!cameraPermission?.granted) {
+    console.log('❌ Camera permission not granted, showing permission screen');
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="black" hidden />
+        <View style={styles.permissionContainer}>
+          <Text style={styles.permissionText}>Camera permission required</Text>
+          <TouchableOpacity
+            style={styles.permissionButton}
+            onPress={checkAllPermissions}
+          >
+            <Text style={styles.permissionButtonText}>Grant Camera Access</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  console.log('✅ Camera permission granted, showing camera view');
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="black" hidden />
+
+      {/* Camera View - Mode plein écran quand en enregistrement */}
+      <TouchableOpacity
+        style={isRecording ? styles.cameraContainerFullscreenRecording : styles.cameraContainerFullscreen}
+        activeOpacity={1}
+        onPress={handleScreenTap}
+        disabled={!isRecording}
+      >
+        {cameraPermission?.granted && microphonePermission?.granted ? (
+          <CameraView
+            key={`camera-${cameraKey}`}
+            ref={cameraRef}
+            style={isRecording ? styles.cameraFullscreen : styles.camera}
+            facing="front"
+            mode="video"
+            onCameraReady={() => {
+              console.log('📷 Camera is ready!');
+              setIsCameraReady(true);
+            }}
+            onMountError={(error) => {
+              console.error('❌ Camera mount error:', error);
+              setIsCameraReady(false);
+            }}
+          />
+        ) : (
+          <View style={isRecording ? styles.cameraFullscreen : styles.camera}>
+            <Text style={styles.cameraPlaceholderText}>Camera loading...</Text>
+          </View>
+        )}
+
+        {/* Recording Timer avec Flash (toujours visible quand en enregistrement, adapté selon l'orientation) */}
+        {isRecording && (
+          <View style={getTimerStyle()}>
+            <View style={styles.timerContent}>
+              <TouchableOpacity
+                style={[
+                  styles.questionButton,
+                  showQuestions ? styles.questionButtonActive : styles.questionButtonInactive
+                ]}
+                onPress={toggleQuestions}
+                activeOpacity={0.7}
+              >
+                <Icon
+                  name="helpCircle"
+                  size={18}
+                  color={showQuestions ? theme.colors.black : theme.colors.white}
+                />
+              </TouchableOpacity>
+              <View style={styles.timerDisplay}>
+                <View style={[
+                  styles.recordingIndicator,
+                  isPaused && styles.recordingIndicatorPaused
+                ]} />
+                <Text style={styles.timerText}>{formatTime(recordingTime)}</Text>
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.flashButton,
+                  flashEnabled ? styles.flashButtonActive : styles.flashButtonInactive
+                ]}
+                onPress={toggleFlash}
+                activeOpacity={0.7}
+              >
+                <Icon
+                  name="zap"
+                  size={18}
+                  color={flashEnabled ? theme.colors.black : theme.colors.white}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Flash Overlay - Film blanc pour illuminer */}
+        {isRecording && flashEnabled && (
+          <View style={styles.flashOverlay} pointerEvents="none" />
+        )}
+
+        {/* Questions Overlay - Draggable, déplaçable partout sur l'écran */}
+        {isRecording && showQuestions && currentQuestion && (
+          <Animated.View
+            {...panResponder.panHandlers}
+            style={[
+              styles.questionsOverlay,
+              {
+                transform: [{ translateX: pan.x }, { translateY: pan.y }],
+              },
+            ]}
+          >
+            <View style={styles.questionContainer}>
+              <Text style={styles.questionText}>{currentQuestion.question_text}</Text>
+              <TouchableOpacity
+                style={styles.newQuestionButton}
+                onPress={getNewQuestion}
+                activeOpacity={0.8}
+              >
+                <Icon
+                  name="chevronRight"
+                  size={20}
+                  color={theme.colors.white}
+                />
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        )}
+      </TouchableOpacity>
+
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.white,
+  },
+  permissionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.black,
+    paddingHorizontal: theme.spacing['6'],
+  },
+  permissionText: {
+    ...theme.typography.body,
+    color: theme.colors.white,
+    textAlign: 'center',
+    marginBottom: theme.spacing['4'],
+  },
+  permissionButton: {
+    backgroundColor: theme.colors.primary400,
+    paddingHorizontal: theme.spacing['6'],
+    paddingVertical: theme.spacing['3'],
+    borderRadius: theme.layout.borderRadius.button,
+  },
+  permissionButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.white,
+    textAlign: 'center',
+  },
+  cameraContainerFullscreen: {
+    flex: 1,
+    position: 'relative',
+    paddingTop: 60,
+    paddingHorizontal: 12, // Marges latérales réduites
+    paddingBottom: 100, // Marge inférieure augmentée pour ne pas dépasser la barre de navigation
+    borderRadius: 35,
+    overflow: 'hidden',
+  },
+  cameraContainerFullscreenRecording: {
+    flex: 1,
+    position: 'relative',
+    // Pas de padding - vraiment plein écran
+  },
+  camera: {
+    flex: 1,
+    borderRadius: 35,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cameraFullscreen: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    // Pas de borderRadius - vraiment plein écran
+  },
+  cameraPlaceholderText: {
+    color: theme.colors.white,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  timerContainer: {
+    position: 'absolute',
+    top: 60, // Tout en haut de l'écran
+    left: '50%',
+    transform: [{ translateX: -50 }],
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['2'],
+    borderRadius: 20,
+    zIndex: 15,
+  },
+  timerContainerRecording: {
+    position: 'absolute',
+    top: 60, // En haut même en plein écran
+    left: 0,
+    right: 0,
+    alignItems: 'center', // Centre horizontalement le contenu
+    zIndex: 20, // Plus haut que le bouton
+  },
+  timerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8, // Espacement entre timer et flash button
+    justifyContent: 'center', // Centre tout le contenu
+  },
+  timerDisplay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['2'],
+    borderRadius: 20,
+    minWidth: 100, // Largeur minimale pour cohérence visuelle
+  },
+  recordingIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.colors.error500,
+    marginRight: theme.spacing['2'],
+  },
+  recordingIndicatorPaused: {
+    backgroundColor: theme.colors.white, // Blanc en pause
+  },
+  timerText: {
+    ...theme.typography.body,
+    color: theme.colors.white,
+    fontWeight: '600',
+    fontSize: 16,
+  },
+
+  // Question button styles (identique au flash button)
+  questionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  questionButtonInactive: {
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+  },
+  questionButtonActive: {
+    backgroundColor: theme.colors.white,
+  },
+
+  // Flash button styles
+  flashButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flashButtonInactive: {
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+  },
+  flashButtonActive: {
+    backgroundColor: theme.colors.white,
+  },
+
+  // Flash overlay
+  flashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    zIndex: 5, // Au-dessus de la vidéo mais en dessous des contrôles
+  },
+
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.white,
+  },
+  modalContent: {
+    flex: 1,
+    padding: theme.spacing['6'],
+    justifyContent: 'center',
+  },
+  modalTitle: {
+    ...theme.typography.h2,
+    textAlign: 'center',
+    marginBottom: theme.spacing['8'],
+    color: theme.colors.textPrimary,
+  },
+  videoTitleInput: {
+    ...theme.typography.body,
+    borderWidth: 1,
+    borderColor: theme.colors.borderLight,
+    borderRadius: theme.layout.borderRadius.input,
+    padding: theme.spacing['4'],
+    marginBottom: theme.spacing['4'],
+    backgroundColor: theme.colors.white,
+    color: theme.colors.textPrimary,
+  },
+  transcriptionStatus: {
+    backgroundColor: theme.colors.gray100,
+    borderRadius: theme.layout.borderRadius.button,
+    padding: theme.spacing['4'],
+    marginBottom: theme.spacing['4'],
+    alignItems: 'center',
+  },
+  transcriptionStatusText: {
+    ...theme.typography.body,
+    color: theme.colors.primary400,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: theme.spacing['1'],
+  },
+  transcriptionJobText: {
+    ...theme.typography.caption,
+    color: theme.colors.textSecondary,
+    textAlign: 'center',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: theme.spacing['3'],
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: theme.spacing['4'],
+    borderRadius: theme.layout.borderRadius.button,
+    alignItems: 'center',
+  },
+  deleteButton: {
+    backgroundColor: theme.colors.error500,
+  },
+  deleteButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.white,
+  },
+  retryButton: {
+    backgroundColor: theme.colors.gray200,
+  },
+  retryButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.textPrimary,
+  },
+  saveButton: {
+    backgroundColor: theme.colors.primary400,
+  },
+  saveButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.white,
+  },
+
+  // Questions overlay styles
+  questionsOverlay: {
+    position: 'absolute',
+    bottom: 160, // Position initiale (draggable ensuite)
+    left: 20,
+    right: 20, // Padding des deux côtés pour éviter de sortir de l'écran
+    zIndex: 15, // Au-dessus de tout
+  },
+  questionContainer: {
+    backgroundColor: 'rgba(0, 0, 0, 0.8)', // Même transparence que le timer et les autres icônes
+    borderRadius: 20,
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['3'],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12, // Espacement entre texte et bouton
+  },
+  questionText: {
+    ...theme.typography.body,
+    color: theme.colors.white,
+    fontSize: 18, // Taille augmentée pour meilleure lisibilité
+    fontWeight: '500',
+    flexShrink: 1, // Permet au texte de se réduire si nécessaire
+    lineHeight: 24, // Ligne plus haute pour meilleure lisibilité
+  },
+  newQuestionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+
+export default RecordScreen;

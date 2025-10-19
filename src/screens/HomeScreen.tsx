@@ -11,6 +11,7 @@ import { Icon } from '../components/Icon';
 import { Chip } from '../components/Chip';
 import { ChapterCard } from '../components/ChapterCard';
 import { PromptCard } from '../components/PromptCard';
+import { MemoriesSection } from '../components/MemoriesSection';
 
 const HomeScreen: React.FC = () => {
   const [selectedFilter, setSelectedFilter] = useState('All');
@@ -23,18 +24,21 @@ const HomeScreen: React.FC = () => {
       period: 'Jan–Apr 2025',
       count: 12,
       progress: 60,
+      keywords: ['Dubai', 'Anxious', 'Growth', 'Career', 'Lonely', 'Determined'],
     },
     {
       title: 'Chapter 2 — Startup',
       period: 'Aug–Dec 2024',
       count: 26,
       progress: 100,
+      keywords: ['Startup', 'Hustle', 'Stressed', 'Excited', 'Learning', 'Building', 'Team'],
     },
     {
       title: 'Chapter 1 — Graduation',
       period: 'May–Jul 2024',
       count: 18,
       progress: 100,
+      keywords: ['Graduate', 'Freedom', 'Uncertain', 'Hope', 'Friends', 'Celebration'],
     },
   ];
 
@@ -62,6 +66,10 @@ const HomeScreen: React.FC = () => {
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
         >
+          {/* Memories Section - 3 circular video bubbles */}
+          <MemoriesSection />
+
+          {/* Chapters */}
           {chapters.map((chapter, index) => (
             <ChapterCard
               key={index}
@@ -69,6 +77,7 @@ const HomeScreen: React.FC = () => {
               period={chapter.period}
               count={chapter.count}
               progress={chapter.progress}
+              keywords={chapter.keywords}
               onPress={() => {}}
             />
           ))}

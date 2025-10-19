@@ -1,8 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const supabaseUrl = 'https://eenyzudwktcjpefpoapi.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlbnl6dWR3a3RjanBlZnBvYXBpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg3NzY0NTcsImV4cCI6MjA3NDM1MjQ1N30.iHLbdQaH-FSA7knlflVuRyUQ4n2kOzr3YttbShKiUZk';
+// ✅ Load Supabase credentials from environment variables
+// Note: Expo automatically injects EXPO_PUBLIC_* variables from .env file
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+// Security validation: Ensure credentials are loaded
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    '❌ Missing Supabase credentials in environment variables!\n' +
+    'Make sure you have:\n' +
+    '1. Created .env file from .env.example\n' +
+    '2. Added EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY\n' +
+    '3. Restarted the Metro bundler (npx expo start --clear)'
+  );
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -62,6 +75,13 @@ export interface VideoRecord {
   location?: string;
   transcription_status?: string;
   transcription_completed?: string;
+  metadata?: {
+    isLocalBackup?: boolean;
+    uploadFailed?: boolean;
+    emergencyBackup?: boolean;
+    uploadError?: string;
+    [key: string]: any;
+  };
 }
 
 export interface Chapter {
@@ -72,7 +92,24 @@ export interface Chapter {
   updated_at?: string;
   user_id?: string;
   color?: string;
-  // Nouvelles colonnes pour le design
+  // Current chapter system
+  started_at: string;
+  ended_at?: string | null;
+  is_current: boolean;
+  recap_video_id?: string | null;
+  // AI-generated content
+  keywords?: string[] | null; // JSONB array of max 10 single-word keywords
+  ai_title?: string | null; // Literary chapter title (max 3 words)
+  ai_short_summary?: string | null; // One-sentence summary (first person)
+  ai_detailed_description?: string | null; // Autobiographical description (first person, max 10 sentences)
+  challenges?: string[] | null; // JSONB array of max 5 challenges (first person, user's style)
+  growth?: string[] | null; // JSONB array of max 5 growth observations (first person, user's style)
+  lessons_learned?: string[] | null; // JSONB array of max 5 lessons learned (first person, user's style)
+  ai_extracted_at?: string | null; // Timestamp of last AI extraction
+  // Computed fields (from joins)
+  video_count?: number;
+  total_duration?: number;
+  // Legacy fields
   arc_number?: number;
   chapter_number?: number;
 }

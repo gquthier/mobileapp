@@ -1,0 +1,1152 @@
+import { VideoService } from './videoService';
+import { VideoRecord } from '../lib/supabase';
+import * as MediaLibrary from 'expo-media-library';
+import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../lib/supabase';
+import * as FileSystem from 'expo-file-system/legacy'; // ✅ Use legacy API for createUploadTask
+import { TranscriptionJobService } from './transcriptionJobService';
+import * as VideoThumbnails from 'expo-video-thumbnails';
+
+// Note: expo-task-manager not installed yet - background upload still works with FileSystem.BACKGROUND session type
+
+export interface ImportVideoItem {
+  id: string; // Unique ID for this import job
+  asset?: MediaLibrary.Asset; // For MediaLibrary imports
+  pickerAsset?: ImagePicker.ImagePickerAsset; // For ImagePicker imports
+  uri: string; // Video URI
+  filename: string; // Video filename
+  title?: string;
+  status: 'pending' | 'uploading' | 'completed' | 'failed';
+  progress: number; // 0-100
+  error?: string;
+  videoRecord?: VideoRecord;
+  retryCount: number;
+  metadata?: any; // Optional metadata
+}
+
+export interface ImportQueueState {
+  items: ImportVideoItem[];
+  currentIndex: number;
+  isProcessing: boolean;
+  totalCount: number;
+  completedCount: number;
+  failedCount: number;
+}
+
+type ProgressCallback = (state: ImportQueueState) => void;
+
+export class ImportQueueService {
+  private static queue: ImportVideoItem[] = [];
+  private static isProcessing = false;
+  private static currentIndex = 0;
+  private static listeners: ProgressCallback[] = [];
+  private static readonly STORAGE_KEY = '@import_queue_state';
+  private static readonly MAX_RETRY_ATTEMPTS = 3;
+  private static readonly CONCURRENT_UPLOADS = 2; // Process 2 videos at a time
+
+  /**
+   * ✅ Add a single recorded video to the upload queue
+   */
+  static async addRecordedVideoToQueue(
+    videoUri: string,
+    title: string,
+    userId: string,
+    chapterId?: string,
+    duration?: number
+  ): Promise<string> {
+    console.log('📥 Adding recorded video to upload queue:', { videoUri, title, userId, chapterId });
+
+    const itemId = `recorded_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const newItem: ImportVideoItem = {
+      id: itemId,
+      uri: videoUri,
+      filename: `${title || 'Recording'}_${Date.now()}.mp4`,
+      title: title || 'Recorded Video',
+      status: 'pending',
+      progress: 0,
+      retryCount: 0,
+      metadata: {
+        isRecorded: true,
+        chapterId,
+        duration,
+      },
+    };
+
+    this.queue.push(newItem);
+
+    // Reset currentIndex if we're adding to a previously completed queue
+    // This ensures new items get processed
+    if (this.currentIndex >= this.queue.length - 1) {
+      console.log(`🔄 Resetting currentIndex from ${this.currentIndex} to 0 (new items added to completed queue)`);
+      this.currentIndex = 0;
+    }
+
+    await this.saveQueueState();
+    this.notifyListeners();
+
+    // Start processing if not already running
+    if (!this.isProcessing) {
+      this.processQueue();
+    }
+
+    return itemId;
+  }
+
+  /**
+   * Add videos from MediaLibrary to the import queue
+   */
+  static async addToQueue(assets: MediaLibrary.Asset[], chapterId?: string): Promise<void> {
+    console.log(`📥 Adding ${assets.length} videos to import queue`);
+    console.log(`📖 Chapter ID: ${chapterId || 'none'}`);
+
+    const newItems: ImportVideoItem[] = assets.map((asset, index) => ({
+      id: `import_${Date.now()}_${index}`,
+      asset,
+      uri: asset.uri,
+      filename: asset.filename,
+      title: asset.filename.replace(/\.(mp4|mov|avi|m4v)$/i, ''),
+      status: 'pending',
+      progress: 0,
+      retryCount: 0,
+      metadata: {
+        isImported: true,
+        chapterId: chapterId || null,
+        width: asset.width,
+        height: asset.height,
+        orientation: asset.width > asset.height ? 'landscape' : 'portrait',
+        duration: asset.duration,
+      },
+    }));
+
+    this.queue.push(...newItems);
+    await this.saveQueueState();
+    this.notifyListeners();
+
+    // Start processing if not already running
+    if (!this.isProcessing) {
+      this.processQueue();
+    }
+  }
+
+  /**
+   * Add videos from ImagePicker to the import queue
+   */
+  static async addPickerVideosToQueue(assets: ImagePicker.ImagePickerAsset[], chapterId?: string): Promise<void> {
+    console.log('========================================');
+    console.log('📥 IMPORTQUEUESERVICE: addPickerVideosToQueue called');
+    console.log('========================================');
+    console.log(`📊 Assets to add: ${assets.length}`);
+    console.log(`📖 Chapter ID: ${chapterId || 'none'}`);
+
+    assets.forEach((asset, idx) => {
+      console.log(`  Asset ${idx + 1}:`);
+      console.log(`    - uri: ${asset.uri}`);
+      console.log(`    - fileName: ${asset.fileName}`);
+      console.log(`    - type: ${asset.type}`);
+      console.log(`    - width: ${asset.width}, height: ${asset.height}`);
+      console.log(`    - duration: ${asset.duration}`);
+    });
+
+    console.log('🔄 Creating ImportVideoItem objects...');
+    const newItems: ImportVideoItem[] = assets.map((asset, index) => {
+      const item = {
+        id: `import_${Date.now()}_${index}`,
+        pickerAsset: asset,
+        uri: asset.uri,
+        filename: asset.fileName || `video_${Date.now()}_${index}.mp4`,
+        title: (asset.fileName || `video_${index}`).replace(/\.(mp4|mov|avi|m4v)$/i, ''),
+        status: 'pending' as const,
+        progress: 0,
+        retryCount: 0,
+        metadata: {
+          isImported: true,
+          chapterId: chapterId || null,  // ✅ Ajouter le chapter ID
+          width: asset.width,
+          height: asset.height,
+          orientation: (asset.width || 0) > (asset.height || 0) ? 'landscape' : 'portrait',
+          duration: asset.duration,
+        },
+      };
+      console.log(`  ✅ Created item ${index + 1}: ${item.id}`);
+      return item;
+    });
+
+    console.log(`✅ Created ${newItems.length} ImportVideoItem objects`);
+    console.log(`📊 Queue state BEFORE adding:`);
+    console.log(`  - Current queue length: ${this.queue.length}`);
+    console.log(`  - Current index: ${this.currentIndex}`);
+    console.log(`  - Is processing: ${this.isProcessing}`);
+
+    this.queue.push(...newItems);
+
+    // Reset currentIndex if we're adding to a previously completed queue
+    // This ensures new items get processed
+    if (this.currentIndex >= this.queue.length - newItems.length) {
+      console.log(`🔄 Resetting currentIndex from ${this.currentIndex} to 0 (new items added to completed queue)`);
+      this.currentIndex = 0;
+    }
+
+    console.log(`📊 Queue state AFTER adding:`);
+    console.log(`  - New queue length: ${this.queue.length}`);
+    console.log(`  - Queue items:`, this.queue.map(q => ({ id: q.id, status: q.status, filename: q.filename })));
+
+    console.log('💾 Saving queue state to AsyncStorage...');
+    await this.saveQueueState();
+    console.log('✅ Queue state saved');
+
+    console.log('📢 Notifying listeners...');
+    this.notifyListeners();
+    console.log('✅ Listeners notified');
+
+    // Start processing if not already running
+    if (!this.isProcessing) {
+      console.log('🚀 Queue not processing, starting processQueue()...');
+      this.processQueue();
+    } else {
+      console.log('⚠️ Queue already processing, skipping processQueue() call');
+    }
+
+    console.log('========================================');
+    console.log('✅ IMPORTQUEUESERVICE: addPickerVideosToQueue completed');
+    console.log('========================================');
+  }
+
+  /**
+   * Process the queue - uploads videos concurrently
+   */
+  private static async processQueue(): Promise<void> {
+    console.log('========================================');
+    console.log('🚀 PROCESSQUEUE: Called');
+    console.log('========================================');
+
+    if (this.isProcessing) {
+      console.log('⚠️ Queue already processing, exiting');
+      console.log('========================================');
+      return;
+    }
+
+    this.isProcessing = true;
+    console.log(`📊 Queue length: ${this.queue.length} items`);
+    console.log(`📊 Current index: ${this.currentIndex}`);
+    console.log(`📊 Concurrent uploads: ${this.CONCURRENT_UPLOADS}`);
+    console.log('📢 Notifying listeners (isProcessing = true)...');
+    this.notifyListeners();
+
+    try {
+      // Process videos in batches
+      let batchNumber = 0;
+      while (this.currentIndex < this.queue.length) {
+        batchNumber++;
+        console.log(`\n--- Batch ${batchNumber} (index ${this.currentIndex}) ---`);
+
+        const batch = this.queue.slice(
+          this.currentIndex,
+          this.currentIndex + this.CONCURRENT_UPLOADS
+        ).filter(item => item.status === 'pending' || item.status === 'failed');
+
+        console.log(`📦 Batch items: ${batch.length}`);
+        batch.forEach((item, idx) => {
+          console.log(`  ${idx + 1}. ${item.filename} (status: ${item.status}, id: ${item.id})`);
+        });
+
+        if (batch.length === 0) {
+          console.log('⚠️ No pending/failed items in batch, skipping...');
+          this.currentIndex += this.CONCURRENT_UPLOADS;
+          continue;
+        }
+
+        // Process batch concurrently
+        console.log(`🔄 Processing ${batch.length} items concurrently...`);
+        const results = await Promise.allSettled(
+          batch.map(item => this.processItem(item))
+        );
+
+        console.log(`✅ Batch ${batchNumber} completed:`);
+        results.forEach((result, idx) => {
+          if (result.status === 'fulfilled') {
+            console.log(`  ✅ Item ${idx + 1}: fulfilled`);
+          } else {
+            console.log(`  ❌ Item ${idx + 1}: rejected -`, result.reason);
+          }
+        });
+
+        this.currentIndex += this.CONCURRENT_UPLOADS;
+        console.log(`💾 Saving queue state (currentIndex now ${this.currentIndex})...`);
+        await this.saveQueueState();
+      }
+
+      console.log('\n========================================');
+      console.log('✅ PROCESSQUEUE: All batches completed');
+      console.log(`📊 Final Results: ${this.getCompletedCount()} completed, ${this.getFailedCount()} failed`);
+      console.log('========================================');
+
+    } catch (error) {
+      console.error('========================================');
+      console.error('❌ PROCESSQUEUE: Error processing queue');
+      console.error('Error:', error);
+      console.error('Error message:', error instanceof Error ? error.message : 'Unknown');
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
+      console.error('========================================');
+    } finally {
+      console.log('🏁 PROCESSQUEUE: Finally block - setting isProcessing = false');
+      this.isProcessing = false;
+      this.notifyListeners();
+      console.log('✅ PROCESSQUEUE: Completed');
+    }
+  }
+
+  /**
+   * Generate 3 thumbnail frames from video
+   */
+  private static async generateThumbnailFrames(videoUri: string, durationSeconds: number, videoId: string): Promise<string[]> {
+    try {
+      console.log('📸 Generating 3 thumbnail frames...');
+
+      const frameCount = 3;
+      const durationMs = durationSeconds * 1000;
+      const frameUrls: string[] = [];
+
+      for (let i = 0; i < frameCount; i++) {
+        try {
+          // Calculate timestamp for this frame
+          const baseTime = (durationMs / (frameCount + 1)) * (i + 1);
+          const randomOffset = (Math.random() - 0.5) * 1000; // ±500ms variation
+          const frameTimeMs = Math.floor(Math.max(500, Math.min(durationMs - 500, baseTime + randomOffset)));
+
+          console.log(`📸 Generating frame ${i + 1}/${frameCount} at ${(frameTimeMs / 1000).toFixed(2)}s`);
+
+          // Generate thumbnail using expo-video-thumbnails
+          const { uri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
+            time: frameTimeMs,
+            quality: 0.7,
+          });
+
+          console.log(`✅ Frame ${i + 1} generated locally: ${uri}`);
+
+          // Read the thumbnail file
+          const thumbnailBase64 = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
+          // Upload to Supabase Storage
+          const frameFileName = `thumbnail_${videoId}_frame${i}_${Date.now()}.jpg`;
+
+          // Helper function to decode base64 to Uint8Array
+          const decode = (base64: string): Uint8Array => {
+            const binaryString = atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let j = 0; j < binaryString.length; j++) {
+              bytes[j] = binaryString.charCodeAt(j);
+            }
+            return bytes;
+          };
+
+          const { error: uploadError } = await supabase.storage
+            .from('videos')
+            .upload(frameFileName, decode(thumbnailBase64), {
+              contentType: 'image/jpeg',
+              upsert: false,
+            });
+
+          if (uploadError) {
+            console.error(`❌ Error uploading frame ${i + 1}:`, uploadError);
+            continue;
+          }
+
+          // Get public URL
+          const { data: urlData } = supabase.storage
+            .from('videos')
+            .getPublicUrl(frameFileName);
+
+          frameUrls.push(urlData.publicUrl);
+          console.log(`✅ Frame ${i + 1} uploaded: ${urlData.publicUrl}`);
+
+          // Clean up local thumbnail file
+          try {
+            await FileSystem.deleteAsync(uri, { idempotent: true });
+          } catch (cleanupError) {
+            console.warn(`⚠️ Could not delete local thumbnail ${i + 1}:`, cleanupError);
+          }
+
+        } catch (frameError) {
+          console.error(`❌ Error generating frame ${i + 1}:`, frameError);
+          // Continue with other frames
+        }
+      }
+
+      console.log(`✅ Generated ${frameUrls.length}/${frameCount} frames successfully`);
+      return frameUrls;
+
+    } catch (error) {
+      console.error('❌ Error in generateThumbnailFrames:', error);
+      return [];
+    }
+  }
+
+  /**
+   * ✅ Upload video using FileSystem background upload (non-blocking)
+   * Returns: { fileName: string, fileSize: number }
+   */
+  private static async uploadVideoBackground(
+    videoUri: string,
+    fileName: string,
+    userId: string,
+    itemId: string,
+    onProgress: (progress: number) => void
+  ): Promise<{ fileName: string; fileSize: number }> {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🚀 [UploadBackground] Starting background upload');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`📋 Item ID: ${itemId}`);
+    console.log(`📄 Filename: ${fileName}`);
+    console.log(`📍 Source URI: ${videoUri}`);
+    console.log(`👤 User ID: ${userId}`);
+
+    // ✅ Check if file exists before attempting upload
+    console.log('🔍 Checking if file exists...');
+    const fileInfo = await FileSystem.getInfoAsync(videoUri);
+
+    if (!fileInfo.exists) {
+      console.error('❌ File does not exist at path:', videoUri);
+      throw new Error(`File not found: ${videoUri}. The file may have been moved or deleted.`);
+    }
+
+    console.log('✅ File exists and is accessible');
+
+    // Get file size for logging and determine timeout
+    let fileSize = 0;
+    let dynamicTimeout = 600; // Default 10 minutes
+
+    if ('size' in fileInfo) {
+      fileSize = fileInfo.size;
+      const sizeInMB = (fileSize / (1024 * 1024)).toFixed(2);
+      console.log(`📦 File size: ${sizeInMB} MB`);
+
+      // ✅ Dynamic timeout based on file size (assume 1MB/sec minimum upload speed)
+      // Add buffer: 2x the theoretical minimum time, with max of 30 minutes
+      const theoreticalSeconds = fileSize / (1024 * 1024); // Assume 1MB/sec
+      dynamicTimeout = Math.min(1800, Math.max(600, theoreticalSeconds * 2)); // Min 10min, max 30min
+
+      console.log(`⏱️ Dynamic timeout calculated: ${(dynamicTimeout / 60).toFixed(1)} minutes`);
+
+      // ✅ Warn if file is very large (>500MB)
+      if (fileSize > 500 * 1024 * 1024) {
+        console.warn(`⚠️ Large file detected (${sizeInMB}MB). Upload may take ${(dynamicTimeout / 60).toFixed(1)} minutes.`);
+      }
+    }
+
+    // Get auth token
+    console.log('🔐 Retrieving authentication token...');
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+
+    if (!token) {
+      console.error('❌ No authentication token available');
+      throw new Error('No auth token available for upload');
+    }
+    console.log('✅ Auth token retrieved');
+
+    // Construct Supabase Storage upload URL
+    const uploadUrl = `https://eenyzudwktcjpefpoapi.supabase.co/storage/v1/object/videos/${userId}/${fileName}`;
+    console.log(`🔗 Upload URL: ${uploadUrl}`);
+
+    // ✅ Create background upload task with progress tracking
+    console.log('⚙️ Creating upload task...');
+    const uploadStartTime = Date.now();
+    let lastLoggedPercent = 0;
+
+    const uploadTask = FileSystem.createUploadTask(
+      uploadUrl,
+      videoUri,
+      {
+        httpMethod: 'POST',
+        uploadType: 1 as any, // MULTIPART
+        fieldName: 'file',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'x-upsert': 'true', // Allow overwriting
+        },
+        // ✅ Enable background mode (1 = BACKGROUND)
+        sessionType: 1 as any,
+        // ✅ Dynamic timeout based on file size (10-30 minutes)
+        timeoutIntervalForRequest: dynamicTimeout,
+        timeoutIntervalForResource: dynamicTimeout,
+      },
+      (data: any) => {
+        // Progress callback
+        const percent = (data.totalBytesSent / data.totalBytesExpectedToSend) * 100;
+        const sentMB = (data.totalBytesSent / (1024 * 1024)).toFixed(2);
+        const totalMB = (data.totalBytesExpectedToSend / (1024 * 1024)).toFixed(2);
+
+        // Log every 10% or significant milestones
+        const percentInt = Math.floor(percent / 10) * 10;
+        if (percentInt > lastLoggedPercent && percentInt % 10 === 0) {
+          const elapsed = ((Date.now() - uploadStartTime) / 1000).toFixed(1);
+          console.log(`📤 [Upload] ${percentInt}% | ${sentMB}/${totalMB} MB | ${elapsed}s elapsed`);
+          lastLoggedPercent = percentInt;
+        }
+
+        onProgress(percent);
+      }
+    );
+
+    console.log('🚀 Starting upload task execution...');
+    console.log(`⏱️ Timeout configured: ${dynamicTimeout}s (${(dynamicTimeout / 60).toFixed(1)}min)`);
+    console.log(`📦 File size: ${(fileSize / (1024 * 1024)).toFixed(2)} MB`);
+
+    const result = await uploadTask.uploadAsync();
+    const uploadDuration = ((Date.now() - uploadStartTime) / 1000).toFixed(2);
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📊 [UploadBackground] Upload completed');
+    console.log(`⏱️ Duration: ${uploadDuration}s (${(parseFloat(uploadDuration) / 60).toFixed(1)}min)`);
+    console.log(`📊 Upload speed: ${(fileSize / (1024 * 1024) / parseFloat(uploadDuration)).toFixed(2)} MB/s`);
+    console.log(`📊 Status: ${result?.status}`);
+    console.log(`📝 Body: ${result?.body?.substring(0, 100)}...`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    if (!result || result.status !== 200) {
+      console.error('❌ Upload failed');
+      console.error(`   Status: ${result?.status}`);
+      console.error(`   Body: ${result?.body}`);
+      throw new Error(`Upload failed with status ${result?.status}: ${result?.body}`);
+    }
+
+    console.log(`✅ [UploadBackground] Success! File uploaded to: ${fileName}`);
+    return { fileName, fileSize };
+  }
+
+  /**
+   * Process a single item from the queue
+   */
+  private static async processItem(item: ImportVideoItem): Promise<void> {
+    console.log('\n========================================');
+    console.log(`📤 PROCESSITEM: Starting - ${item.filename}`);
+    console.log(`📋 Item ID: ${item.id}`);
+    console.log(`📋 Item URI: ${item.uri}`);
+    console.log('========================================');
+
+    try {
+      // Update status to uploading
+      console.log('🔄 Setting status to "uploading"...');
+      item.status = 'uploading';
+      item.progress = 0;
+      this.notifyListeners();
+      console.log('✅ Status updated, listeners notified');
+
+      let metadata: any;
+      let videoUri: string;
+
+      // ✅ Handle recorded video (no asset)
+      if (item.metadata?.isRecorded) {
+        console.log('🎬 Processing recorded video...');
+        metadata = item.metadata;
+        videoUri = item.uri;
+        console.log('📍 Video URI (Recorded):', videoUri);
+      }
+      // Handle MediaLibrary asset
+      else if (item.asset) {
+        console.log('📚 Processing MediaLibrary asset...');
+        // Get asset info with location
+        const assetInfo = await MediaLibrary.getAssetInfoAsync(item.asset.id);
+        console.log('✅ Asset info retrieved:', assetInfo);
+
+        // Extract metadata
+        metadata = {
+          isImported: true,
+          originalFilename: item.asset.filename,
+          originalCreationTime: item.asset.creationTime,
+          originalModificationTime: item.asset.modificationTime,
+          width: item.asset.width,
+          height: item.asset.height,
+          orientation: item.asset.width > item.asset.height ? 'landscape' : 'portrait',
+          location: assetInfo.location || null,
+        };
+
+        videoUri = assetInfo.localUri || assetInfo.uri;
+        console.log('📍 Video URI (MediaLibrary):', videoUri);
+      }
+      // Handle ImagePicker asset
+      else if (item.pickerAsset) {
+        console.log('📸 Processing ImagePicker asset...');
+        console.log('📋 Picker asset details:');
+        console.log(`  - fileName: ${item.pickerAsset.fileName}`);
+        console.log(`  - timestamp: ${item.pickerAsset.timestamp ? new Date(item.pickerAsset.timestamp).toISOString() : 'none'}`);
+        console.log(`  - dimensions: ${item.pickerAsset.width}x${item.pickerAsset.height}`);
+        console.log(`  - duration: ${item.pickerAsset.duration}s`);
+        console.log(`  - type: ${item.pickerAsset.type}`);
+
+        metadata = item.metadata || {
+          isImported: true,
+          originalFilename: item.pickerAsset.fileName || item.filename,
+          originalCreationTime: item.pickerAsset.timestamp,
+          originalModificationTime: item.pickerAsset.timestamp,
+          width: item.pickerAsset.width,
+          height: item.pickerAsset.height,
+          orientation: (item.pickerAsset.width || 0) > (item.pickerAsset.height || 0) ? 'landscape' : 'portrait',
+          duration: item.pickerAsset.duration,
+        };
+
+        videoUri = item.uri;
+        console.log('📍 Video URI (ImagePicker):', videoUri);
+      } else {
+        throw new Error('No asset or picker asset provided');
+      }
+
+      console.log('📍 Video metadata:', JSON.stringify(metadata, null, 2));
+
+      // Progress simulation (we'll get real progress later)
+      console.log('📊 Updating progress to 10%...');
+      item.progress = 10;
+      this.notifyListeners();
+
+      // Get current user
+      console.log('👤 Getting current user...');
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ Auth error:', authError);
+        throw new Error('User not authenticated');
+      }
+      console.log('✅ User authenticated:', user.id);
+
+      // ✅ Upload video using background upload (non-blocking)
+      console.log('🚀 Starting background upload...');
+      const fileName = `video_${Date.now()}_${item.id}.mp4`;
+
+      // Use original video URI (compression can be added later if needed)
+      const processedVideoUri = videoUri;
+
+      // Get video duration
+      let duration = 0;
+      try {
+        console.log('⏱️ Calculating video duration...');
+        const { Audio } = await import('expo-av');
+
+        // ✅ Use file:// URI format for expo-av
+        let audioUri = processedVideoUri;
+
+        // ✅ Ensure URI starts with file:// for local files
+        if (!audioUri.startsWith('file://') && !audioUri.startsWith('http')) {
+          audioUri = `file://${audioUri}`;
+          console.log('🔄 Converted to file:// URI:', audioUri);
+        }
+
+        const { sound } = await Audio.Sound.createAsync({ uri: audioUri });
+        const status = await sound.getStatusAsync();
+
+        if (status.isLoaded && status.durationMillis) {
+          duration = Math.round(status.durationMillis / 1000);
+          console.log(`✅ Duration calculated: ${duration}s`);
+          await sound.unloadAsync();
+        } else {
+          console.warn('⚠️ Audio not loaded, using metadata duration or fallback');
+          duration = metadata.duration || item.metadata?.duration || 60;
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not get duration:', error);
+        // Try to use duration from metadata if available
+        duration = metadata.duration || item.metadata?.duration || 60;
+        console.log(`📊 Using fallback duration: ${duration}s`);
+      }
+
+      // ✅ Upload in background with progress tracking
+      const { fileName: uploadedFilePath, fileSize } = await this.uploadVideoBackground(
+        processedVideoUri,
+        fileName,
+        user.id,
+        item.id,
+        (progress) => {
+          item.progress = Math.min(80, 20 + (progress * 0.6)); // Map 0-100% upload to 20-80% progress
+          this.notifyListeners();
+        }
+      );
+
+      console.log('✅ Background upload completed!');
+      console.log(`  - Uploaded file path: ${uploadedFilePath}`);
+      console.log(`  - File size: ${(fileSize / (1024 * 1024)).toFixed(2)} MB`);
+
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // STEP 3: CREATE VIDEO RECORD IN DATABASE
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('📝 [DatabaseRecord] STEP 3: Creating video record in database');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      const dbStartTime = Date.now();
+
+      // ✅ Build complete Supabase Storage URL
+      const publicUrl = `https://eenyzudwktcjpefpoapi.supabase.co/storage/v1/object/public/videos/${user.id}/${uploadedFilePath}`;
+      console.log('🔗 Public URL:', publicUrl);
+      console.log('👤 User ID:', user.id);
+      console.log('📄 Title:', item.title || 'Imported Video');
+      console.log('⏱️ Duration:', duration, 'seconds');
+      console.log('📋 Metadata:', JSON.stringify(metadata, null, 2));
+
+      // Build insert data
+      const insertData: any = {
+        user_id: user.id,
+        title: item.title || 'Imported Video',
+        file_path: publicUrl,
+        duration: Math.round(duration), // ✅ Round to integer for DB
+        metadata: metadata,
+        chapter_id: metadata?.chapterId || null,
+      };
+
+      // Add original creation time if available
+      if (item.asset?.creationTime) {
+        insertData.created_at = new Date(item.asset.creationTime).toISOString();
+        console.log('📅 Original creation time (from asset):', insertData.created_at);
+      } else if (item.pickerAsset?.timestamp) {
+        insertData.created_at = new Date(item.pickerAsset.timestamp).toISOString();
+        console.log('📅 Original creation time (from pickerAsset):', insertData.created_at);
+      } else {
+        console.log('📅 Using current timestamp (no original creation time)');
+      }
+
+      console.log('💾 Executing INSERT query to videos table...');
+      const insertStartTime = Date.now();
+
+      const { data: videoRecord, error: insertError } = await supabase
+        .from('videos')
+        .insert([insertData])
+        .select()
+        .single();
+
+      const insertDuration = Date.now() - insertStartTime;
+      console.log(`⏱️ INSERT query completed in ${insertDuration}ms`);
+
+      if (insertError || !videoRecord) {
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.error('❌ [DatabaseRecord] Failed to create video record');
+        console.error('Error code:', insertError?.code);
+        console.error('Error message:', insertError?.message);
+        console.error('Error details:', insertError?.details);
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        throw new Error(`Failed to create video record: ${insertError?.message}`);
+      }
+
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('✅ [DatabaseRecord] Video record created successfully!');
+      console.log(`📊 Video ID: ${videoRecord.id}`);
+      console.log(`📝 Title: ${videoRecord.title}`);
+      console.log(`📁 File Path: ${videoRecord.file_path}`);
+      console.log(`⏱️ Duration: ${videoRecord.duration}s`);
+      console.log(`📅 Created At: ${videoRecord.created_at}`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+      console.log('📊 Updating progress to 80%...');
+      item.progress = 80;
+      this.notifyListeners();
+
+      // Update video record with additional metadata
+      console.log('\n🔄 [DatabaseRecord] Updating video with additional metadata...');
+      const updateData: any = {
+        metadata: metadata,
+      };
+
+      // Add original creation date if available
+      if (item.asset?.creationTime) {
+        updateData.created_at = new Date(item.asset.creationTime).toISOString();
+        console.log('📅 Setting original creation time (from asset):', updateData.created_at);
+      } else if (item.pickerAsset?.timestamp) {
+        updateData.created_at = new Date(item.pickerAsset.timestamp).toISOString();
+        console.log('📅 Setting original creation time (from pickerAsset):', updateData.created_at);
+      }
+
+      // Add location if available
+      if (metadata.location) {
+        updateData.location = metadata.location;
+        console.log('📍 Setting location:', JSON.stringify(metadata.location));
+      }
+
+      console.log('💾 Executing UPDATE query...');
+      const updateStartTime = Date.now();
+
+      const { error: updateError } = await supabase
+        .from('videos')
+        .update(updateData)
+        .eq('id', videoRecord.id);
+
+      const updateDuration = Date.now() - updateStartTime;
+      console.log(`⏱️ UPDATE query completed in ${updateDuration}ms`);
+
+      if (updateError) {
+        console.warn('⚠️ Could not update video metadata:', updateError.message);
+      } else {
+        console.log('✅ Video metadata updated successfully');
+      }
+
+      const dbTotalDuration = Date.now() - dbStartTime;
+      console.log(`📊 [DatabaseRecord] Total database operations: ${dbTotalDuration}ms`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // STEP 3.5: GENERATE THUMBNAIL FRAMES
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('📸 [Thumbnails] STEP 3.5: Generating thumbnail frames');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      const thumbnailStartTime = Date.now();
+
+      try {
+        // ✅ For imported videos, copy to cache directory first (expo-video-thumbnails needs accessible file)
+        let thumbnailVideoUri = processedVideoUri;
+
+        if (item.metadata?.isImported || item.asset || item.pickerAsset) {
+          console.log('📋 Imported video detected, copying to cache for thumbnail generation...');
+
+          try {
+            // Copy video to cache directory with accessible permissions
+            const cacheFileName = `temp_thumb_${videoRecord.id}.mp4`;
+            const cacheUri = `${FileSystem.cacheDirectory}${cacheFileName}`;
+
+            console.log(`📂 Copying from ${processedVideoUri} to ${cacheUri}`);
+            await FileSystem.copyAsync({
+              from: processedVideoUri,
+              to: cacheUri,
+            });
+
+            thumbnailVideoUri = cacheUri;
+            console.log('✅ Video copied to cache successfully');
+
+            // Generate thumbnails from cache file
+            const frameUrls = await this.generateThumbnailFrames(thumbnailVideoUri, duration, videoRecord.id);
+
+            // Clean up cache file after generating thumbnails
+            try {
+              await FileSystem.deleteAsync(cacheUri, { idempotent: true });
+              console.log('🧹 Cleaned up cache file');
+            } catch (cleanupError) {
+              console.warn('⚠️ Could not delete cache file:', cleanupError);
+            }
+
+            if (frameUrls.length > 0) {
+              // Update video record with thumbnail frames
+              const { error: thumbUpdateError } = await supabase
+                .from('videos')
+                .update({
+                  thumbnail_path: frameUrls[0],
+                  thumbnail_frames: frameUrls,
+                })
+                .eq('id', videoRecord.id);
+
+              if (thumbUpdateError) {
+                console.error('❌ Error updating video with thumbnails:', thumbUpdateError);
+              } else {
+                console.log(`✅ ${frameUrls.length} frames generated and saved successfully`);
+                videoRecord.thumbnail_path = frameUrls[0];
+                videoRecord.thumbnail_frames = frameUrls;
+              }
+            } else {
+              console.warn('⚠️ No frames were generated');
+            }
+
+          } catch (copyError) {
+            console.error('❌ Error copying video to cache:', copyError);
+            // Try without copying (might work for some URIs)
+            const frameUrls = await this.generateThumbnailFrames(processedVideoUri, duration, videoRecord.id);
+
+            if (frameUrls.length > 0) {
+              const { error: thumbUpdateError } = await supabase
+                .from('videos')
+                .update({
+                  thumbnail_path: frameUrls[0],
+                  thumbnail_frames: frameUrls,
+                })
+                .eq('id', videoRecord.id);
+
+              if (!thumbUpdateError) {
+                console.log(`✅ ${frameUrls.length} frames generated successfully (without cache)`);
+                videoRecord.thumbnail_path = frameUrls[0];
+                videoRecord.thumbnail_frames = frameUrls;
+              }
+            }
+          }
+        } else {
+          // For recorded videos, use URI directly
+          const frameUrls = await this.generateThumbnailFrames(thumbnailVideoUri, duration, videoRecord.id);
+
+          if (frameUrls.length > 0) {
+            // Update video record with thumbnail frames
+            const { error: thumbUpdateError } = await supabase
+              .from('videos')
+              .update({
+                thumbnail_path: frameUrls[0],
+                thumbnail_frames: frameUrls,
+              })
+              .eq('id', videoRecord.id);
+
+            if (thumbUpdateError) {
+              console.error('❌ Error updating video with thumbnails:', thumbUpdateError);
+            } else {
+              console.log(`✅ ${frameUrls.length} frames generated and saved successfully`);
+              videoRecord.thumbnail_path = frameUrls[0];
+              videoRecord.thumbnail_frames = frameUrls;
+            }
+          } else {
+            console.warn('⚠️ No frames were generated');
+          }
+        }
+
+        const thumbnailDuration = Date.now() - thumbnailStartTime;
+        console.log(`⏱️ Thumbnail generation completed in ${(thumbnailDuration / 1000).toFixed(1)}s`);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+      } catch (thumbnailError) {
+        const thumbnailDuration = Date.now() - thumbnailStartTime;
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.error('⚠️ [Thumbnails] Thumbnail generation failed (non-critical)');
+        console.error(`⏱️ Failed after ${(thumbnailDuration / 1000).toFixed(1)}s`);
+        console.error('Error:', thumbnailError);
+        console.error('Error message:', thumbnailError instanceof Error ? thumbnailError.message : 'Unknown');
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+        // Continue without thumbnails - not critical
+      }
+
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // STEP 4: CREATE TRANSCRIPTION JOB
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('🎙️ [TranscriptionJob] STEP 4: Creating transcription job');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      const transcriptionStartTime = Date.now();
+
+      try {
+        // Construct proper public URL with user_id in path
+        const videoUrl = `https://eenyzudwktcjpefpoapi.supabase.co/storage/v1/object/public/videos/${user.id}/${uploadedFilePath}`;
+        console.log('📋 Transcription job parameters:');
+        console.log(`  - Video URL: ${videoUrl}`);
+        console.log(`  - Video ID: ${videoRecord.id}`);
+        console.log(`  - Duration: ${duration}s`);
+        console.log(`  - File size: ${(fileSize / (1024 * 1024)).toFixed(2)} MB`);
+        console.log(`  - User ID: ${user.id}`);
+
+        console.log('🚀 Calling TranscriptionJobService.createTranscriptionJob...');
+        const jobStartTime = Date.now();
+
+        // ✅ Round duration to integer (DB expects integer, not float)
+        const roundedDuration = Math.round(duration);
+        console.log(`⏱️ Duration: ${duration}s → ${roundedDuration}s (rounded for DB)`);
+
+        await TranscriptionJobService.createTranscriptionJob(
+          videoUrl,
+          roundedDuration, // ✅ Use rounded duration
+          fileSize, // ✅ Now passing actual file size (matches recorded videos)
+          videoRecord.id
+        );
+
+        const jobDuration = Date.now() - jobStartTime;
+        console.log(`⏱️ TranscriptionJobService call completed in ${jobDuration}ms`);
+
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('✅ [TranscriptionJob] Job created and queued successfully!');
+        console.log(`📊 Video will be processed by AssemblyAI`);
+        console.log(`📊 Status can be monitored in transcription_jobs table`);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+      } catch (transcriptionError) {
+        const transcriptionDuration = Date.now() - transcriptionStartTime;
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.error('⚠️ [TranscriptionJob] Failed to create transcription job');
+        console.error(`⏱️ Failed after ${transcriptionDuration}ms`);
+        console.error('Error:', transcriptionError);
+        console.error('Error message:', transcriptionError instanceof Error ? transcriptionError.message : 'Unknown');
+        console.error('Error stack:', transcriptionError instanceof Error ? transcriptionError.stack : 'No stack');
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.warn('⚠️ Import will continue without transcription (non-critical error)');
+        // Don't fail the import if transcription fails
+      }
+
+      console.log('📊 Updating progress to 100%...');
+      item.progress = 100;
+      item.status = 'completed';
+      item.videoRecord = videoRecord;
+      console.log(`✅ Successfully imported: ${item.filename}`);
+
+      console.log('========================================');
+      console.log(`✅ PROCESSITEM: Completed - ${item.filename}`);
+      console.log('========================================\n');
+
+    } catch (error) {
+      console.error('========================================');
+      console.error(`❌ PROCESSITEM: Failed - ${item.filename}`);
+      console.error('Error:', error);
+      console.error('Error message:', error instanceof Error ? error.message : 'Unknown');
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
+      console.error('========================================');
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isTimeoutError = errorMessage.includes('timed out') ||
+                             errorMessage.includes('NSURLErrorDomain') ||
+                             errorMessage.includes('Code=-1001');
+
+      // Retry logic with special handling for timeout errors
+      if (item.retryCount < this.MAX_RETRY_ATTEMPTS) {
+        item.retryCount++;
+        item.status = 'pending';
+        item.progress = 0;
+
+        if (isTimeoutError) {
+          console.log(`🔄 Network timeout detected. Retrying (${item.retryCount}/${this.MAX_RETRY_ATTEMPTS})`);
+          console.log(`💡 TIP: Check your network connection. Large videos may take 10-30 minutes to upload.`);
+        } else {
+          console.log(`🔄 Retrying (${item.retryCount}/${this.MAX_RETRY_ATTEMPTS})`);
+        }
+      } else {
+        item.status = 'failed';
+        item.error = error instanceof Error ? error.message : 'Unknown error';
+
+        if (isTimeoutError) {
+          console.log(`❌ Max retries reached. Video upload timed out after ${this.MAX_RETRY_ATTEMPTS} attempts.`);
+          console.log(`💡 This usually means the file is too large or network is too slow.`);
+          console.log(`💡 Try: (1) Use WiFi instead of cellular, (2) Upload smaller videos, (3) Check network quality`);
+        } else {
+          console.log(`❌ Max retries reached, marking as failed`);
+        }
+      }
+    }
+
+    console.log('💾 Saving queue state...');
+    await this.saveQueueState();
+    console.log('📢 Notifying listeners...');
+    this.notifyListeners();
+    console.log('✅ processItem cleanup complete\n');
+  }
+
+  /**
+   * Get current queue state
+   */
+  static getState(): ImportQueueState {
+    return {
+      items: [...this.queue],
+      currentIndex: this.currentIndex,
+      isProcessing: this.isProcessing,
+      totalCount: this.queue.length,
+      completedCount: this.getCompletedCount(),
+      failedCount: this.getFailedCount(),
+    };
+  }
+
+  /**
+   * Subscribe to queue updates
+   */
+  static subscribe(callback: ProgressCallback): () => void {
+    this.listeners.push(callback);
+
+    // Return unsubscribe function
+    return () => {
+      this.listeners = this.listeners.filter(listener => listener !== callback);
+    };
+  }
+
+  /**
+   * Notify all listeners of state changes
+   */
+  private static notifyListeners(): void {
+    const state = this.getState();
+    this.listeners.forEach(listener => listener(state));
+  }
+
+  /**
+   * Save queue state to AsyncStorage for persistence
+   */
+  private static async saveQueueState(): Promise<void> {
+    try {
+      const state = this.getState();
+      await AsyncStorage.setItem(this.STORAGE_KEY, JSON.stringify(state));
+    } catch (error) {
+      console.error('❌ Failed to save queue state:', error);
+    }
+  }
+
+  /**
+   * Load queue state from AsyncStorage
+   */
+  static async loadQueueState(): Promise<void> {
+    try {
+      const stateJson = await AsyncStorage.getItem(this.STORAGE_KEY);
+      if (stateJson) {
+        const state: ImportQueueState = JSON.parse(stateJson);
+        this.queue = state.items;
+        this.currentIndex = state.currentIndex;
+
+        // Resume processing if there are pending items
+        const hasPending = this.queue.some(
+          item => item.status === 'pending' || item.status === 'failed'
+        );
+        if (hasPending && !this.isProcessing) {
+          console.log('📥 Resuming previous import queue');
+          this.processQueue();
+        }
+      }
+    } catch (error) {
+      console.error('❌ Failed to load queue state:', error);
+    }
+  }
+
+  /**
+   * Clear completed items from queue
+   */
+  static clearCompleted(): void {
+    this.queue = this.queue.filter(item => item.status !== 'completed');
+    this.currentIndex = 0;
+    this.saveQueueState();
+    this.notifyListeners();
+  }
+
+  /**
+   * Clear all items from queue
+   */
+  static clearAll(): void {
+    this.queue = [];
+    this.currentIndex = 0;
+    this.isProcessing = false;
+    this.saveQueueState();
+    this.notifyListeners();
+  }
+
+  /**
+   * Retry failed items
+   */
+  static retryFailed(): void {
+    this.queue.forEach(item => {
+      if (item.status === 'failed') {
+        item.status = 'pending';
+        item.progress = 0;
+        item.error = undefined;
+        item.retryCount = 0;
+      }
+    });
+
+    this.currentIndex = 0;
+    this.saveQueueState();
+
+    if (!this.isProcessing) {
+      this.processQueue();
+    }
+  }
+
+  /**
+   * Get count of completed items
+   */
+  private static getCompletedCount(): number {
+    return this.queue.filter(item => item.status === 'completed').length;
+  }
+
+  /**
+   * Get count of failed items
+   */
+  private static getFailedCount(): number {
+    return this.queue.filter(item => item.status === 'failed').length;
+  }
+
+  /**
+   * Cancel processing (will stop after current batch completes)
+   */
+  static cancelProcessing(): void {
+    console.log('⏹️ Cancelling queue processing');
+    this.isProcessing = false;
+    this.notifyListeners();
+  }
+}

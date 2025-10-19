@@ -196,19 +196,115 @@ export class UserQuestionsService {
   }
 
   /**
+   * Compte le nombre de transcriptions complétées pour l'utilisateur
+   */
+  static async countCompletedTranscriptions(): Promise<number> {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        console.error('❌ No authenticated user for transcription count:', authError);
+        return 0;
+      }
+
+      // Récupérer toutes les vidéos de l'utilisateur
+      const { data: videos, error: videosError } = await supabase
+        .from('videos')
+        .select('id')
+        .eq('user_id', user.id);
+
+      if (videosError || !videos || videos.length === 0) {
+        return 0;
+      }
+
+      const videoIds = videos.map(v => v.id);
+
+      // Compter les transcriptions complétées
+      const { data, error } = await supabase
+        .from('transcription_jobs')
+        .select('id', { count: 'exact', head: true })
+        .in('video_id', videoIds)
+        .eq('status', 'completed');
+
+      if (error) {
+        console.error('❌ Error counting transcriptions:', error);
+        return 0;
+      }
+
+      const count = data?.length || 0;
+      console.log(`📊 User has ${count} completed transcriptions`);
+      return count;
+    } catch (error) {
+      console.error('❌ Error in countCompletedTranscriptions:', error);
+      return 0;
+    }
+  }
+
+  /**
    * Initialise le système de questions pour un nouvel utilisateur
    * ou pour un utilisateur qui n'a pas encore de questions
+   *
+   * Ne génère que si l'utilisateur a au moins 3 transcriptions
+   * Sinon, utilise les questions statiques
    */
   static async initializeQuestionsIfNeeded(): Promise<void> {
     try {
-      const count = await this.countUnusedQuestions();
+      const questionCount = await this.countUnusedQuestions();
 
-      if (count === 0) {
-        console.log('🆕 No questions found - initializing question system');
-        await this.generateNewQuestions();
+      if (questionCount === 0) {
+        console.log('🆕 No questions found - checking if we can initialize');
+
+        const transcriptionCount = await this.countCompletedTranscriptions();
+
+        if (transcriptionCount >= 3) {
+          console.log(`✅ User has ${transcriptionCount} transcriptions - generating AI questions`);
+          await this.generateNewQuestions();
+        } else {
+          console.log(`⚠️ User only has ${transcriptionCount} transcriptions (need 3+) - will use static questions`);
+        }
       }
     } catch (error) {
       console.error('❌ Error in initializeQuestionsIfNeeded:', error);
+    }
+  }
+
+  /**
+   * Vérifie et génère automatiquement des questions après chaque transcription
+   *
+   * À appeler après chaque transcription terminée pour:
+   * - Générer le premier batch dès 3 transcriptions
+   * - Régénérer automatiquement si ≤5 questions restent
+   */
+  static async autoGenerateAfterTranscription(): Promise<void> {
+    try {
+      console.log('🔍 Checking if question generation needed after transcription...');
+
+      const questionCount = await this.countUnusedQuestions();
+      const transcriptionCount = await this.countCompletedTranscriptions();
+
+      console.log(`📊 Current state: ${questionCount} questions, ${transcriptionCount} transcriptions`);
+
+      // Cas 1: Aucune question ET au moins 3 transcriptions → générer premier batch
+      if (questionCount === 0 && transcriptionCount >= 3) {
+        console.log('🚀 First batch: generating questions with 3+ transcriptions');
+        this.generateNewQuestions().catch(err => {
+          console.error('❌ Auto-generation failed:', err);
+        });
+        return;
+      }
+
+      // Cas 2: ≤5 questions restantes → générer nouveau batch
+      if (questionCount > 0 && questionCount <= 5) {
+        console.log(`⚠️ Only ${questionCount} questions left - triggering regeneration`);
+        this.generateNewQuestions().catch(err => {
+          console.error('❌ Auto-regeneration failed:', err);
+        });
+        return;
+      }
+
+      console.log('✅ No generation needed - sufficient questions available');
+    } catch (error) {
+      console.error('❌ Error in autoGenerateAfterTranscription:', error);
     }
   }
 

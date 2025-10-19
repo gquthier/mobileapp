@@ -16,32 +16,28 @@ import {
   Modal,
   Share,
   Linking,
+  InteractionManager,
+  Keyboard,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import * as MediaLibrary from 'expo-media-library';
-import * as ImagePicker from 'expo-image-picker';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
-import { launchImageLibrary } from 'react-native-image-picker';
 import { theme } from '../styles';
 import { useTheme } from '../hooks/useTheme';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { CalendarGallerySimple as CalendarGallery } from '../components/CalendarGallerySimple';
-import { ZoomableVideoGallery } from '../components/ZoomableVideoGallery';
+import { VideoGallery } from '../components/VideoGallery';
 import { VideoPlayer } from '../components/VideoPlayer';
-import { DayDebriefScreen } from './DayDebriefScreen';
 import { VideoRecord } from '../lib/supabase';
 import { VideoService } from '../services/videoService';
 import { VideoCacheService } from '../services/videoCacheService';
 import { ImportQueueService, ImportQueueState } from '../services/importQueueService';
-import Reanimated, { useSharedValue } from 'react-native-reanimated';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SharedElementPortal } from '../components/library/transition/SharedElementPortal';
-import { useSharedTransition } from '../components/library/transition/useSharedTransition';
-import { ZoomableMediaViewer } from '../components/library/ZoomableMediaViewer';
-import { Asset, SourceRect } from '../components/library/types';
 import { libraryReducer, initialLibraryState } from './LibraryScreen.reducer';
+import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+import { GlassButton, GlassContainer } from './OptimizedGlassComponents';
+import { getUserChapters, getCurrentChapter, Chapter } from '../services/chapterService';
+import { supabase } from '../lib/supabase';
 
 const { width: screenWidth } = Dimensions.get('window');
 const GRID_PADDING = 4;
@@ -51,34 +47,187 @@ const THUMBNAIL_HEIGHT = THUMBNAIL_WIDTH * 1.33; // Vertical aspect ratio (4:3)
 
 const VIDEOS_PER_PAGE = 50;
 
+// Life areas for filtering
+const LIFE_AREAS = [
+  'Health', 'Family', 'Friends', 'Love', 'Work',
+  'Business', 'Money', 'Growth', 'Leisure', 'Home',
+  'Spirituality', 'Community'
+];
+
 const LibraryScreen: React.FC = () => {
   const navigation = useNavigation();
+  const route = useRoute();
   const theme = useTheme();
+  const insets = useSafeAreaInsets(); // ✅ Get safe area insets manually
 
   // ✅ Replace 20+ useState with single useReducer
   const [state, dispatch] = useReducer(libraryReducer, initialLibraryState);
 
-  // Keep refs and animations (not part of state)
-  const searchBarProgress = useRef(new Animated.Value(0)).current;
-  const backdropOpacity = useSharedValue(0);
+  // 🚀 OPTIMIZATION: Track loading phases for progressive rendering
+  const [loadingPhase, setLoadingPhase] = useState<'skeleton' | 'cache' | 'complete'>('skeleton');
 
-  const {
-    transitionState,
-    open,
-    close,
-    handleAnimationComplete,
-    transitionSpec,
-  } = useSharedTransition({
-    onOpenComplete: () => {
-      console.log('✅ Zoom transition opened');
-      backdropOpacity.value = 0.95;
-    },
-    onCloseComplete: () => {
-      console.log('✅ Zoom transition closed');
-      dispatch({ type: 'CLOSE_ZOOM_VIEWER' });
-      backdropOpacity.value = 0;
-    },
-  });
+  // Track keyboard visibility
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  // Chapter filter state
+  const [showChapterModal, setShowChapterModal] = useState(false);
+  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
+
+  // Animation values for chapter modal (iOS native-style animation)
+  const modalScale = useRef(new Animated.Value(0.95)).current;
+  const modalOpacity = useRef(new Animated.Value(0)).current;
+  const filterButtonScale = useRef(new Animated.Value(1)).current;
+
+  // ✅ Calculate header height for content inset
+  // Different padding for calendar vs grid view
+  const headerHeightCalendar = insets.top + 72; // More spacing for calendar view
+  const headerHeightGrid = insets.top + 60; // Less spacing for grid view (photos closer to top bar)
+
+  // 🚀 OPTIMIZATION: Lazy animation initialization with useMemo (grouped for performance)
+  const animations = useMemo(() => ({
+    searchBarProgress: new Animated.Value(0),
+    calendarIconScale: new Animated.Value(1),
+    gridIconScale: new Animated.Value(1),
+    toggleSelectorPosition: new Animated.Value(state.viewMode === 'calendar' ? 0 : 1),
+    scrollY: new Animated.Value(0),
+    headerOpacity: new Animated.Value(1),
+  }), []); // ✅ Init once, never recreate
+
+  // Extract for backward compatibility
+  const searchBarProgress = animations.searchBarProgress;
+  const calendarIconScale = animations.calendarIconScale;
+  const gridIconScale = animations.gridIconScale;
+  const toggleSelectorPosition = animations.toggleSelectorPosition;
+  const scrollY = animations.scrollY;
+  const headerOpacity = animations.headerOpacity;
+
+  const lastScrollY = useRef(0);
+  const lifeAreaScrollViewRef = useRef<ScrollView>(null);
+
+  // ✅ FIX: Stable ref for fetchVideos to avoid re-subscriptions
+  const fetchVideosRef = useRef<(pageToLoad?: number, append?: boolean) => Promise<void>>();
+
+  // ✅ FIX: Stable date ref to avoid recalculations every minute
+  const currentDateRef = useRef(new Date());
+
+  // Create infinite scroll array (3x duplication for smooth looping)
+  const infiniteLifeAreas = useMemo(() => {
+    return [...LIFE_AREAS, ...LIFE_AREAS, ...LIFE_AREAS];
+  }, []);
+
+  // Initialize toggle selector position on mount
+  useEffect(() => {
+    const initialPosition = state.viewMode === 'calendar' ? 0 : 1;
+    toggleSelectorPosition.setValue(initialPosition);
+  }, []);
+
+  // Listen for keyboard events
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
+      setIsKeyboardVisible(true);
+    });
+    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      setIsKeyboardVisible(false);
+    });
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
+  // Load chapters on mount
+  useEffect(() => {
+    const loadChapters = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        // Load all chapters
+        const allChapters = await getUserChapters(user.id);
+        setChapters(allChapters);
+
+        // Load current chapter
+        const current = await getCurrentChapter(user.id);
+        setCurrentChapter(current);
+      } catch (error) {
+        console.error('❌ Error loading chapters:', error);
+      }
+    };
+
+    loadChapters();
+  }, []);
+
+  // Handle navigation params (filter by chapter if coming from ChapterDetailScreen)
+  useEffect(() => {
+    const params = route.params as any;
+    if (params?.filterChapterId) {
+      console.log('📚 Navigation params received:', {
+        filterChapterId: params.filterChapterId,
+        filterChapterTitle: params.filterChapterTitle,
+        openSearchWithFilter: params.openSearchWithFilter,
+      });
+
+      // Apply chapter filter
+      setSelectedChapterId(params.filterChapterId);
+      console.log('✅ Chapter filter applied:', params.filterChapterTitle || params.filterChapterId);
+
+      // ✅ Just apply the filter - don't open full search mode
+      // The videos will be filtered by filteredVideos useMemo
+      if (params?.openSearchWithFilter) {
+        console.log('🎯 Filter active - videos will be filtered by chapter');
+
+        // Switch to grid view (better for filtered lists)
+        dispatch({ type: 'SET_VIEW_MODE', mode: 'grid' });
+        console.log('📱 Switched to grid view for filtered results');
+
+        // Haptic feedback to confirm filter applied
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+    }
+  }, [route.params]);
+
+  // Animate toggle icons and selector based on active state
+  // ✅ FIX: Skip animation on first render to avoid blocking scroll at mount
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    const targetCalendarScale = state.viewMode === 'calendar' ? 1 : 0.9;
+    const targetGridScale = state.viewMode === 'grid' ? 1 : 0.9;
+    const targetSelectorPosition = state.viewMode === 'calendar' ? 0 : 1;
+
+    if (isFirstRender.current) {
+      // ✅ First render: Set values immediately without animation (prevents 300ms freeze)
+      calendarIconScale.setValue(targetCalendarScale);
+      gridIconScale.setValue(targetGridScale);
+      toggleSelectorPosition.setValue(targetSelectorPosition);
+      isFirstRender.current = false;
+    } else {
+      // ✅ Subsequent changes: Animate normally (smooth UX)
+      Animated.parallel([
+        Animated.spring(calendarIconScale, {
+          toValue: targetCalendarScale,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 40,
+        }),
+        Animated.spring(gridIconScale, {
+          toValue: targetGridScale,
+          useNativeDriver: true,
+          friction: 8,
+          tension: 40,
+        }),
+        Animated.spring(toggleSelectorPosition, {
+          toValue: targetSelectorPosition,
+          useNativeDriver: false, // We need layout animations for the selector
+          friction: 10,
+          tension: 80,
+        }),
+      ]).start();
+    }
+  }, [state.viewMode, calendarIconScale, gridIconScale, toggleSelectorPosition]);
 
   // Create placeholder videos for videos being uploaded
   const createUploadingPlaceholders = useCallback((queueState: ImportQueueState | null): VideoRecord[] => {
@@ -86,28 +235,41 @@ const LibraryScreen: React.FC = () => {
 
     return queueState.items
       .filter(item => item.status === 'pending' || item.status === 'uploading')
-      .map(item => ({
-        id: item.id,
-        title: item.title || 'Uploading...',
-        file_path: item.uri,
-        thumbnail_path: item.uri, // Use video URI as thumbnail temporarily
-        duration: item.pickerAsset?.duration || 0,
-        user_id: '',
-        created_at: new Date().toISOString(),
-        // Mark as uploading for UI
-        metadata: { isUploading: true, progress: item.progress },
-      } as VideoRecord));
+      .map(item => {
+        // ✅ Use original creation date from video metadata
+        let createdAt = new Date().toISOString();
+
+        if (item.asset?.creationTime) {
+          createdAt = new Date(item.asset.creationTime).toISOString();
+        } else if (item.pickerAsset?.timestamp) {
+          createdAt = new Date(item.pickerAsset.timestamp).toISOString();
+        }
+
+        return {
+          id: item.id,
+          title: item.title || 'Uploading...',
+          file_path: item.uri,
+          thumbnail_path: item.uri, // Use video URI as thumbnail temporarily
+          duration: item.pickerAsset?.duration || item.asset?.duration || 0,
+          user_id: '',
+          created_at: createdAt, // ✅ Use original date, not current date
+          // Mark as uploading for UI
+          metadata: { isUploading: true, progress: item.progress },
+        } as VideoRecord;
+      });
   }, []);
 
-  // Fetch videos with cache-first strategy and pagination
+  // 🚀 OPTIMIZATION: Fetch videos with non-blocking cache-first strategy
   const fetchVideos = useCallback(async (pageToLoad: number = 0, append: boolean = false) => {
     try {
       if (!append) {
         dispatch({ type: 'FETCH_START' });
 
-        // Initial load - try cache first
+        // 🚀 PHASE 1: Try cache first (fast, synchronous)
         console.log('📦 Loading videos from cache...');
+        const cacheStartTime = Date.now();
         const { videos: cachedVideos } = await VideoCacheService.loadFromCache();
+        console.log(`⏱️ Cache loaded in ${Date.now() - cacheStartTime}ms`);
 
         if (cachedVideos.length > 0) {
           console.log(`✅ Showing ${cachedVideos.length} cached videos immediately`);
@@ -116,17 +278,19 @@ const LibraryScreen: React.FC = () => {
             new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
           );
           dispatch({ type: 'FETCH_SUCCESS', videos: sortedCached });
+          setLoadingPhase('cache');
         }
       } else {
         dispatch({ type: 'LOAD_MORE_START' });
       }
 
-      // Fetch fresh data with pagination
+      // 🚀 PHASE 2: Fetch fresh data in background (after interactions complete)
       const offset = pageToLoad * VIDEOS_PER_PAGE;
       console.log(`🔄 Fetching videos page ${pageToLoad} (offset: ${offset}, limit: ${VIDEOS_PER_PAGE})`);
 
+      const fetchStartTime = Date.now();
       const videosData = await VideoService.getAllVideos(undefined, VIDEOS_PER_PAGE, offset);
-      console.log('✅ Fresh videos fetched:', videosData.length);
+      console.log(`⏱️ Network fetch completed in ${Date.now() - fetchStartTime}ms (${videosData.length} videos)`);
 
       // Check if we have more pages
       const hasMoreVideos = videosData.length === VIDEOS_PER_PAGE;
@@ -141,8 +305,11 @@ const LibraryScreen: React.FC = () => {
         dispatch({ type: 'LOAD_MORE_SUCCESS', videos: sortedFresh, hasMore: hasMoreVideos });
       } else {
         dispatch({ type: 'FETCH_SUCCESS', videos: sortedFresh });
-        // Update cache only on initial load
-        await VideoCacheService.saveToCache(sortedFresh);
+        setLoadingPhase('complete');
+        // Update cache only on initial load (in background, don't await)
+        VideoCacheService.saveToCache(sortedFresh).catch(err =>
+          console.error('❌ Cache save failed:', err)
+        );
       }
     } catch (error) {
       console.error('❌ Error fetching videos:', error);
@@ -150,56 +317,71 @@ const LibraryScreen: React.FC = () => {
         dispatch({ type: 'LOAD_MORE_ERROR' });
       } else {
         dispatch({ type: 'FETCH_ERROR', error: 'Failed to load videos. Please try again.' });
+        setLoadingPhase('complete');
       }
     }
   }, []);
 
-  // Calculate current streak
-  const calculateStreak = useCallback((videoList: VideoRecord[]): number => {
+  // 🚀 OPTIMIZATION: Calculate streak with early exit and Set-based lookup
+  const calculateStreakOptimized = useCallback((videoList: VideoRecord[]): number => {
+    // 🚀 Early exit: No videos = no streak
     if (!videoList || videoList.length === 0) return 0;
 
-    // Get today's date at midnight (for consistent comparison)
+    // 🚀 Early exit: Few videos = simple check
+    if (videoList.length < 5) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayKey = today.toISOString().split('T')[0];
+
+      const hasVideoToday = videoList.some(v =>
+        v.created_at && new Date(v.created_at).toISOString().split('T')[0] === todayKey
+      );
+      return hasVideoToday ? 1 : 0;
+    }
+
+    // Get today's date
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Group videos by date (YYYY-MM-DD)
-    const videosByDate = new Map<string, VideoRecord[]>();
+    // 🚀 Optimization: Use Set for O(1) lookups instead of Map
+    const videoDates = new Set<string>();
     videoList.forEach(video => {
       if (video.created_at) {
         const date = new Date(video.created_at);
         date.setHours(0, 0, 0, 0);
-        const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
-        if (!videosByDate.has(dateKey)) {
-          videosByDate.set(dateKey, []);
-        }
-        videosByDate.get(dateKey)!.push(video);
+        videoDates.add(date.toISOString().split('T')[0]);
       }
     });
 
-    // Calculate streak starting from today
+    // Calculate streak
     let streak = 0;
     let currentDate = new Date(today);
+    const maxDaysToCheck = 365; // 🚀 Limit to prevent infinite loop
 
-    while (true) {
+    for (let i = 0; i < maxDaysToCheck; i++) {
       const dateKey = currentDate.toISOString().split('T')[0];
 
-      // Check if there's at least one video on this date
-      if (videosByDate.has(dateKey)) {
+      if (videoDates.has(dateKey)) {
         streak++;
-        // Move to previous day
         currentDate.setDate(currentDate.getDate() - 1);
       } else {
-        // Streak broken
-        break;
+        break; // 🚀 Early exit when streak breaks
       }
     }
 
     return streak;
   }, []);
 
-  // Load videos on component mount
+  // 🚀 OPTIMIZATION: Load videos after interactions complete (non-blocking)
   useEffect(() => {
-    fetchVideos(0, false);
+    // Skeleton UI is already visible immediately
+    // Now defer heavy operations until after navigation animation
+    const handle = InteractionManager.runAfterInteractions(() => {
+      console.log('🚀 Starting fetchVideos after interactions complete');
+      fetchVideos(0, false);
+    });
+
+    return () => handle.cancel();
   }, [fetchVideos]);
 
   // Load more videos handler
@@ -217,20 +399,37 @@ const LibraryScreen: React.FC = () => {
     fetchVideos(nextPage, true);
   }, [state.pagination, state.loading, fetchVideos]);
 
-  // ✅ Memoize streak calculation (expensive operation)
+  // 🚀 OPTIMIZATION: Smart memoization - only recalculate when video count changes
   const currentStreak = useMemo(() => {
-    return calculateStreak(state.videos);
-  }, [state.videos, calculateStreak]);
+    const startTime = Date.now();
+    const streak = calculateStreakOptimized(state.videos);
+    const elapsed = Date.now() - startTime;
+    if (elapsed > 10) {
+      console.log(`⏱️ Streak calculated in ${elapsed}ms: ${streak} days`);
+    }
+    return streak;
+  }, [state.videos.length, calculateStreakOptimized]);
 
   // Update streak in state when it changes
   useEffect(() => {
     dispatch({ type: 'UPDATE_STREAK', streak: currentStreak });
   }, [currentStreak]);
 
-  // Subscribe to import queue updates
+  // ✅ FIX: Keep fetchVideosRef updated with latest version
   useEffect(() => {
-    // Load persisted queue state on mount
-    ImportQueueService.loadQueueState();
+    fetchVideosRef.current = fetchVideos;
+  }, [fetchVideos]);
+
+  // 🚀 OPTIMIZATION: Subscribe to import queue updates (defer queue loading)
+  useEffect(() => {
+    // 🚀 Defer queue state loading to avoid blocking initial render
+    const handle = InteractionManager.runAfterInteractions(() => {
+      // Load persisted queue state after interactions complete (100ms delay)
+      setTimeout(() => {
+        console.log('🚀 Loading import queue state (deferred)');
+        ImportQueueService.loadQueueState();
+      }, 100);
+    });
 
     // Subscribe to queue updates
     const unsubscribe = ImportQueueService.subscribe((queueState) => {
@@ -239,28 +438,20 @@ const LibraryScreen: React.FC = () => {
       // Don't show progress modal - videos will show inline with spinner
       // Just refresh when imports complete
       if (queueState.completedCount > 0 && !queueState.isProcessing) {
-        fetchVideos();
+        // ✅ FIX: Defer fetchVideos to avoid blocking during interactions/animations
+        // Wait 500ms for any ongoing animations to complete before fetching
+        setTimeout(() => {
+          console.log('🔄 Import completed - refreshing videos (deferred)');
+          fetchVideosRef.current?.();
+        }, 500);
       }
     });
 
-    return () => unsubscribe();
-  }, [fetchVideos]);
-
-  // Mock chapters data - you can fetch this from your database later
-  const chapters = [
-    {
-      id: '1',
-      title: 'Chapter 1: Lost',
-      periodStart: new Date('2024-12-01'),
-      periodEnd: new Date('2025-01-31'),
-    },
-    {
-      id: '2',
-      title: 'Chapter 2: Found',
-      periodStart: new Date('2025-02-01'),
-      periodEnd: new Date('2025-03-31'),
-    },
-  ];
+    return () => {
+      handle.cancel();
+      unsubscribe();
+    };
+  }, []); // ✅ FIX: Empty deps - no re-subscriptions, use fetchVideosRef instead
 
   // ✅ Memoize combined videos
   const allVideos = useMemo(() => {
@@ -269,7 +460,27 @@ const LibraryScreen: React.FC = () => {
     return [...uploadingPlaceholders, ...state.videos];
   }, [state.videos, state.importState.queueState, createUploadingPlaceholders]);
 
-  // Handler for CALENDAR view - Opens DayDebriefScreen
+  // ✅ Filter videos by selected chapter
+  const filteredVideos = useMemo(() => {
+    if (!selectedChapterId) {
+      console.log('📹 No chapter filter - showing all', allVideos.length, 'videos');
+      return allVideos; // No filter - show all videos
+    }
+
+    // Filter videos that belong to the selected chapter
+    const filtered = allVideos.filter(video => video.chapter_id === selectedChapterId);
+
+    console.log('🔍 Filtering videos by chapter:', {
+      selectedChapterId,
+      totalVideos: allVideos.length,
+      filteredCount: filtered.length,
+      sampleVideoChapterIds: allVideos.slice(0, 3).map(v => ({ id: v.id, chapter_id: v.chapter_id })),
+    });
+
+    return filtered;
+  }, [allVideos, selectedChapterId]);
+
+  // Handler for CALENDAR view - Opens VideoPlayer with all videos from the day
   const handleCalendarVideoPress = useCallback((
     video: VideoRecord,
     allVideosFromDay?: VideoRecord[],
@@ -278,68 +489,19 @@ const LibraryScreen: React.FC = () => {
     console.log('📅 Calendar video selected:', {
       date: video.created_at,
       totalVideos: allVideosFromDay?.length || 1,
+      initialIndex: index,
     });
 
-    // Open Day Debrief Screen with all videos from that day
+    // Open VideoPlayer with all videos from that day (vertical scroll)
     const videosToShow = allVideosFromDay || [video];
-    const date = new Date(video.created_at);
 
-    dispatch({ type: 'OPEN_DAY_DEBRIEF', date, videos: videosToShow });
+    dispatch({
+      type: 'OPEN_VIDEO_PLAYER',
+      video,
+      videos: videosToShow,
+      initialIndex: index,
+    });
   }, []);
-
-  const handleCloseDayDebrief = useCallback(() => {
-    dispatch({ type: 'CLOSE_DAY_DEBRIEF' });
-  }, []);
-
-  // Handler for CALENDAR view with Apple Photos-style zoom
-  const handleCalendarVideoPressWithRect = useCallback(
-    (video: VideoRecord, rect: SourceRect, allVideosFromDay?: VideoRecord[], index: number = 0) => {
-      console.log('🔍 Calendar video selected with rect:', {
-        video: video.title,
-        rect: { x: rect.pageX, y: rect.pageY, w: rect.width, h: rect.height },
-      });
-
-      // Convert VideoRecord to Asset
-      const getVideoUri = (filePath: string) => {
-        if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
-          return filePath;
-        }
-        const baseUrl = 'https://eenyzudwktcjpefpoapi.supabase.co/storage/v1/object/public/videos';
-        let cleanPath = filePath;
-        if (cleanPath.startsWith('/')) cleanPath = cleanPath.substring(1);
-        if (cleanPath.startsWith('videos/')) cleanPath = cleanPath.substring('videos/'.length);
-        return `${baseUrl}/${cleanPath}`;
-      };
-
-      const getThumbnailUri = () => {
-        if (video.thumbnail_frames && video.thumbnail_frames.length > 0) {
-          return video.thumbnail_frames[0];
-        }
-        if (video.thumbnail_path) {
-          if (video.thumbnail_path.startsWith('http')) return video.thumbnail_path;
-          return `https://eenyzudwktcjpefpoapi.supabase.co/storage/v1/object/public/videos/${video.thumbnail_path}`;
-        }
-        return undefined;
-      };
-
-      const asset: Asset = {
-        id: video.id || '',
-        type: 'video',
-        uri: getVideoUri(video.file_path || ''),
-        width: 1080,
-        height: 1920,
-        thumbnailUri: getThumbnailUri(),
-        duration: video.duration,
-        createdAt: video.created_at || new Date().toISOString(),
-      };
-
-      console.log('📦 Created asset:', { id: asset.id, uri: asset.uri, thumbnail: asset.thumbnailUri });
-
-      dispatch({ type: 'OPEN_ZOOM_VIEWER', asset });
-      open(asset, rect);
-    },
-    [open]
-  );
 
   // Handler for GRID view - Opens VideoPlayer directly
   const handleGridVideoPress = useCallback((
@@ -369,6 +531,7 @@ const LibraryScreen: React.FC = () => {
   const handleOpenVerticalFeed = useCallback((startIndex: number = 0) => {
     console.log('🎬 Opening Vertical Feed at index:', startIndex);
 
+    // ✅ OPTION 1: No filtering needed - VideoService already filters at source
     // Use filtered videos (respect current search/filters)
     const videosToShow = state.search.showSearch && state.search.results.length > 0
       ? state.search.results
@@ -397,36 +560,45 @@ const LibraryScreen: React.FC = () => {
     navigation.navigate('Settings' as never);
   };
 
-  // Generate current month days with activity status
-  const getCurrentMonthDays = useCallback(() => {
-    const today = new Date();
+  // 🚀 OPTIMIZATION: Memoize month days calculation - only recalculate when needed
+  const getCurrentMonthDays = useMemo(() => {
+    // 🚀 Early exit: No videos = empty month
+    if (filteredVideos.length < 5) {
+      return [];
+    }
+
+    // ✅ FIX: Use stable date ref instead of new Date() to avoid recalc every minute
+    const today = currentDateRef.current;
     const year = today.getFullYear();
     const month = today.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-    const days = [];
-    const videoDates = new Set(
-      allVideos.map(video => {
+    // 🚀 Optimization: Pre-calculate video dates Set once
+    const videoDates = new Set<number>();
+    filteredVideos.forEach(video => {
+      if (video.created_at) {
         const date = new Date(video.created_at);
         if (date.getMonth() === month && date.getFullYear() === year) {
-          return date.getDate();
+          videoDates.add(date.getDate());
         }
-        return null;
-      }).filter(Boolean)
-    );
+      }
+    });
+
+    // Build days array
+    const days = [];
+    const todayDate = today.getDate();
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const date = new Date(year, month, day);
       days.push({
         day,
-        date,
+        date: new Date(year, month, day),
         hasVideo: videoDates.has(day),
-        isToday: day === today.getDate(),
+        isToday: day === todayDate,
       });
     }
 
     return days;
-  }, [allVideos]);
+  }, [filteredVideos.length]); // ✅ FIX: Removed new Date() deps - only recalc when video count changes
 
   const getStreakMessage = (streak: number) => {
     if (streak === 0) return "Start your journey today! 🎬";
@@ -471,10 +643,15 @@ const LibraryScreen: React.FC = () => {
 
   const handleCloseSearch = useCallback(() => {
     dispatch({ type: 'CLOSE_SEARCH' });
-    if (state.search.showSearchBar) {
-      toggleSearchBar();
-    }
-  }, [state.search.showSearchBar]);
+
+    // Reset search bar animation to closed state (logo visible)
+    Animated.spring(searchBarProgress, {
+      toValue: 0,
+      useNativeDriver: false,
+      tension: 60,
+      friction: 10,
+    }).start();
+  }, [searchBarProgress]);
 
   // Toggle search bar visibility with animation
   const toggleSearchBar = useCallback(() => {
@@ -495,105 +672,155 @@ const LibraryScreen: React.FC = () => {
     }).start();
   }, [state.search.showSearchBar, searchBarProgress]);
 
+  // Handle tap on "Chapters" title to expand search bar
+  const handleChaptersTitlePress = useCallback(() => {
+    console.log('📖 Chapters title tapped - expanding search bar');
+    
+    // Haptic feedback (slightly stronger for discovery)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    // Expand search bar if not already expanded
+    if (!state.search.showSearchBar) {
+      dispatch({ type: 'TOGGLE_SEARCH_BAR', show: true });
+      
+      // Animate the transition
+      Animated.spring(searchBarProgress, {
+        toValue: 1,
+        useNativeDriver: false,
+        tension: 60,
+        friction: 10,
+      }).start();
+    }
+  }, [state.search.showSearchBar, searchBarProgress]);
+
+  // Handle scroll behavior for smart header
+  const handleScroll = useCallback((event: any) => {
+    const currentScrollY = event.nativeEvent.contentOffset.y;
+    const scrollingUp = currentScrollY < lastScrollY.current;
+
+    lastScrollY.current = currentScrollY;
+
+    // ❌ DISABLED: Auto-expand animation during scroll causes UI freeze
+    // This was triggering a non-native animation (useNativeDriver: false) during scroll,
+    // blocking the JavaScript thread for 300-500ms and freezing the scroll
+    // User can still manually expand the search bar by tapping "Chapters"
+
+    // if (scrollingUp && currentScrollY > 50 && !state.search.showSearchBar && !state.search.showSearch) {
+    //   console.log('📜 Smart scroll detected - showing search hint');
+    //   handleChaptersTitlePress();
+    // }
+  }, [state.search.showSearchBar, state.search.showSearch, handleChaptersTitlePress]);
+
   const handleOutsidePress = useCallback(() => {
+    // Priority 1: If keyboard is visible, dismiss it
+    if (isKeyboardVisible) {
+      console.log('⌨️ Keyboard visible - dismissing keyboard');
+      Keyboard.dismiss();
+      return;
+    }
+
+    // Priority 2: If in search mode, close search
     if (state.search.showSearch) {
+      console.log('🔍 Search active - closing search');
       handleCloseSearch();
     } else if (state.search.showSearchBar) {
-      toggleSearchBar();
+      // Mode expanded (search bar visible) - collapse vers mode normal
+      console.log('👆 Outside tap detected - collapsing search bar');
+
+      // Haptic feedback
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      // Collapse search bar
+      dispatch({ type: 'TOGGLE_SEARCH_BAR', show: false });
+
+      // Animate the transition
+      Animated.spring(searchBarProgress, {
+        toValue: 0,
+        useNativeDriver: false,
+        tension: 60,
+        friction: 10,
+      }).start();
     }
-  }, [state.search.showSearch, state.search.showSearchBar, handleCloseSearch, toggleSearchBar]);
+  }, [isKeyboardVisible, state.search.showSearch, state.search.showSearchBar, handleCloseSearch, searchBarProgress]);
 
-  // Handle import videos from gallery using native PHPicker
+  // Navigate to VideoImportScreen (custom Apple Photos-style picker)
   const handleImportVideos = () => {
-    console.log('📱 Opening video picker...');
-
-    // Use callback-based API (Promise version was hanging)
-    launchImageLibrary(
-      {
-        mediaType: 'video',
-        selectionLimit: 0, // 0 = unlimited selection (iOS 14+)
-        presentationStyle: 'fullScreen',
-      },
-      async (result) => {
-        try {
-          console.log('🎯 Picker returned');
-
-          if (result.didCancel) {
-            console.log('❌ User cancelled video selection');
-            return;
-          }
-
-          if (result.errorCode) {
-            console.error('❌ Picker error:', result.errorCode, result.errorMessage);
-            Alert.alert('Error', `Could not access videos: ${result.errorMessage}`);
-            return;
-          }
-
-          if (!result.assets || result.assets.length === 0) {
-            console.log('❌ No videos selected');
-            return;
-          }
-
-          console.log(`✅ Selected ${result.assets.length} videos from native picker`);
-
-          console.log('📋 Video details:');
-          result.assets.forEach((asset, index) => {
-            console.log(`  Video ${index + 1}:`);
-            console.log(`    - uri: ${asset.uri}`);
-            console.log(`    - fileName: ${asset.fileName}`);
-            console.log(`    - type: ${asset.type}`);
-            console.log(`    - fileSize: ${asset.fileSize}`);
-            console.log(`    - width: ${asset.width}`);
-            console.log(`    - height: ${asset.height}`);
-            console.log(`    - duration: ${asset.duration}`);
-          });
-
-          // Convert to ImagePicker format with proper types
-          console.log('🔄 Converting to ImagePicker format...');
-          const videosToImport: ImagePicker.ImagePickerAsset[] = result.assets
-            .filter(asset => {
-              if (!asset.uri) {
-                console.warn('⚠️ Skipping asset without URI:', asset.fileName);
-                return false;
-              }
-              return true;
-            })
-            .map(asset => ({
-              uri: asset.uri!,
-              width: asset.width || 0,
-              height: asset.height || 0,
-              fileName: asset.fileName,
-              fileSize: asset.fileSize,
-              type: 'video' as const,
-              duration: asset.duration,
-              base64: asset.base64,
-              originalPath: asset.originalPath,
-              bitrate: asset.bitrate,
-              timestamp: asset.timestamp,
-              id: asset.id,
-            }));
-
-          console.log(`✅ ${videosToImport.length} videos ready for import`);
-
-          // Add to import queue (this will trigger the upload in background)
-          console.log('📥 Adding videos to ImportQueueService...');
-          await ImportQueueService.addPickerVideosToQueue(videosToImport);
-          console.log('✅ Videos added to queue successfully!');
-
-          // Refresh immediately to show uploading videos
-          fetchVideos();
-        } catch (error) {
-          console.error('========================================');
-          console.error('❌ ERROR IN CALLBACK');
-          console.error('========================================');
-          console.error('Error details:', error);
-          console.error('Error message:', error instanceof Error ? error.message : 'Unknown error');
-          console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-          Alert.alert('Error', 'An error occurred during video import.');
-        }
-      }
-    );
+    console.log('📱 Navigating to VideoImportScreen...');
+    navigation.navigate('VideoImport' as never);
   };
+
+  // Chapter Modal Handlers (iOS-style animations like Momentum)
+  const handleOpenChapterModal = useCallback(() => {
+    console.log('📖 Opening chapter modal');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    modalScale.setValue(0.95);
+    modalOpacity.setValue(0);
+    setShowChapterModal(true);
+
+    // Button press animation
+    Animated.sequence([
+      Animated.timing(filterButtonScale, {
+        toValue: 0.96,
+        duration: 80,
+        useNativeDriver: true,
+      }),
+      Animated.spring(filterButtonScale, {
+        toValue: 1,
+        useNativeDriver: true,
+        friction: 8,
+        tension: 80,
+      }),
+    ]).start();
+
+    // Modal entrance animation
+    requestAnimationFrame(() => {
+      Animated.parallel([
+        Animated.spring(modalScale, {
+          toValue: 1,
+          useNativeDriver: true,
+          friction: 14,
+          tension: 100,
+        }),
+        Animated.timing(modalOpacity, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+  }, [filterButtonScale, modalScale, modalOpacity]);
+
+  const handleCloseChapterModal = useCallback(() => {
+    console.log('📖 Closing chapter modal');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    Animated.parallel([
+      Animated.timing(modalScale, {
+        toValue: 0.95,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(modalOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setShowChapterModal(false);
+    });
+  }, [modalScale, modalOpacity]);
+
+  const handleSelectChapter = useCallback((chapterId: string | null) => {
+    console.log('📖 Chapter selected:', chapterId);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    setSelectedChapterId(chapterId);
+    handleCloseChapterModal();
+
+    // TODO: Filter videos by selected chapter
+    // This will be implemented in the next step
+  }, [handleCloseChapterModal]);
 
   const performSearch = useCallback(async (query: string) => {
     if (!query.trim()) {
@@ -635,6 +862,62 @@ const LibraryScreen: React.FC = () => {
 
     return () => clearTimeout(debounceTimer);
   }, [state.search.query, performSearch]);
+
+  // Handle infinite scroll repositioning
+  const handleLifeAreaScroll = useCallback((event: any) => {
+    const scrollX = event.nativeEvent.contentOffset.x;
+    const contentWidth = event.nativeEvent.contentSize.width;
+    const viewWidth = event.nativeEvent.layoutMeasurement.width;
+
+    // Approximate width of one set of items (12 items)
+    const oneSetWidth = contentWidth / 3;
+
+    // If scrolled past 2/3 (into the third set), jump back to middle set
+    if (scrollX > oneSetWidth * 2 - viewWidth) {
+      lifeAreaScrollViewRef.current?.scrollTo({ x: oneSetWidth, animated: false });
+    }
+    // If scrolled before 1/3 (into the first set), jump forward to middle set
+    else if (scrollX < oneSetWidth / 3) {
+      lifeAreaScrollViewRef.current?.scrollTo({ x: oneSetWidth + scrollX, animated: false });
+    }
+  }, []);
+
+  // Initialize scroll position to middle set
+  useEffect(() => {
+    if (state.search.showSearch && lifeAreaScrollViewRef.current) {
+      // Wait for layout then scroll to middle
+      setTimeout(() => {
+        // Rough estimate: each bubble is ~100px wide
+        const approxBubbleWidth = 100;
+        const oneSetWidth = approxBubbleWidth * LIFE_AREAS.length;
+        lifeAreaScrollViewRef.current?.scrollTo({ x: oneSetWidth, animated: false });
+      }, 100);
+    }
+  }, [state.search.showSearch]);
+
+  // Handle life area selection
+  const handleLifeAreaPress = useCallback(async (lifeArea: string) => {
+    console.log('🎯 Life area selected:', lifeArea);
+
+    // Haptic feedback
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Select this life area
+    dispatch({ type: 'SELECT_LIFE_AREA', lifeArea });
+    dispatch({ type: 'SET_SEARCHING_LIFE_AREA', isSearching: true });
+
+    try {
+      // Search videos by life area
+      const results = await VideoService.searchVideosByLifeArea(lifeArea);
+      console.log(`✅ Found ${results.length} videos for ${lifeArea}`);
+      dispatch({ type: 'SET_LIFE_AREA_RESULTS', results });
+    } catch (error) {
+      console.error('❌ Life area search failed:', error);
+      dispatch({ type: 'SET_LIFE_AREA_RESULTS', results: [] });
+    } finally {
+      dispatch({ type: 'SET_SEARCHING_LIFE_AREA', isSearching: false });
+    }
+  }, []);
 
   const renderEmpty = () => {
     if (state.loading && state.videos.length === 0) {
@@ -682,7 +965,8 @@ const LibraryScreen: React.FC = () => {
         <TouchableOpacity
           style={styles.gridThumbnail}
           onPress={() => {
-            handleGridVideoPress(item);
+            const itemIndex = state.search.results.findIndex(v => v.id === item.id);
+            handleGridVideoPress(item, state.search.results, itemIndex);
             handleCloseSearch();
           }}
         >
@@ -755,181 +1039,252 @@ const LibraryScreen: React.FC = () => {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.ui.background }]}>
-      <TouchableWithoutFeedback onPress={handleOutsidePress}>
-        <View style={styles.content}>
-          {/* Header - Normal or Search Mode */}
-          {state.search.showSearch ? (
-            <View style={styles.searchHeader}>
-              <View style={styles.searchInputContainer}>
-                <Icon name="search" size={20} color={theme.colors.text.tertiary} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Rechercher par titre, date, mots-clés..."
-                  placeholderTextColor={theme.colors.text.tertiary}
-                  value={state.search.query}
-                  onChangeText={(text) => dispatch({ type: 'SET_SEARCH_QUERY', query: text })}
-                  autoFocus={true}
-                  returnKeyType="search"
-                />
-                {state.search.query.length > 0 && (
-                  <TouchableOpacity onPress={() => dispatch({ type: 'SET_SEARCH_QUERY', query: '' })}>
-                    <Icon name="close" size={20} color={theme.colors.text.tertiary} />
-                  </TouchableOpacity>
-                )}
+    <View style={styles.container}>
+      <View style={styles.content}>
+        {/* Header - Normal or Search Mode */}
+        {state.search.showSearch ? (
+            <View style={[styles.searchHeader, { paddingTop: insets.top + theme.spacing['3'] }]}>
+              <View style={styles.searchHeaderContent}>
+                {/* Search Bar with Liquid Glass */}
+                <LiquidGlassView
+                  style={[
+                    styles.searchGlassBar,
+                    !isLiquidGlassSupported && {
+                      backgroundColor: theme.colors.gray100,
+                    }
+                  ]}
+                  interactive={false}
+                >
+                  <View style={styles.searchInputInner}>
+                    <Icon name="search" size={18} color={theme.colors.text.tertiary} />
+                    <TextInput
+                      style={styles.searchInput}
+                      placeholder="Search by title, date, keywords..."
+                      placeholderTextColor={theme.colors.text.tertiary}
+                      value={state.search.query}
+                      onChangeText={(text) => dispatch({ type: 'SET_SEARCH_QUERY', query: text })}
+                      autoFocus={true}
+                      returnKeyType="search"
+                    />
+                    {state.search.query.length > 0 && (
+                      <TouchableOpacity onPress={() => dispatch({ type: 'SET_SEARCH_QUERY', query: '' })}>
+                        <Icon name="close" size={18} color={theme.colors.text.tertiary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </LiquidGlassView>
+
+                {/* Filter Button with Liquid Glass (animated with elevation when chapter selected) */}
+                <Animated.View
+                  style={{
+                    transform: [{ scale: filterButtonScale }],
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: selectedChapterId ? 4 : 0 },
+                    shadowOpacity: selectedChapterId ? 0.15 : 0,
+                    shadowRadius: selectedChapterId ? 8 : 0,
+                    elevation: selectedChapterId ? 8 : 0,
+                  }}
+                >
+                  <GlassButton
+                    onPress={handleOpenChapterModal}
+                    style={styles.filterButton}
+                    fallbackStyle={{ backgroundColor: theme.colors.ui.surfaceHover }}
+                  >
+                    <Icon name="filter" size={18} />
+                  </GlassButton>
+                </Animated.View>
               </View>
             </View>
           ) : (
-            <View style={styles.header}>
+            <Animated.View style={[styles.header, { paddingTop: insets.top + theme.spacing['3'] }]}>
               {!state.search.showSearchBar ? (
-                <>
-                  {/* Normal mode: chap + spacer + icons aligned right */}
-                  <Animated.View
-                    style={{
-                      opacity: searchBarProgress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 0],
-                      }),
-                      transform: [{
-                        translateX: searchBarProgress.interpolate({
+                  <>
+                    {/* Normal mode: Chapters + spacer + icons aligned right */}
+                    <Animated.View
+                      style={{
+                        backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
+                        opacity: searchBarProgress.interpolate({
                           inputRange: [0, 1],
-                          outputRange: [0, -100],
+                          outputRange: [1, 0],
                         }),
-                      }],
-                    }}
-                  >
-                    <Text style={styles.title}>chap</Text>
-                  </Animated.View>
-
-                  <View style={{ flex: 1 }} />
-
-                  <View style={styles.headerRight}>
-                    <TouchableOpacity style={styles.iconButton} onPress={toggleSearchBar}>
-                      <Icon name="chevronLeft" size={20} color={theme.colors.text.primary} />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.iconButton}
-                      onPress={() => dispatch({ type: 'SET_VIEW_MODE', mode: state.viewMode === 'calendar' ? 'grid' : 'calendar' })}
+                        transform: [{
+                          translateX: searchBarProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, -100],
+                          }),
+                        }],
+                      }}
                     >
-                      <Icon
-                        name={state.viewMode === 'calendar' ? 'grid' : 'calendar'}
-                        size={20}
-                        color={theme.colors.text.primary}
-                      />
-                    </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={handleChaptersTitlePress}
+                        activeOpacity={0.8}
+                        style={styles.chaptersGlassContainer}
+                      >
+                        <LiquidGlassView
+                          style={[
+                            styles.chaptersGlassInner,
+                            !isLiquidGlassSupported && {
+                              backgroundColor: theme.colors.gray100,
+                            }
+                          ]}
+                          interactive={true}
+                        >
+                          <View style={styles.chaptersTextContainer}>
+                            <Text style={styles.title}>Chapters</Text>
+                          </View>
+                        </LiquidGlassView>
+                      </TouchableOpacity>
+                    </Animated.View>
 
-                    <TouchableOpacity
-                      onPress={() => dispatch({ type: 'TOGGLE_STREAK_MODAL', show: true })}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[
-                        styles.streakContainer,
-                        { backgroundColor: theme.colors.ui.surfaceHover }
-                      ]}>
-                        <Image
-                          source={require('../../assets/fire.png')}
-                          style={styles.fireIcon}
-                          resizeMode="contain"
-                        />
-                        <Text style={[styles.streakText, { color: theme.colors.text.primary }]}>
-                          {currentStreak}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              ) : (
-                <>
-                  {/* Expanded mode: arrow left + search bar center + icons right */}
-                  <Animated.View
-                    style={{
-                      opacity: searchBarProgress,
-                      transform: [{
-                        translateX: searchBarProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [250, 0], // Arrow slides from right (its normal position) to left
-                        }),
-                      }],
-                    }}
-                  >
-                    <TouchableOpacity style={styles.iconButton} onPress={toggleSearchBar}>
-                      <Icon name="chevronRight" size={20} color={theme.colors.text.primary} />
-                    </TouchableOpacity>
-                  </Animated.View>
+                    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0)' }} />
 
-                  <Animated.View
-                    style={{
-                      flex: 1,
-                      marginHorizontal: theme.spacing['2'],
-                      opacity: searchBarProgress,
-                      transform: [{
-                        translateX: searchBarProgress.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [300, 0], // Search bar slides in from right, slides out to right
-                        }),
-                      }],
-                    }}
-                  >
-                    <TouchableOpacity
-                      style={styles.expandedSearchInner}
-                      onPress={() => dispatch({ type: 'TOGGLE_SEARCH_BAR', show: true })}
-                      activeOpacity={0.7}
-                    >
-                      <Icon name="search" size={16} color={theme.colors.text.tertiary} />
-                      <Text style={styles.searchBarPlaceholder}>Search...</Text>
-                    </TouchableOpacity>
-                  </Animated.View>
+                    {/* ✅ Container optimisé pour grouper les éléments Glass de droite */}
+                    <GlassContainer spacing={6} style={styles.headerRight}>
+                      {/* View Mode Toggle with Liquid Glass */}
+                      <LiquidGlassView
+                        style={[
+                          styles.viewToggleContainer,
+                          !isLiquidGlassSupported && {
+                            backgroundColor: theme.colors.gray100,
+                          }
+                        ]}
+                        interactive={false}
+                      >
+                        <View style={styles.viewToggleInner}>
+                          {/* Animated Selection Indicator */}
+                          <Animated.View
+                            style={[
+                              styles.toggleSelector,
+                              {
+                                transform: [{
+                                  translateX: toggleSelectorPosition.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: [0, 42], // 40px button width + 2px gap
+                                  }),
+                                }],
+                              },
+                              !isLiquidGlassSupported && {
+                                backgroundColor: theme.colors.white,
+                                borderWidth: 1,
+                                borderColor: theme.colors.gray200,
+                              }
+                            ]}
+                          >
+                            {isLiquidGlassSupported && (
+                              <LiquidGlassView 
+                                style={styles.toggleSelectorGlass}
+                                interactive={true}
+                              />
+                            )}
+                          </Animated.View>
 
-                  <Animated.View
-                    style={[
-                      styles.headerRight,
-                      {
+                          {/* Calendar Button */}
+                          <TouchableOpacity
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              dispatch({ type: 'SET_VIEW_MODE', mode: 'calendar' });
+                            }}
+                            style={styles.viewToggleOption}
+                            activeOpacity={0.7}
+                          >
+                            <Animated.View style={{ 
+                              transform: [{ scale: calendarIconScale }],
+                              zIndex: 10, // Ensure icon stays above selector
+                            }}>
+                              <Icon 
+                                name="calendar" 
+                                size={18} 
+                                color={state.viewMode === 'calendar' ? theme.colors.text.primary : theme.colors.text.secondary}
+                              />
+                            </Animated.View>
+                          </TouchableOpacity>
+
+                          {/* Grid Button */}
+                          <TouchableOpacity
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              dispatch({ type: 'SET_VIEW_MODE', mode: 'grid' });
+                            }}
+                            style={styles.viewToggleOption}
+                            activeOpacity={0.7}
+                          >
+                            <Animated.View style={{ 
+                              transform: [{ scale: gridIconScale }],
+                              zIndex: 10, // Ensure icon stays above selector
+                            }}>
+                              <Icon 
+                                name="grid" 
+                                size={18} 
+                                color={state.viewMode === 'grid' ? theme.colors.text.primary : theme.colors.text.secondary}
+                              />
+                            </Animated.View>
+                          </TouchableOpacity>
+                        </View>
+                      </LiquidGlassView>
+                    </GlassContainer>
+                  </>
+                ) : (
+                  <>
+                    {/* Expanded mode: search bar + import + settings (pas de chevron!) */}
+                    <Animated.View
+                      style={{
+                        flex: 1,
+                        marginRight: theme.spacing['2'],
                         opacity: searchBarProgress,
                         transform: [{
                           translateX: searchBarProgress.interpolate({
                             inputRange: [0, 1],
-                            outputRange: [100, 0], // Icons slide in from right
+                            outputRange: [300, 0],
                           }),
                         }],
-                      }
-                    ]}
-                  >
-                    <TouchableOpacity style={styles.iconButton} onPress={handleImportVideos}>
-                      <Icon name="plus" size={20} color={theme.colors.text.primary} />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.iconButton}
-                      onPress={() => dispatch({ type: 'SET_VIEW_MODE', mode: state.viewMode === 'calendar' ? 'grid' : 'calendar' })}
+                      }}
                     >
-                      <Icon
-                        name={state.viewMode === 'calendar' ? 'grid' : 'calendar'}
-                        size={20}
-                        color={theme.colors.text.primary}
-                      />
-                    </TouchableOpacity>
+                      <GlassButton
+                        onPress={() => dispatch({ type: 'OPEN_SEARCH' })}
+                        style={styles.expandedSearchBar}
+                        fallbackStyle={{ backgroundColor: theme.colors.gray100 }}
+                      >
+                        <View style={styles.expandedSearchInner}>
+                          <Icon name="search" size={18} color={theme.colors.text.tertiary} />
+                          <Text style={styles.searchBarPlaceholder}>Search...</Text>
+                        </View>
+                      </GlassButton>
+                    </Animated.View>
 
-                    {/* Bouton Vertical Feed Mode */}
-                    <TouchableOpacity
-                      style={styles.iconButton}
-                      onPress={() => handleOpenVerticalFeed(0)}
-                      disabled={state.videos.length === 0}
+                    <Animated.View
+                      style={{
+                        opacity: searchBarProgress,
+                        transform: [{
+                          translateX: searchBarProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [100, 0],
+                          }),
+                        }],
+                      }}
                     >
-                      <Icon
-                        name="play"
-                        size={20}
-                        color={state.videos.length === 0 ? theme.colors.text.disabled : theme.colors.text.primary}
-                      />
-                    </TouchableOpacity>
+                      <GlassContainer spacing={6} style={styles.headerRight}>
+                        {/* Import Button with Liquid Glass */}
+                        <GlassButton
+                          onPress={handleImportVideos}
+                          style={styles.chevronGlassContainer}
+                          fallbackStyle={{ backgroundColor: theme.colors.ui.surfaceHover }}
+                        >
+                          <Icon name="plus" size={18} />
+                        </GlassButton>
 
-                    <TouchableOpacity style={styles.iconButton} onPress={handleNavigateToSettings}>
-                      <Icon name="settings" size={20} color={theme.colors.text.primary} />
-                    </TouchableOpacity>
-                  </Animated.View>
-                </>
-              )}
-            </View>
+                        {/* Settings Button with Liquid Glass */}
+                        <GlassButton
+                          onPress={handleNavigateToSettings}
+                          style={styles.chevronGlassContainer}
+                          fallbackStyle={{ backgroundColor: theme.colors.ui.surfaceHover }}
+                        >
+                          <Icon name="settings" size={18} />
+                        </GlassButton>
+                      </GlassContainer>
+                    </Animated.View>
+                  </>
+                )}
+              </Animated.View>
           )}
 
           {/* Error state */}
@@ -944,69 +1299,167 @@ const LibraryScreen: React.FC = () => {
 
           {/* Content Area */}
           {state.search.showSearch ? (
-            <View style={styles.searchContentContainer}>
-              {state.search.isSearching ? (
-                <View style={styles.searchLoadingContainer}>
-                  <ActivityIndicator size="small" color={theme.colors.brand.primary} />
-                  <Text style={styles.searchLoadingText}>Recherche en cours...</Text>
-                </View>
-              ) : state.search.query.trim() === '' ? (
-                <View style={styles.searchEmptyState}>
-                  <Icon name="search" size={32} color={theme.colors.text.disabled} />
-                  <Text style={styles.searchEmptyTitle}>Search for your video</Text>
-                </View>
-              ) : state.search.results.length === 0 ? (
-                <View style={styles.searchEmptyState}>
-                  <Icon name="search" size={48} color={theme.colors.text.disabled} />
-                  <Text style={styles.searchEmptyTitle}>Aucun résultat</Text>
-                  <Text style={styles.searchEmptyText}>
-                    Aucune vidéo trouvée pour "{state.search.query}"
-                  </Text>
-                </View>
-              ) : (
-                renderSearchGrid()
-              )}
-            </View>
+            <TouchableWithoutFeedback onPress={handleOutsidePress}>
+              <View style={[styles.searchContentContainer, { paddingTop: insets.top + 12 + 44 + 10 }]}>
+                {/* Life Area Bubbles - Edge-to-edge with infinite scroll */}
+                <ScrollView
+                  ref={lifeAreaScrollViewRef}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.lifeAreaBubblesContainer}
+                  style={styles.lifeAreaScrollView}
+                  onScroll={handleLifeAreaScroll}
+                  scrollEventThrottle={16}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {infiniteLifeAreas.map((area, index) => {
+                    const isSelected = state.search.selectedLifeArea === area;
+                    return (
+                      <TouchableOpacity
+                        key={`${area}-${index}`}
+                        onPress={() => handleLifeAreaPress(area)}
+                        activeOpacity={0.7}
+                      >
+                        <LiquidGlassView
+                          style={[
+                            styles.lifeAreaBubble,
+                            isSelected && styles.lifeAreaBubbleSelected,
+                            !isLiquidGlassSupported && {
+                              backgroundColor: isSelected ? theme.colors.gray300 : theme.colors.gray100,
+                            }
+                          ]}
+                          interactive={true}
+                        >
+                          <Text style={[
+                            styles.lifeAreaText,
+                            isSelected && styles.lifeAreaTextSelected
+                          ]}>
+                            {area}
+                          </Text>
+                        </LiquidGlassView>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* Results Area */}
+                {state.search.isSearchingLifeArea ? (
+                  <View style={[styles.searchLoadingContainer, { paddingHorizontal: theme.spacing['4'] }]}>
+                    <ActivityIndicator size="small" color={theme.colors.brand.primary} />
+                    <Text style={styles.searchLoadingText}>Loading...</Text>
+                  </View>
+                ) : state.search.selectedLifeArea && state.search.lifeAreaResults.length > 0 ? (
+                  <View style={{ paddingHorizontal: 2 }}>
+                    <FlatList
+                      data={state.search.lifeAreaResults}
+                      keyExtractor={(item) => item.id || ''}
+                      numColumns={4}
+                      columnWrapperStyle={styles.lifeAreaGridRow}
+                      contentContainerStyle={styles.lifeAreaGridContainer}
+                      initialNumToRender={16}
+                      maxToRenderPerBatch={8}
+                      windowSize={5}
+                      removeClippedSubviews={true}
+                      renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={styles.lifeAreaGridThumbnail}
+                        onPress={() => {
+                          const itemIndex = state.search.lifeAreaResults.findIndex(v => v.id === item.id);
+
+                          // 🎯 Open VideoPlayer modal with segment timestamp
+                          // Pass segment_start_time so VideoPlayer seeks to the highlight
+                          // Don't close search - user will return to filter view on back
+                          dispatch({
+                            type: 'OPEN_VIDEO_PLAYER',
+                            video: item,
+                            videos: state.search.lifeAreaResults,
+                            initialIndex: itemIndex,
+                            initialTimestamp: item.is_segment ? item.segment_start_time : undefined
+                          });
+                        }}
+                      >
+                        {item.thumbnail_frames && item.thumbnail_frames.length > 0 ? (
+                          <Image
+                            source={{ uri: item.thumbnail_frames[0] }}
+                            style={styles.gridThumbnailImage}
+                            resizeMode="cover"
+                          />
+                        ) : item.thumbnail_path ? (
+                          <Image
+                            source={{ uri: item.thumbnail_path }}
+                            style={styles.gridThumbnailImage}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.gridThumbnailPlaceholder}>
+                            <Icon name="cameraFilled" size={16} color={theme.colors.gray400} />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                    showsVerticalScrollIndicator={false}
+                  />
+                  </View>
+                ) : state.search.isSearching ? (
+                  <View style={[styles.searchLoadingContainer, { paddingHorizontal: theme.spacing['4'] }]}>
+                    <ActivityIndicator size="small" color={theme.colors.brand.primary} />
+                    <Text style={styles.searchLoadingText}>Searching...</Text>
+                  </View>
+                ) : state.search.query.trim() === '' && !state.search.selectedLifeArea ? (
+                  <View />
+                ) : state.search.results.length === 0 && state.search.query.trim() !== '' ? (
+                  <View style={[styles.searchEmptyState, { paddingHorizontal: theme.spacing['4'] }]}>
+                    <Icon name="search" size={48} color={theme.colors.text.disabled} />
+                    <Text style={styles.searchEmptyTitle}>No results</Text>
+                    <Text style={styles.searchEmptyText}>
+                      No videos found for "{state.search.query}"
+                    </Text>
+                  </View>
+                ) : state.search.query.trim() !== '' ? (
+                  <View style={{ paddingHorizontal: theme.spacing['4'] }}>
+                    {renderSearchGrid()}
+                  </View>
+                ) : (
+                  <View />
+                )}
+              </View>
+            </TouchableWithoutFeedback>
           ) : (
-            <View style={styles.contentContainer}>
-              {allVideos.length === 0 ? (
-                renderEmpty()
-              ) : state.viewMode === 'grid' ? (
-                <ZoomableVideoGallery
-                  videos={allVideos}
-                  onVideoPress={handleGridVideoPress}
-                  onEndReached={handleLoadMore}
-                  onEndReachedThreshold={0.8}
-                />
-              ) : (
-                <CalendarGallery
-                  videos={allVideos}
-                  onVideoPressWithRect={handleCalendarVideoPressWithRect}
-                  onVideoPress={handleCalendarVideoPress}
-                  chapters={chapters}
-                  onEndReached={handleLoadMore}
-                  onEndReachedThreshold={0.8}
-                />
-              )}
-            </View>
+            <TouchableWithoutFeedback onPress={handleOutsidePress}>
+              <View style={styles.contentContainer}>
+                {filteredVideos.length === 0 ? (
+                  renderEmpty()
+                ) : state.viewMode === 'grid' ? (
+                  <VideoGallery
+                    videos={filteredVideos}
+                    onVideoPress={handleGridVideoPress}
+                    onEndReached={handleLoadMore}
+                    onEndReachedThreshold={0.8}
+                    contentInsetTop={headerHeightGrid} // ✅ Less padding for grid view (photos closer to top bar)
+                    onScroll={handleScroll} // ✅ Add scroll behavior for smart header
+                  />
+                ) : (
+                  <CalendarGallery
+                    videos={filteredVideos}
+                    onVideoPress={handleCalendarVideoPress}
+                    chapters={chapters}
+                    onEndReached={handleLoadMore}
+                    onEndReachedThreshold={0.8}
+                    contentInsetTop={headerHeightCalendar} // ✅ More padding for calendar view
+                    onScroll={handleScroll} // ✅ Add scroll behavior for smart header
+                  />
+                )}
+              </View>
+            </TouchableWithoutFeedback>
           )}
 
-          {/* Day Debrief Screen (from calendar) */}
-          {state.dayDebrief.selectedDate && (
-            <DayDebriefScreen
-              visible={state.dayDebrief.isOpen}
-              date={state.dayDebrief.selectedDate}
-              videos={state.dayDebrief.videos}
-              onClose={handleCloseDayDebrief}
-            />
-          )}
-
-          {/* Video Player (from grid) */}
+          {/* Video Player (from grid AND calendar) */}
           <VideoPlayer
             visible={state.videoPlayer.isOpen}
             video={state.videoPlayer.selectedVideo}
             videos={state.videoPlayer.videos}
             initialIndex={state.videoPlayer.initialIndex}
+            initialTimestamp={state.videoPlayer.initialTimestamp}
             onClose={handleCloseVideoPlayer}
           />
 
@@ -1060,7 +1513,7 @@ const LibraryScreen: React.FC = () => {
                       contentContainerStyle={styles.streakDaysContainer}
                       style={styles.streakDaysScrollView}
                     >
-                      {getCurrentMonthDays().map((dayData) => (
+                      {getCurrentMonthDays.map((dayData) => (
                         <View key={dayData.day} style={styles.streakDayItem}>
                           <View
                             style={[
@@ -1108,74 +1561,139 @@ const LibraryScreen: React.FC = () => {
             </View>
           </Modal>
 
+          {/* Chapter Filter Modal (iOS-style like Momentum) */}
+          <Modal
+            visible={showChapterModal}
+            transparent
+            animationType="none"
+            onRequestClose={handleCloseChapterModal}
+          >
+            <TouchableWithoutFeedback onPress={handleCloseChapterModal}>
+              <View style={styles.chapterModalOverlay}>
+                <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+                  <Animated.View
+                    style={[
+                      styles.chaptersModalContainer,
+                      {
+                        top: insets.top + theme.spacing['3'],
+                        right: theme.spacing['4'],
+                        opacity: modalOpacity,
+                        transform: [{ scale: modalScale }]
+                      }
+                    ]}
+                  >
+                    <LiquidGlassView
+                      style={[
+                        styles.chaptersModalGlass,
+                        !isLiquidGlassSupported && {
+                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        }
+                      ]}
+                      interactive={true}
+                    >
+                      {/* Header */}
+                      <View style={styles.chaptersModalHeader}>
+                        <Text style={styles.chaptersModalHeaderText}>
+                          {selectedChapterId === null
+                            ? 'Chapters'
+                            : chapters.find(c => c.id === selectedChapterId)?.title || 'Chapters'}
+                        </Text>
+                      </View>
+
+                      {/* Scrollable list */}
+                      <ScrollView
+                        style={styles.chaptersModalScroll}
+                        showsVerticalScrollIndicator={false}
+                      >
+                        {/* All Chapters option */}
+                        <TouchableOpacity
+                          style={[
+                            styles.chapterModalItem,
+                            selectedChapterId === null && styles.chapterModalItemSelected
+                          ]}
+                          onPress={() => handleSelectChapter(null)}
+                        >
+                          <Text style={[
+                            styles.chapterModalItemText,
+                            selectedChapterId === null && styles.chapterModalItemTextSelected
+                          ]}>
+                            All Chapters
+                          </Text>
+                        </TouchableOpacity>
+
+                        {/* Current chapter first */}
+                        {currentChapter && (
+                          <TouchableOpacity
+                            key={currentChapter.id}
+                            style={[
+                              styles.chapterModalItem,
+                              selectedChapterId === currentChapter.id && styles.chapterModalItemSelected
+                            ]}
+                            onPress={() => handleSelectChapter(currentChapter.id!)}
+                          >
+                            <Text style={[
+                              styles.chapterModalItemText,
+                              selectedChapterId === currentChapter.id && styles.chapterModalItemTextSelected
+                            ]}>
+                              {currentChapter.title} (Current)
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+
+                        {/* Other chapters */}
+                        {chapters
+                          .filter(chapter => chapter.id !== currentChapter?.id)
+                          .map((chapter) => (
+                            <TouchableOpacity
+                              key={chapter.id}
+                              style={[
+                                styles.chapterModalItem,
+                                selectedChapterId === chapter.id && styles.chapterModalItemSelected
+                              ]}
+                              onPress={() => handleSelectChapter(chapter.id!)}
+                            >
+                              <Text style={[
+                                styles.chapterModalItemText,
+                                selectedChapterId === chapter.id && styles.chapterModalItemTextSelected
+                              ]}>
+                                {chapter.title}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                      </ScrollView>
+                    </LiquidGlassView>
+                  </Animated.View>
+                </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
+
           {/* Removed Import Progress Modal - videos now show inline with spinner */}
         </View>
-      </TouchableWithoutFeedback>
-
-      {/* Apple Photos-style Zoom Viewer */}
-      {state.zoomViewer.isOpen && state.zoomViewer.asset && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          {/* Backdrop */}
-          <Reanimated.View
-            style={[
-              StyleSheet.absoluteFill,
-              {
-                backgroundColor: 'black',
-                opacity: backdropOpacity,
-              },
-            ]}
-          />
-
-          {/* Transition Portal */}
-          {transitionState.isTransitioning &&
-           transitionState.sourceRect &&
-           transitionState.targetRect && (
-            <SharedElementPortal
-              sourceRect={transitionState.sourceRect}
-              targetRect={transitionState.targetRect}
-              imageUri={state.zoomViewer.asset.thumbnailUri || state.zoomViewer.asset.uri}
-              transitionSpec={transitionSpec}
-              direction={transitionState.direction || 'open'}
-              onAnimationComplete={handleAnimationComplete}
-            />
-          )}
-
-          {/* Zoomable Viewer */}
-          {!transitionState.isTransitioning && (
-            <ZoomableMediaViewer
-              asset={state.zoomViewer.asset}
-              backdropOpacity={backdropOpacity}
-              onClose={() => {
-                console.log('🔙 Closing zoom viewer');
-                if (transitionState.sourceRect) {
-                  close(transitionState.sourceRect);
-                } else {
-                  // Fallback: just close without transition
-                  dispatch({ type: 'CLOSE_ZOOM_VIEWER' });
-                  backdropOpacity.value = 0;
-                }
-              }}
-            />
-          )}
-        </View>
-      )}
-    </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent container (SafeAreaView)
   },
   content: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent content
   },
   header: {
+    position: 'absolute', // ✅ Float above content like iOS Photos
+    top: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: theme.spacing['4'],
-    paddingVertical: theme.spacing['3'],
-    backgroundColor: theme.colors.white,
+    // paddingTop applied dynamically with insets
+    backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
+    zIndex: 100, // ✅ Ensure header stays on top
   },
   logo: {
     width: 32,
@@ -1185,37 +1703,125 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
+  },
+  streakGlassContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    height: 36, // Match view toggle height (32px content + 2x2px padding)
+  },
+  streakTouchable: {
+    flex: 1,
+    justifyContent: 'center',
   },
   streakContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingVertical: 6, // Adjusted for 36px total height
   },
   fireIcon: {
-    width: 20,
-    height: 20,
+    width: 16,
+    height: 16,
   },
   streakText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  // Chevron button with Liquid Glass
+  chevronGlassContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chevronButton: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // View Mode Toggle (iOS-style with Liquid Glass)
+  viewToggleContainer: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    padding: 2,
+    position: 'relative', // For absolute positioning of selector
+  },
+  viewToggleInner: {
+    flexDirection: 'row',
+    gap: 2,
+    position: 'relative',
+  },
+  // Animated selection indicator
+  toggleSelector: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    zIndex: 1, // Behind the icons but above background
+  },
+  toggleSelectorGlass: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
+  },
+  viewToggleOption: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    zIndex: 10, // Above the selector
+  },
+  viewToggleOptionActive: {
+    // Active state now handled by animated selector
+  },
+  viewToggleButton: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   iconButton: {
     padding: theme.spacing['1'], // 4px - divise par 2 l'espacement original
   },
   title: {
     fontFamily: 'Poppins-SemiBoldItalic',
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '600', // semi-bold (backup for systems without custom font)
     fontStyle: 'italic', // backup for systems without custom font
-    letterSpacing: -0.72, // -3% de 24px
+    letterSpacing: -0.54, // -3% de 18px
     color: theme.colors.text.primary,
     overflow: 'hidden',
   },
+  // Chapters bubble with Liquid Glass (now interactive)
+  chaptersGlassContainer: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    height: 44, // Match search bar height
+  },
+  chaptersGlassInner: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 22,
+  },
+  chaptersTextContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100%',
+  },
   contentContainer: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent content container
   },
   errorContainer: {
     alignItems: 'center',
@@ -1272,32 +1878,55 @@ const styles = StyleSheet.create({
   },
   // New Search Interface Styles
   searchHeader: {
+    position: 'absolute', // ✅ Float above content like iOS Photos
+    top: 0,
+    left: 0,
+    right: 0,
     paddingHorizontal: theme.spacing['4'],
-    paddingVertical: theme.spacing['3'],
-    backgroundColor: theme.colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.gray100,
+    // paddingTop applied dynamically with insets
+    backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
+    borderBottomWidth: 0, // ✅ Remove border for cleaner look
+    zIndex: 100, // ✅ Ensure header stays on top
   },
-  searchInputContainer: {
+  searchHeaderContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing['3'],
-    borderWidth: 1,
-    borderColor: theme.colors.ui.border,
-    borderRadius: 12,
-    paddingHorizontal: theme.spacing['4'],
-    paddingVertical: theme.spacing['3'],
-    backgroundColor: theme.colors.gray50,
+    gap: theme.spacing['2'], // 8px gap between search bar and filter button
+  },
+  // Search Bar with Liquid Glass
+  searchGlassBar: {
+    flex: 1,
+    borderRadius: 20,
+    overflow: 'hidden',
+    height: 44, // iOS standard search bar height
+  },
+  searchInputInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing['2'],
+    paddingHorizontal: theme.spacing['3'],
+    paddingVertical: theme.spacing['2'],
+    height: '100%',
   },
   searchInput: {
     flex: 1,
     ...theme.typography.body,
+    fontSize: 16,
     color: theme.colors.text.primary,
+  },
+  // Filter Button with Liquid Glass
+  filterButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchContentContainer: {
     flex: 1,
-    paddingHorizontal: theme.spacing['4'],
     paddingTop: theme.spacing['2'],
+    // No paddingHorizontal for edge-to-edge life area bubbles
   },
   // Grid styles for search results
   gridContainer: {
@@ -1436,20 +2065,25 @@ const styles = StyleSheet.create({
     color: theme.colors.white,
     fontWeight: '600',
   },
-  // Expanded search bar (when open)
+  // Expanded search bar (when open) - Glass container
+  expandedSearchBar: {
+    borderRadius: 22,
+    overflow: 'hidden',
+    height: 44, // Match full search bar height
+  },
   expandedSearchInner: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-start', // ✅ Align content to the left
     gap: 8,
-    backgroundColor: 'rgba(128, 128, 128, 0.15)',
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    height: 36,
+    paddingVertical: 10,
+    height: '100%',
   },
   searchBarPlaceholder: {
-    fontSize: 14,
+    fontSize: 16,
     color: theme.colors.text.tertiary,
+    textAlign: 'left',
   },
   fireIcon: {
     width: 20,
@@ -1586,6 +2220,102 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: theme.colors.white,
+  },
+  // Life Area Bubbles - Edge-to-edge
+  lifeAreaScrollView: {
+    maxHeight: 50,
+    marginBottom: theme.spacing['3'],
+  },
+  lifeAreaBubblesContainer: {
+    paddingLeft: 12, // Small padding for first item
+    paddingRight: 12, // Small padding for last item
+    gap: 8,
+  },
+  lifeAreaBubble: {
+    height: 36,
+    paddingHorizontal: 16,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  lifeAreaBubbleSelected: {
+    // Selected state handled by Liquid Glass
+  },
+  lifeAreaText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: theme.colors.text.secondary,
+  },
+  lifeAreaTextSelected: {
+    color: theme.colors.text.primary,
+    fontWeight: '600',
+  },
+  // 4-column grid for life area results
+  lifeAreaGridContainer: {
+    paddingBottom: theme.spacing['4'],
+    // No paddingHorizontal - handled by parent View
+  },
+  lifeAreaGridRow: {
+    justifyContent: 'flex-start',
+    gap: 2,
+    marginBottom: 2,
+  },
+  lifeAreaGridThumbnail: {
+    width: (screenWidth - 4 - 6) / 4, // 4 columns with 2px padding on each side (4px total)
+    height: ((screenWidth - 4 - 6) / 4) * 1.33,
+  },
+  // Chapter Modal Styles (iOS-style like Momentum)
+  chapterModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  chaptersModalContainer: {
+    position: 'absolute',
+    width: 280,
+    maxHeight: 450,
+  },
+  chaptersModalGlass: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  chaptersModalHeader: {
+    paddingVertical: theme.spacing['3'],
+    paddingHorizontal: theme.spacing['4'],
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  chaptersModalHeaderText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    textAlign: 'center',
+  },
+  chaptersModalScroll: {
+    maxHeight: 350,
+  },
+  chapterModalItem: {
+    paddingVertical: theme.spacing['3'],
+    paddingHorizontal: theme.spacing['4'],
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.03)',
+  },
+  chapterModalItemSelected: {
+    backgroundColor: 'rgba(147, 51, 234, 0.1)', // Purple tint for selected
+  },
+  chapterModalItemText: {
+    fontSize: 15,
+    fontWeight: '400',
+    color: theme.colors.text.primary,
+  },
+  chapterModalItemTextSelected: {
+    fontWeight: '600',
+    color: theme.colors.brand.primary,
   },
 });
 

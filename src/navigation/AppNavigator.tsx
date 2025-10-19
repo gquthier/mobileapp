@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeBottomTabNavigator } from '@bottom-tabs/react-navigation';
 import { createStackNavigator } from '@react-navigation/stack';
-import { CustomTabBar } from '../components/CustomTabBar';
 import { supabase } from '../lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import { useFirstTimeUser } from '../hooks/useFirstTimeUser';
+import { useTheme } from '../contexts/ThemeContext';
 import { WelcomeFlow } from '../components/WelcomeFlow';
 import { OnboardingScreens } from '../components/OnboardingScreens';
-import HomeScreen from '../screens/HomeScreen';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import LibraryScreen from '../screens/LibraryScreen';
 import RecordScreen from '../screens/RecordScreen';
 import SettingsScreen from '../screens/SettingsScreen';
@@ -20,15 +21,116 @@ import ChapterManagementScreen from '../screens/ChapterManagementScreen';
 import ChapterSetupScreen from '../screens/ChapterSetupScreen';
 import ChapterDetailScreen from '../screens/ChapterDetailScreen';
 import { VerticalFeedScreen } from '../features/vertical-feed/screens/VerticalFeedScreen';
+import { VerticalFeedTabScreen } from '../screens/VerticalFeedTabScreen';
 
-const Tab = createBottomTabNavigator();
+const Tab = createNativeBottomTabNavigator();
 const LibraryStack = createStackNavigator();
 const MomentumStack = createStackNavigator();
+const RootStack = createStackNavigator(); // ✅ Root Stack pour modal fullscreen
+
+// Composant vide pour créer de l'espace à droite
+function EmptyComponent() {
+  return null;
+}
+
+// ✅ RecordScreen wrapped with ErrorBoundary for auto-recovery
+function RecordScreenWithErrorBoundary(props: any) {
+  const handleError = (error: Error) => {
+    console.error('🔴 [RECORD ERROR]', error);
+
+    // If in modal, try to close it and return to tab
+    if (props.route?.params?.isModal && props.navigation?.canGoBack()) {
+      console.log('🔄 [AUTO-RECOVERY] Closing modal and returning to Record tab...');
+      setTimeout(() => {
+        props.navigation.goBack();
+      }, 2000);
+    }
+  };
+
+  return (
+    <ErrorBoundary onError={handleError} autoRecover={true}>
+      <RecordScreen {...props} />
+    </ErrorBoundary>
+  );
+}
+
+// Main tabs component WITH RecordScreen (stays in tabs)
+function MainTabs() {
+  const { brandColor } = useTheme();
+
+  return (
+    <Tab.Navigator
+      initialRouteName="Library"
+      translucent={true}
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: brandColor, // Dynamic brand color from current chapter
+      }}
+    >
+      <Tab.Screen
+        name="Library"
+        component={LibraryStackNavigator}
+        options={{
+          title: 'Library',
+          tabBarIcon: () => ({ sfSymbol: 'square.grid.2x2' }),
+        }}
+      />
+      <Tab.Screen
+        name="VerticalFeed"
+        component={VerticalFeedTabScreen}
+        options={{
+          title: 'Feed',
+          tabBarIcon: () => ({ sfSymbol: 'rectangle.stack.fill' }),
+        }}
+      />
+      <Tab.Screen
+        name="Momentum"
+        component={MomentumStackNavigator}
+        options={{
+          title: 'Chapters',
+          tabBarIcon: () => ({ sfSymbol: 'chart.line.uptrend.xyaxis' }),
+        }}
+      />
+      <Tab.Screen
+        name="Record"
+        component={RecordScreenWithErrorBoundary} // ✅ RecordScreen avec ErrorBoundary
+        options={{
+          title: 'Record',
+          tabBarIcon: () => ({ sfSymbol: 'record.circle' }),
+        }}
+      />
+    </Tab.Navigator>
+  );
+}
+
+// ✅ Root Stack avec Tabs + RecordScreen en modal fullscreen
+function RootStackNavigator() {
+  return (
+    <RootStack.Navigator
+      id="RootStack"
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
+      <RootStack.Screen name="MainTabs" component={MainTabs} />
+      <RootStack.Screen
+        name="RecordModal"
+        component={RecordScreenWithErrorBoundary} // ✅ Modal avec ErrorBoundary
+        options={{
+          presentation: 'fullScreenModal', // ✅ Modal fullscreen sans tab bar
+          animation: 'slide_from_bottom',
+        }}
+        initialParams={{ isModal: true }} // ✅ Flag to identify modal instance
+      />
+    </RootStack.Navigator>
+  );
+}
 
 function LibraryStackNavigator() {
   return (
     <LibraryStack.Navigator screenOptions={{ headerShown: false }}>
       <LibraryStack.Screen name="LibraryMain" component={LibraryScreen} />
+      <LibraryStack.Screen name="Settings" component={SettingsScreen} />
       <LibraryStack.Screen name="VideoImport" component={VideoImportScreen} />
       <LibraryStack.Screen
         name="VerticalFeed"
@@ -71,9 +173,18 @@ export const AppNavigator = () => {
       // Reprendre les uploads interrompus au démarrage
       if (session) {
         const { VideoBackupService } = require('../services/videoBackupService');
-        VideoBackupService.uploadPendingVideos().catch((err: Error) => {
-          console.error('❌ Error resuming pending uploads:', err);
-        });
+
+        // ✅ Étape 1: Tenter d'uploader les vidéos en attente
+        VideoBackupService.uploadPendingVideos()
+          .catch((err: Error) => {
+            console.error('❌ Error resuming pending uploads:', err);
+          })
+          .finally(() => {
+            // ✅ Étape 2: Nettoyer les backups invalides (chemins obsolètes après reinstall)
+            VideoBackupService.cleanupInvalidBackups().catch((err: Error) => {
+              console.error('❌ Error cleaning up invalid backups:', err);
+            });
+          });
       }
     };
 
@@ -120,62 +231,7 @@ export const AppNavigator = () => {
   } else if (showLifeAreasSelection) {
     content = <LifeAreasSelectionScreen onComplete={markWelcomeComplete} navigation={undefined} />;
   } else {
-    content = (
-      <Tab.Navigator
-        tabBar={(props) => hideTabBar ? null : <CustomTabBar {...props} />}
-        screenOptions={{
-          headerShown: false,
-        }}
-        screenListeners={({ route, navigation }) => ({
-          state: (e) => {
-            // Vérifier si on est sur RecordScreen et en mode enregistrement
-            const currentRoute = e.data.state.routes[e.data.state.index];
-            if (currentRoute.name === 'Record') {
-              const isRecording = currentRoute.params?.isRecording;
-              const showControls = currentRoute.params?.showControls;
-              // Masquer la barre si on enregistre ET que les contrôles sont masqués
-              setHideTabBar(isRecording && !showControls);
-            }
-          },
-        })}
-      >
-        <Tab.Screen
-          name="Home"
-          component={HomeScreen}
-          options={{
-            tabBarLabel: 'Chapters',
-          }}
-        />
-        <Tab.Screen
-          name="Library"
-          component={LibraryStackNavigator}
-          options={{
-            tabBarLabel: 'Library',
-          }}
-        />
-        <Tab.Screen
-          name="Record"
-          component={RecordScreen}
-          options={{
-            tabBarLabel: 'Record',
-          }}
-        />
-        <Tab.Screen
-          name="Momentum"
-          component={MomentumStackNavigator}
-          options={{
-            tabBarLabel: 'Momentum',
-          }}
-        />
-        <Tab.Screen
-          name="Settings"
-          component={SettingsScreen}
-          options={{
-            tabBarLabel: 'Settings',
-          }}
-        />
-      </Tab.Navigator>
-    );
+    content = <RootStackNavigator />; // ✅ Use Root Stack instead of Tabs directly
   }
 
   return (

@@ -19,6 +19,7 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 interface OnboardingScreensProps {
   onComplete: () => void;
+  onSkipDemo?: () => void;
 }
 
 const domains = [
@@ -31,7 +32,7 @@ const domains = [
   { id: 'other', label: 'Other', icon: 'add-outline' },
 ];
 
-export const OnboardingScreens: React.FC<OnboardingScreensProps> = ({ onComplete }) => {
+export const OnboardingScreens: React.FC<OnboardingScreensProps> = ({ onComplete, onSkipDemo }) => {
   const [currentScreen, setCurrentScreen] = useState(0);
   const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
   const [goalText, setGoalText] = useState('');
@@ -514,15 +515,17 @@ export const OnboardingScreens: React.FC<OnboardingScreensProps> = ({ onComplete
   return (
     <SafeAreaView style={styles.container}>
       {/* Debug: Skip button pour les démos */}
-      <TouchableOpacity
-        onPress={() => {
-          console.log('DEMO SKIP button pressed - going directly to main app');
-          onComplete();
-        }}
-        style={styles.skipButton}
-      >
-        <Text style={styles.skipButtonText}>Skip for Demo</Text>
-      </TouchableOpacity>
+      {onSkipDemo && (
+        <TouchableOpacity
+          onPress={() => {
+            console.log('DEMO SKIP button pressed - going directly to main app');
+            onSkipDemo();
+          }}
+          style={styles.skipButton}
+        >
+          <Text style={styles.skipButtonText}>Skip for Demo</Text>
+        </TouchableOpacity>
+      )}
 
       {screens[currentScreen]()}
     </SafeAreaView>
@@ -966,15 +969,19 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 50,
     right: 20,
-    backgroundColor: theme.colors.accent,
-    paddingHorizontal: 12,
-    paddingVertical: theme.spacing['2'],
+    backgroundColor: theme.colors.black,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderRadius: theme.layout.borderRadius.sm,
     zIndex: 1000,
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
   skipButtonText: {
-    ...theme.typography.tiny,
-    fontWeight: '600',
+    ...theme.typography.caption,
+    fontWeight: '700',
     color: theme.colors.white,
   },
   skipPaymentButton: {

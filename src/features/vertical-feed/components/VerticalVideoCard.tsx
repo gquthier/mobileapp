@@ -37,6 +37,9 @@ interface VerticalVideoCardProps {
 
   /** 🆕 Callback pour exposer le player au parent */
   onPlayerReady?: (player: any) => void
+
+  /** 🆕 Callback pour envoyer les updates de progression (position, duration en secondes) */
+  onProgressUpdate?: (position: number, duration: number) => void
 }
 
 export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
@@ -48,6 +51,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
   currentIndex,
   onVideoEnd,
   onPlayerReady,
+  onProgressUpdate,
 }) => {
   // ✅ NOUVELLE STRATÉGIE: Charger N-1, N, N+1 pour fluidité
   // Cela évite le délai de chargement lors du scroll
@@ -379,6 +383,31 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
       clearInterval(checkPlaybackTime)
     }
   }, [player, isActive, video.is_segment, video.segment_end_time, video.segment_title, video.id, onVideoEnd])
+
+  /**
+   * 🆕 Emit progress updates for active video (for progress bar)
+   */
+  useEffect(() => {
+    if (!player || !isActive || !onProgressUpdate) return
+
+    // Send progress updates every 100ms
+    const progressInterval = setInterval(() => {
+      try {
+        const position = player.currentTime || 0
+        const duration = player.duration || 0
+
+        if (duration > 0) {
+          onProgressUpdate(position, duration)
+        }
+      } catch (error) {
+        // Silently fail - player might not be ready
+      }
+    }, 100)
+
+    return () => {
+      clearInterval(progressInterval)
+    }
+  }, [player, isActive, onProgressUpdate])
 
   /**
    * Reset error when becoming active (give it another chance)

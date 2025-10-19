@@ -253,6 +253,11 @@ export const Icon: React.FC<IconProps> = ({
         <Path d="M13.73 21a2 2 0 0 1-3.46 0" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
     ),
+    moon: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
     cloud: (
       <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
         <Path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
@@ -348,6 +353,135 @@ export const Icon: React.FC<IconProps> = ({
         <Line x1="16" y1="2" x2="16" y2="6" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
         <Line x1="8" y1="2" x2="8" y2="6" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
         <Line x1="3" y1="10" x2="21" y2="10" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    // Audio/Volume Icons
+    volume2: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M11 5L6 9H2v6h4l5 4V5z" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M15.54 8.46a5 5 0 0 1 0 7.07" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M19.07 4.93a10 10 0 0 1 0 14.14" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    volumeX: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M11 5L6 9H2v6h4l5 4V5z" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Line x1="23" y1="9" x2="17" y2="15" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Line x1="17" y1="9" x2="23" y2="15" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    send: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Line x1="22" y1="2" x2="11" y2="13" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M22 2L15 22l-4-9-9-4 20-7z" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    lightbulb: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M9 18h6" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M10 22h4" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M15.09 14c.18-.98.45-1.95.81-2.89A6 6 0 1 0 9 14h6.09z" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    // Life Area Icons
+    finance: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Circle cx="12" cy="12" r="10" stroke={color} strokeWidth={strokeWidth} />
+        <Line x1="12" y1="6" x2="12" y2="18" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" />
+        <Path d="M9 9a3 3 0 0 1 3-3h1.5a2.5 2.5 0 0 1 0 5H9" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M9 11h4.5a2.5 2.5 0 0 1 0 5H12a3 3 0 0 1-3-3" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    health: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    relationship: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Circle cx="9" cy="7" r="4" stroke={color} strokeWidth={strokeWidth} />
+        <Path d="M23 21v-2a4 4 0 0 0-3-3.87" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M16 3.13a4 4 0 0 1 0 7.75" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    faith: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M12 2L9 9H2l6 5-2 7 6-4 6 4-2-7 6-5h-7l-3-7z" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    purpose: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Circle cx="12" cy="12" r="10" stroke={color} strokeWidth={strokeWidth} />
+        <Circle cx="12" cy="12" r="6" stroke={color} strokeWidth={strokeWidth} />
+        <Circle cx="12" cy="12" r="2" stroke={color} strokeWidth={strokeWidth} />
+      </Svg>
+    ),
+    career: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Rect x="2" y="7" width="20" height="14" rx="2" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    happiness: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Circle cx="12" cy="12" r="10" stroke={color} strokeWidth={strokeWidth} />
+        <Path d="M8 14s1.5 2 4 2 4-2 4-2" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Line x1="9" y1="9" x2="9.01" y2="9" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Line x1="15" y1="9" x2="15.01" y2="9" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    environment: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M2 12h20" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    flame: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path
+          d="M8.5 14.5c0-2.485 2.014-4.5 4.5-4.5.465 0 .914.075 1.336.213A5.488 5.488 0 0018 13.5c0 1.933-1 3.5-2.5 4.5-.75.5-2 1-2.5 1.5-.5-.5-1.75-1-2.5-1.5-1.5-1-2.5-2.567-2.5-4.5z"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <Path
+          d="M12 10V6.5c0-1.657 1.343-3 3-3"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <Path
+          d="M12 17.5c0 1.105.895 2 2 2s2-.895 2-2"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </Svg>
+    ),
+    recordButton: (
+      <Svg width={size} height={size} viewBox="0 0 90 115" fill="none">
+        <Path d="M50.846 49.7421C47.6837 53.1272 42.3163 53.1272 39.154 49.7421L18.6039 27.7439C13.8276 22.631 17.4531 14.2827 24.4499 14.2827L65.5501 14.2827C72.5469 14.2827 76.1724 22.631 71.3961 27.7439L50.846 49.7421Z" fill="white"/>
+        <Path d="M39.154 65.2579C42.3163 61.8728 47.6837 61.8728 50.846 65.2579L71.3961 87.2561C76.1724 92.369 72.5469 100.717 65.5501 100.717H24.4499C17.4531 100.717 13.8276 92.369 18.6039 87.2561L39.154 65.2579Z" fill="white"/>
+        <Path d="M47.1807 47.6918C45.9969 48.9448 44.0031 48.9448 42.8193 47.6918L34.1922 38.5602C32.3848 36.6472 33.7411 33.5 36.3729 33.5H53.6271C56.2589 33.5 57.6152 36.6472 55.8078 38.5602L47.1807 47.6918Z" fill="black"/>
+        <Path d="M43.9057 84.4287C44.6092 84.1531 45.3908 84.1531 46.0943 84.4287L66.5857 92.4567C69.6724 93.666 68.8065 98.25 65.4914 98.25H24.5086C21.1935 98.25 20.3275 93.666 23.4143 92.4567L43.9057 84.4287Z" fill="black"/>
+      </Svg>
+    ),
+    filter: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Line x1="4" y1="6" x2="20" y2="6" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Line x1="7" y1="12" x2="17" y2="12" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Line x1="10" y1="18" x2="14" y2="18" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    edit: (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
     ),
   };

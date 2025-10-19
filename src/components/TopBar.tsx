@@ -29,11 +29,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: theme.spacing['4'],
+    backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
   },
   left: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing['2'],
+    backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
   },
   title: {
     ...theme.typography.body,
@@ -44,5 +46,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing['3'],
+    backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
   },
 });

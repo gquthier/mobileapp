@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import { VideoSegment } from '../types';
 import { theme } from '../styles/theme';
 import { Icon } from './Icon';
 import * as Haptics from 'expo-haptics';
+import { Chapter } from '../services/chapterService';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -21,6 +22,7 @@ interface VideoInfoBarProps {
   bottomInset?: number; // Safe area bottom (pour navigation bar)
   onHighlightPress?: (timestamp: number) => void; // 🆕 Callback pour seek au timestamp
   onExpandedChange?: (isExpanded: boolean) => void; // 🆕 Callback pour notifier l'état d'expansion
+  chapters?: Chapter[]; // 🆕 Chapitres pour afficher "CHAPTER X"
 }
 
 /**
@@ -33,6 +35,7 @@ export const VideoInfoBar: React.FC<VideoInfoBarProps> = ({
   bottomInset = 0,
   onHighlightPress,
   onExpandedChange,
+  chapters = [],
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [heightAnim] = useState(new Animated.Value(60)); // Minimized height
@@ -121,6 +124,36 @@ export const VideoInfoBar: React.FC<VideoInfoBarProps> = ({
     ? video.segment_title
     : (video.title || 'Untitled Video');
 
+  // 🆕 Calculate chapter number from video.chapter_id
+  const chapterLabel = useMemo(() => {
+    if (!video || !video.chapter_id || chapters.length === 0) {
+      return null;
+    }
+
+    // 1. Try to use video.chapter_number if available
+    if (video.chapter_number && video.chapter_number > 0) {
+      return `CHAPTER ${video.chapter_number}`;
+    }
+
+    // 2. Otherwise, find chapter by ID and calculate index
+    // Sort chapters by started_at (oldest first) to get chronological order
+    const sortedChapters = [...chapters].sort((a, b) => {
+      const dateA = new Date(a.started_at || 0).getTime();
+      const dateB = new Date(b.started_at || 0).getTime();
+      return dateA - dateB;
+    });
+
+    // Find the chapter by ID
+    const chapterIndex = sortedChapters.findIndex(ch => ch.id === video.chapter_id);
+
+    if (chapterIndex >= 0) {
+      // Chapter number is index + 1 (1-based)
+      return `CHAPTER ${chapterIndex + 1}`;
+    }
+
+    return null;
+  }, [video, chapters]);
+
   return (
     <Animated.View
       style={[
@@ -142,8 +175,12 @@ export const VideoInfoBar: React.FC<VideoInfoBarProps> = ({
             <Text style={styles.minimizedTitle} numberOfLines={1}>
               {displayTitle}
             </Text>
-            {/* 🎯 Show Life Area badge if this is a segment */}
-            {video.is_segment && video.segment_life_area && (
+            {/* 🆕 Show Chapter label if available, otherwise show Life Area badge for segments */}
+            {chapterLabel ? (
+              <Text style={styles.chapterBadge}>
+                {chapterLabel}
+              </Text>
+            ) : video.is_segment && video.segment_life_area && (
               <Text style={styles.lifeAreaBadge}>
                 {video.segment_life_area}
               </Text>
@@ -169,8 +206,12 @@ export const VideoInfoBar: React.FC<VideoInfoBarProps> = ({
               <Text style={styles.expandedTitle} numberOfLines={2}>
                 {displayTitle}
               </Text>
-              {/* 🎯 Show Life Area badge if this is a segment */}
-              {video.is_segment && video.segment_life_area && (
+              {/* 🆕 Show Chapter label if available, otherwise show Life Area badge for segments */}
+              {chapterLabel ? (
+                <Text style={styles.chapterBadgeExpanded}>
+                  {chapterLabel}
+                </Text>
+              ) : video.is_segment && video.segment_life_area && (
                 <Text style={styles.lifeAreaBadgeExpanded}>
                   {video.segment_life_area}
                 </Text>
@@ -304,6 +345,18 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
+  // 🆕 Chapter badge (minimized view) - Same style as lifeAreaBadge
+  chapterBadge: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginTop: 2,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    textShadowColor: 'rgba(0, 0, 0, 0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
   plusIconContainer: {
     width: 32,
     height: 32,
@@ -347,6 +400,15 @@ const styles = StyleSheet.create({
   },
   // 🎯 Life Area badge (expanded view)
   lifeAreaBadgeExpanded: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginTop: 3,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  // 🆕 Chapter badge (expanded view) - Same style as lifeAreaBadgeExpanded
+  chapterBadgeExpanded: {
     fontSize: 12,
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.8)',

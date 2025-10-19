@@ -6,8 +6,8 @@ import {
   StyleSheet,
   Dimensions,
   Animated,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../styles/theme';
 
@@ -15,6 +15,7 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 interface WelcomeFlowProps {
   onComplete: () => void;
+  onSkipDemo?: () => void;
 }
 
 const Logo = () => (
@@ -67,7 +68,7 @@ const AnimatedWord = ({ word, delay, children }: { word: string; delay: number; 
   );
 };
 
-export const WelcomeFlow: React.FC<WelcomeFlowProps> = ({ onComplete }) => {
+export const WelcomeFlow: React.FC<WelcomeFlowProps> = ({ onComplete, onSkipDemo }) => {
   const [step, setStep] = useState<'hero' | 'features'>('hero');
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
@@ -119,6 +120,19 @@ export const WelcomeFlow: React.FC<WelcomeFlowProps> = ({ onComplete }) => {
     <View style={styles.container}>
       <View style={styles.gradient}>
         <SafeAreaView style={styles.safeArea}>
+          {/* Debug: Skip button pour les démos */}
+          {onSkipDemo && (
+            <TouchableOpacity
+              onPress={() => {
+                console.log('DEMO SKIP button pressed - skipping welcome flow');
+                onSkipDemo();
+              }}
+              style={styles.skipButton}
+            >
+              <Text style={styles.skipButtonText}>Skip for Demo</Text>
+            </TouchableOpacity>
+          )}
+
           <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
             {step === 'hero' ? (
               <>
@@ -349,5 +363,24 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: theme.colors.white,
     borderRadius: 3,
+  },
+  skipButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    backgroundColor: theme.colors.black,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    zIndex: 1000,
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  skipButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.white,
   },
 });

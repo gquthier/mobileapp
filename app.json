@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "mobileapp",
+    "name": "Chapters",
     "slug": "mobileapp",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -17,9 +17,10 @@
       "infoPlist": {
         "NSCameraUsageDescription": "This app uses the camera to record personal video reflections for your chapters and life journey.",
         "NSMicrophoneUsageDescription": "This app uses the microphone to record audio with your video reflections.",
-        "NSPhotoLibraryAddUsageDescription": "This app saves your recorded video reflections to your photo library for backup and sharing."
+        "NSPhotoLibraryAddUsageDescription": "This app saves your recorded video reflections to your photo library for backup and sharing.",
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to import existing videos for your life chapters."
       },
-      "bundleIdentifier": "com.anonymous.mobileapp"
+      "bundleIdentifier": "com.gquthier.mobileapp"
     },
     "android": {
       "adaptiveIcon": {
@@ -32,6 +33,10 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-font",
+      "expo-video"
+    ]
   }
 }

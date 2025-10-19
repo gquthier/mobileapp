@@ -1,0 +1,1957 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
+  Dimensions,
+  SafeAreaView,
+  StatusBar,
+  ScrollView,
+  Animated,
+  Image,
+  ActivityIndicator,
+  TouchableWithoutFeedback,
+  PanResponder,
+  Platform,
+} from 'react-native';
+import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
+import { VideoRecord } from '../lib/supabase';
+import { theme } from '../styles/theme';
+import { Icon } from './Icon';
+import { TranscriptionJobService, TranscriptionJob } from '../services/transcriptionJobService';
+import * as Haptics from 'expo-haptics';
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get('screen'); // Use 'screen' for true fullscreen
+
+interface VideoPlayerProps {
+  visible: boolean;
+  video: VideoRecord | null;
+  videos?: VideoRecord[]; // Array of videos from same day
+  initialIndex?: number; // Starting index in videos array
+  onClose: () => void;
+}
+
+export const VideoPlayer: React.FC<VideoPlayerProps> = ({
+  visible,
+  video,
+  videos,
+  initialIndex = 0,
+  onClose,
+}) => {
+  // Determine if we're in multi-video mode
+  const videoList = videos && videos.length > 1 ? videos : (video ? [video] : []);
+  const isMultiVideoMode = videoList.length > 1;
+
+  // Current video state
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const currentVideo = videoList[currentIndex] || video;
+
+  // Video player states
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1.0);
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [tempPosition, setTempPosition] = useState(0);
+  const [transcriptionJob, setTranscriptionJob] = useState<TranscriptionJob | null>(null);
+  const [loadingHighlights, setLoadingHighlights] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+
+  // Multi-video navigation states
+  const [showVideoMenu, setShowVideoMenu] = useState(false);
+
+  // Refs
+  const videoRef = useRef<Video>(null);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout>();
+  const controlsOpacity = useRef(new Animated.Value(1)).current;
+  const progressBarRef = useRef<View>(null);
+
+  // Swipe animation values
+  const swipeTranslateX = useRef(new Animated.Value(0)).current;
+  const swipeOpacity = useRef(new Animated.Value(1)).current;
+
+  // Configure iOS audio mode for optimal video playback
+  useEffect(() => {
+    const configureAudioMode = async () => {
+      if (Platform.OS === 'ios') {
+        try {
+          await Audio.setAudioModeAsync({
+            playsInSilentModeIOS: true,
+            staysActiveInBackground: false,
+            shouldDuckAndroid: false,
+          });
+          console.log('🔊 iOS audio mode configured for video playback');
+        } catch (error) {
+          console.warn('⚠️ Failed to configure iOS audio mode:', error);
+        }
+      }
+    };
+
+    configureAudioMode();
+  }, []);
+
+  useEffect(() => {
+    // Set loading timeout to prevent infinite loading
+    if (isLoading && !hasError) {
+      loadingTimeoutRef.current = setTimeout(() => {
+        console.log('⏰ Video loading timeout - 15 seconds exceeded');
+        setIsLoading(false);
+        setHasError(true);
+        setErrorMessage('Video took too long to load. Please check your connection and try again.');
+      }, 15000); // 15 second timeout
+    }
+
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+    };
+  }, [isLoading, hasError]);
+
+  useEffect(() => {
+    // Reset states when video changes
+    if (visible && currentVideo) {
+      console.log('🔄 Resetting video player state for new video');
+      setIsLoading(true);
+      setHasError(false);
+      setErrorMessage('');
+      setPosition(0);
+      setDuration(0);
+      setIsPlaying(false); // Reset to false, will be updated by onPlaybackStatusUpdate
+      setTranscriptionJob(null);
+
+      // Reset animation values
+      swipeTranslateX.setValue(0);
+      swipeOpacity.setValue(1);
+
+      // Test video URL accessibility
+      getVideoUri().catch(() => {
+        // Error handling is done inside getVideoUri
+      });
+
+      // Fetch transcription highlights for this video
+      fetchTranscriptionHighlights();
+    }
+  }, [visible, currentVideo]);
+
+  // Note: Auto-play is now handled by shouldPlay={true} on the Video component
+  // This provides instant playback without additional delay from manual playAsync()
+
+  // Reset to initial index when videos array changes
+  useEffect(() => {
+    if (visible && initialIndex !== currentIndex) {
+      setCurrentIndex(initialIndex);
+    }
+  }, [visible, initialIndex]);
+
+  // Navigation functions for multi-video mode
+  const navigateToVideo = useCallback((newIndex: number) => {
+    if (newIndex < 0 || newIndex >= videoList.length) return;
+
+    // Pause current video
+    if (videoRef.current) {
+      videoRef.current.pauseAsync();
+    }
+
+    // Haptic feedback
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // Animate transition
+    Animated.parallel([
+      Animated.timing(swipeOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(swipeTranslateX, {
+        toValue: newIndex > currentIndex ? -screenWidth * 0.3 : screenWidth * 0.3,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      // Update index
+      setCurrentIndex(newIndex);
+
+      // Fade back in with new video
+      swipeTranslateX.setValue(newIndex > currentIndex ? screenWidth * 0.3 : -screenWidth * 0.3);
+      Animated.parallel([
+        Animated.timing(swipeOpacity, {
+          toValue: 1,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.spring(swipeTranslateX, {
+          toValue: 0,
+          friction: 8,
+          tension: 40,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+  }, [currentIndex, videoList.length, swipeOpacity, swipeTranslateX]);
+
+  const goToNextVideo = useCallback(() => {
+    if (currentIndex < videoList.length - 1) {
+      navigateToVideo(currentIndex + 1);
+    }
+  }, [currentIndex, videoList.length, navigateToVideo]);
+
+  const goToPreviousVideo = useCallback(() => {
+    if (currentIndex > 0) {
+      navigateToVideo(currentIndex - 1);
+    }
+  }, [currentIndex, navigateToVideo]);
+
+  // Swipe gesture handler
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => isMultiVideoMode,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return isMultiVideoMode && Math.abs(gestureState.dx) > 10;
+      },
+      onPanResponderGrant: () => {
+        // Haptic feedback on touch start
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (!isMultiVideoMode) return;
+
+        // Limit swipe range
+        const dx = gestureState.dx;
+        const maxSwipe = screenWidth * 0.5;
+        const limitedDx = Math.max(-maxSwipe, Math.min(maxSwipe, dx));
+
+        // Update animation values
+        swipeTranslateX.setValue(limitedDx);
+
+        // Reduce opacity slightly while swiping
+        const opacity = 1 - Math.abs(limitedDx) / screenWidth * 0.3;
+        swipeOpacity.setValue(opacity);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (!isMultiVideoMode) return;
+
+        const threshold = screenWidth * 0.25; // 25% of screen width
+        const velocity = gestureState.vx;
+
+        // Determine if swipe was significant enough
+        const shouldNavigate = Math.abs(gestureState.dx) > threshold || Math.abs(velocity) > 0.5;
+
+        if (shouldNavigate) {
+          if (gestureState.dx > 0 && currentIndex > 0) {
+            // Swipe right - go to previous video
+            goToPreviousVideo();
+          } else if (gestureState.dx < 0 && currentIndex < videoList.length - 1) {
+            // Swipe left - go to next video
+            goToNextVideo();
+          } else {
+            // Can't navigate further - spring back
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            Animated.parallel([
+              Animated.spring(swipeTranslateX, {
+                toValue: 0,
+                friction: 8,
+                useNativeDriver: true,
+              }),
+              Animated.spring(swipeOpacity, {
+                toValue: 1,
+                friction: 8,
+                useNativeDriver: true,
+              }),
+            ]).start();
+          }
+        } else {
+          // Swipe not significant enough - spring back
+          Animated.parallel([
+            Animated.spring(swipeTranslateX, {
+              toValue: 0,
+              friction: 8,
+              useNativeDriver: true,
+            }),
+            Animated.spring(swipeOpacity, {
+              toValue: 1,
+              friction: 8,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        }
+      },
+    })
+  ).current;
+
+  const fetchTranscriptionHighlights = async () => {
+    if (!currentVideo?.id) return;
+
+    setLoadingHighlights(true);
+    try {
+      console.log('🎯 Fetching transcription job for video:', currentVideo.id);
+
+      // Récupérer les jobs de transcription pour cette vidéo
+      const jobs = await TranscriptionJobService.getUserTranscriptionJobs();
+
+      // Trouver le job correspondant à cette vidéo (peu importe le statut)
+      const jobForVideo = jobs.find(job => job.video_id === currentVideo.id);
+
+      if (jobForVideo) {
+        console.log(`✅ Transcription job found with status: ${jobForVideo.status}`);
+        setTranscriptionJob(jobForVideo);
+
+        // Log highlights if available
+        if (jobForVideo.status === 'completed' && jobForVideo.transcript_highlight) {
+          console.log('✅ Highlights available:', jobForVideo.transcript_highlight);
+        } else if (jobForVideo.status !== 'completed') {
+          console.log(`⏳ Video is still processing (status: ${jobForVideo.status})`);
+        }
+      } else {
+        console.log('ℹ️ No transcription job found for this video');
+      }
+    } catch (error) {
+      console.error('❌ Error fetching transcription job:', error);
+    } finally {
+      setLoadingHighlights(false);
+    }
+  };
+
+  if (!currentVideo) return null;
+
+  const getVideoUri = async () => {
+    let videoUrl;
+
+    // Check if file_path is already a complete URL
+    if (currentVideo.file_path.startsWith('http://') || currentVideo.file_path.startsWith('https://')) {
+      videoUrl = currentVideo.file_path;
+      console.log('🎥 VideoPlayer - Using existing URL:', currentVideo.file_path);
+    } else {
+      // Construct the full Supabase Storage URL for relative paths
+      const baseUrl = 'https://eenyzudwktcjpefpoapi.supabase.co/storage/v1/object/public/videos';
+
+      // Clean up file path - remove any leading slashes or "videos/" prefix
+      let cleanFilePath = currentVideo.file_path;
+      if (cleanFilePath.startsWith('/')) {
+        cleanFilePath = cleanFilePath.substring(1);
+      }
+      if (cleanFilePath.startsWith('videos/')) {
+        cleanFilePath = cleanFilePath.substring('videos/'.length);
+      }
+
+      videoUrl = `${baseUrl}/${cleanFilePath}`;
+      console.log('🎥 VideoPlayer - Constructed URL from path:', {
+        original_file_path: currentVideo.file_path,
+        cleaned_file_path: cleanFilePath,
+        full_url: videoUrl
+      });
+    }
+
+    console.log('🎥 VideoPlayer - Loading video:', {
+      title: currentVideo.title,
+      final_url: videoUrl
+    });
+
+    // Test URL accessibility
+    try {
+      const response = await fetch(videoUrl, { method: 'HEAD' });
+      console.log('🌐 URL accessibility test:', {
+        url: videoUrl,
+        status: response.status,
+        accessible: response.ok
+      });
+
+      if (!response.ok) {
+        throw new Error(`Video file not accessible (HTTP ${response.status})`);
+      }
+    } catch (error) {
+      console.error('❌ URL accessibility test failed:', error);
+      setHasError(true);
+      setIsLoading(false);
+      setErrorMessage(`Unable to access video file: ${error.message}`);
+      return null;
+    }
+
+    return videoUrl;
+  };
+
+  const getVideoUriSync = () => {
+    // Check if file_path is already a complete URL
+    if (currentVideo.file_path.startsWith('http://') || currentVideo.file_path.startsWith('https://')) {
+      return currentVideo.file_path;
+    }
+
+    // Synchronous version for component rendering - construct URL for relative paths
+    const baseUrl = 'https://eenyzudwktcjpefpoapi.supabase.co/storage/v1/object/public/videos';
+    let cleanFilePath = currentVideo.file_path;
+    if (cleanFilePath.startsWith('/')) {
+      cleanFilePath = cleanFilePath.substring(1);
+    }
+    if (cleanFilePath.startsWith('videos/')) {
+      cleanFilePath = cleanFilePath.substring('videos/'.length);
+    }
+    return `${baseUrl}/${cleanFilePath}`;
+  };
+
+  const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+    // Clear loading timeout when we get a status update
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = undefined;
+    }
+
+    if (status.isLoaded) {
+      // Detailed logging with buffering state
+      const bufferingState = status.isBuffering ? '🔄 BUFFERING' : '✅ READY';
+      console.log(`${bufferingState} Video status:`, {
+        isPlaying: status.isPlaying,
+        isBuffering: status.isBuffering,
+        position: Math.floor((status.positionMillis || 0) / 1000) + 's',
+        duration: Math.floor((status.durationMillis || 0) / 1000) + 's',
+      });
+
+      setPosition(status.positionMillis || 0);
+      setDuration(status.durationMillis || 0);
+      setIsPlaying(status.isPlaying);
+      setIsBuffering(status.isBuffering);
+      setIsLoading(false);
+      setHasError(false);
+
+      // Detect if video stopped playing unexpectedly due to buffering
+      if (!status.isPlaying && !status.isBuffering && status.positionMillis && status.positionMillis > 0 && status.positionMillis < (status.durationMillis || 0)) {
+        console.warn('⚠️ Video stopped unexpectedly - may need to call playAsync()');
+      }
+    } else if (status.error) {
+      console.error('❌ Video loading error:', status.error);
+      setIsLoading(false);
+      setHasError(true);
+      setErrorMessage(status.error || 'Failed to load video');
+    } else {
+      console.log('⏳ Video loading in progress...');
+      if (!isLoading) {
+        setIsLoading(true);
+      }
+    }
+  };
+
+  const handlePlayPause = async () => {
+    if (!videoRef.current) {
+      console.log('⚠️ videoRef.current is null - cannot play/pause');
+      return;
+    }
+
+    try {
+      if (isPlaying) {
+        console.log('⏸️ Attempting to pause video...');
+        await videoRef.current.pauseAsync();
+        setIsPlaying(false); // Update state immediately
+        console.log('✅ Video paused successfully');
+      } else {
+        console.log('▶️ Attempting to play video...');
+        await videoRef.current.playAsync();
+        setIsPlaying(true); // Update state immediately
+        console.log('✅ Video playing successfully');
+      }
+    } catch (error) {
+      console.error('❌ Error in handlePlayPause:', error);
+    }
+  };
+
+  const handleProgressBarTouchStart = (event: any) => {
+    setIsDragging(true);
+    handleProgressBarMove(event);
+  };
+
+  const handleProgressBarMove = (event: any) => {
+    if (duration > 0 && progressBarRef.current && videoRef.current) {
+      progressBarRef.current.measure((x, y, width, height, pageX, pageY) => {
+        const touchX = event.nativeEvent.locationX;
+        const progressPercentage = Math.max(0, Math.min(100, (touchX / width) * 100));
+        const newPosition = (progressPercentage / 100) * duration;
+
+        // Mise à jour en temps réel de la position temporaire pour l'affichage
+        setTempPosition(newPosition);
+
+        // Mise à jour fluide de la vidéo en temps réel (précision milliseconde)
+        videoRef.current.setPositionAsync(newPosition);
+      });
+    }
+  };
+
+  const handleProgressBarTouchEnd = (event: any) => {
+    if (duration > 0 && progressBarRef.current) {
+      progressBarRef.current.measure((x, y, width, height, pageX, pageY) => {
+        const touchX = event.nativeEvent.locationX;
+        const progressPercentage = Math.max(0, Math.min(100, (touchX / width) * 100));
+        const newPosition = (progressPercentage / 100) * duration;
+
+        // Position finale au relâchement
+        if (videoRef.current) {
+          videoRef.current.setPositionAsync(newPosition);
+        }
+
+        // Réinitialiser isDragging après le touch
+        setIsDragging(false);
+      });
+    }
+  };
+
+  const handleSpeedChange = async (speed: number) => {
+    if (videoRef.current) {
+      await videoRef.current.setRateAsync(speed, true);
+      setPlaybackRate(speed);
+      setShowSpeedMenu(false); // Close menu after selection
+    }
+  };
+
+  const toggleSpeedMenu = () => {
+    setShowSpeedMenu(!showSpeedMenu);
+  };
+
+  const toggleControlsVisibility = () => {
+    setControlsVisible(!controlsVisible);
+  };
+
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
+    // Hide controls in fullscreen, show in split-screen
+    Animated.timing(controlsOpacity, {
+      toValue: isFullscreen ? 1 : 0.3,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const showControls = () => {
+    Animated.timing(controlsOpacity, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: true,
+    }).start();
+
+    // Auto-hide controls in fullscreen mode
+    if (isFullscreen) {
+      setTimeout(() => {
+        Animated.timing(controlsOpacity, {
+          toValue: 0.3,
+          duration: 500,
+          useNativeDriver: true,
+        }).start();
+      }, 3000);
+    }
+  };
+
+  const formatTime = (milliseconds: number) => {
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const getImportanceColor = (importance: number): string => {
+    if (importance >= 8) return theme.colors.brand.primary;
+    if (importance >= 6) return '#FFA500'; // Orange for medium importance
+    return theme.colors.text.secondary;
+  };
+
+
+
+
+  const handleHighlightPress = async (highlight: any) => {
+    // Support pour start_time (snake_case) et startTime (camelCase)
+    const startTime = highlight.start_time || highlight.startTime;
+
+    if (!startTime || !videoRef.current) {
+      console.log('⚠️ No start_time found for highlight or videoRef is null:', highlight);
+      return;
+    }
+
+    try {
+      console.log(`🎯 Jumping to highlight: "${highlight.title}" at ${startTime}s`);
+
+      // Convertir secondes en millisecondes et naviguer
+      await videoRef.current.setPositionAsync(startTime * 1000);
+      console.log('✅ Position set successfully');
+
+      // S'assurer que la vidéo joue après le saut
+      await videoRef.current.playAsync();
+      setIsPlaying(true); // Update state immediately
+      console.log(`✅ Successfully jumped to timestamp: ${startTime}s and started playing`);
+    } catch (error) {
+      console.error('❌ Error jumping to timestamp:', error);
+    }
+  };
+
+  const formatVideoDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    const dayName = days[date.getDay()];
+    const day = date.getDate();
+    const month = months[date.getMonth()];
+
+    const getOrdinalSuffix = (day: number) => {
+      if (day >= 11 && day <= 13) return 'th';
+      switch (day % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+      }
+    };
+
+    return `${dayName}, ${day}${getOrdinalSuffix(day)} ${month}`;
+  };
+
+  const progressPercentage = duration > 0 ? (position / duration) * 100 : 0;
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="fade"
+      presentationStyle="fullScreen"
+      statusBarTranslucent={true}
+      onRequestClose={onClose}
+    >
+      <StatusBar hidden={isFullscreen} backgroundColor={theme.colors.black} />
+      <View style={styles.container}>
+        {isFullscreen ? (
+          // Fullscreen Mode
+          <View style={styles.fullscreenContainer}>
+            <TouchableWithoutFeedback onPress={toggleControlsVisibility}>
+              <View style={styles.fullscreenTouchable}>
+                <Video
+                  ref={videoRef}
+                  source={{ uri: getVideoUriSync() }}
+                  style={styles.fullscreenVideo}
+                  resizeMode={ResizeMode.COVER}
+                  shouldPlay={true}
+                  isLooping={false}
+                  onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+                  useNativeControls={false}
+                  rate={playbackRate}
+                  progressUpdateIntervalMillis={100}
+                  onLoadStart={() => {
+                    console.log('⏳ Video loading started');
+                    setIsLoading(true);
+                  }}
+                  onLoad={() => {
+                    console.log('📹 Video metadata loaded');
+                  }}
+                  onError={(error) => {
+                    console.error('❌ Video loading error:', error);
+                    setIsLoading(false);
+                    setHasError(true);
+                    setErrorMessage('Failed to load video. Please check your connection and try again.');
+                  }}
+                />
+              </View>
+            </TouchableWithoutFeedback>
+
+            {/* Fullscreen Controls - Design minimaliste inspiré du split-screen */}
+            {controlsVisible && (
+              <>
+                {/* Top Left - Back Arrow avec SafeArea */}
+                <SafeAreaView style={styles.fullscreenTopLeft}>
+                  <TouchableOpacity onPress={toggleFullscreen} style={styles.fullscreenBackButton}>
+                    <Icon name="chevronLeft" size={28} color={theme.colors.white} />
+                  </TouchableOpacity>
+                </SafeAreaView>
+
+                {/* Bottom Overlay - Ultra minimaliste */}
+                <View style={styles.fullscreenBottomOverlay}>
+                  {/* Video Title */}
+                  {video.title && (
+                    <Text style={styles.fullscreenVideoTitle} numberOfLines={2}>
+                      {video.title}
+                    </Text>
+                  )}
+
+                  {/* Date */}
+                  <Text style={styles.fullscreenDateText}>
+                    {formatVideoDate(video.created_at)}
+                  </Text>
+
+                  {/* Controls Row - Minimaliste comme split-screen */}
+                  <View style={styles.fullscreenControlsRow}>
+                    {/* Play/Pause Button - Sans background, juste icône avec ombre */}
+                    <TouchableOpacity onPress={handlePlayPause} style={styles.fullscreenPlayPauseButton}>
+                      <Icon
+                        name={isPlaying ? "pause" : "play"}
+                        size={20}
+                        color={theme.colors.white}
+                      />
+                    </TouchableOpacity>
+
+                    {/* Progress Bar - Ultra-fine comme split-screen */}
+                    <View
+                      ref={progressBarRef}
+                      style={styles.fullscreenProgressBarContainer}
+                      onTouchStart={handleProgressBarTouchStart}
+                      onTouchMove={handleProgressBarMove}
+                      onTouchEnd={handleProgressBarTouchEnd}
+                    >
+                      <View style={[
+                        styles.fullscreenProgressTrack,
+                        isDragging && styles.fullscreenProgressTrackActive
+                      ]} />
+                      <View style={[
+                        styles.fullscreenProgressFill,
+                        isDragging && styles.fullscreenProgressFillActive,
+                        { width: `${isDragging ? (tempPosition / duration) * 100 : progressPercentage}%` }
+                      ]} />
+                    </View>
+
+                    {/* Speed Control Button - Sans background, juste texte avec ombre */}
+                    <TouchableOpacity
+                      onPress={toggleSpeedMenu}
+                      style={styles.fullscreenSpeedButton}
+                    >
+                      <Text style={styles.fullscreenSpeedText}>{playbackRate}x</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Speed Menu Popup - Design épuré */}
+                  {showSpeedMenu && (
+                    <View style={styles.fullscreenSpeedMenu}>
+                      {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((speed) => (
+                        <TouchableOpacity
+                          key={speed}
+                          style={[
+                            styles.fullscreenSpeedMenuItem,
+                            playbackRate === speed && styles.fullscreenSpeedMenuItemActive
+                          ]}
+                          onPress={() => handleSpeedChange(speed)}
+                        >
+                          <Text style={[
+                            styles.fullscreenSpeedMenuText,
+                            playbackRate === speed && styles.fullscreenSpeedMenuTextActive
+                          ]}>
+                            {speed}x
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              </>
+            )}
+          </View>
+        ) : (
+          // Split Screen Mode
+          <>
+            {/* Video Player Section - Takes 50% of screen */}
+            <View style={styles.videoSection}>
+              {/* Animated wrapper for swipe gestures */}
+              <Animated.View
+                style={[
+                  styles.splitVideoContainer,
+                  {
+                    opacity: swipeOpacity,
+                    transform: [{ translateX: swipeTranslateX }],
+                  },
+                ]}
+                {...panResponder.panHandlers}
+              >
+                {/* Container carré parfait avec tous les éléments à l'intérieur */}
+                <View style={styles.splitVideo}>
+                  <TouchableWithoutFeedback onPress={toggleControlsVisibility}>
+                    <View style={styles.videoTouchable}>
+                      <Video
+                        ref={videoRef}
+                        source={{ uri: getVideoUriSync() }}
+                        style={styles.videoElement}
+                        resizeMode={ResizeMode.COVER} // Remplit le carré en gardant le centre
+                        shouldPlay={true}
+                        isLooping={false}
+                        onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+                        useNativeControls={false}
+                        rate={playbackRate}
+                        progressUpdateIntervalMillis={100}
+                        onLoadStart={() => {
+                          console.log('⏳ Video loading started');
+                          setIsLoading(true);
+                        }}
+                        onLoad={() => {
+                          console.log('📹 Video metadata loaded');
+                        }}
+                        onError={(error) => {
+                          console.error('❌ Video loading error:', error);
+                          setIsLoading(false);
+                          setHasError(true);
+                          setErrorMessage('Failed to load video. Please check your connection and try again.');
+                        }}
+                      />
+                    </View>
+                  </TouchableWithoutFeedback>
+
+                {/* Back Arrow - Top Left */}
+                {controlsVisible && (
+                  <TouchableOpacity
+                    style={styles.backArrowOverlay}
+                    onPress={() => {
+                      console.log('🔙 Back arrow pressed - returning to gallery');
+                      onClose();
+                    }}
+                    activeOpacity={0.8}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Icon
+                      name="chevronLeft"
+                      size={24}
+                      color={theme.colors.white}
+                    />
+                  </TouchableOpacity>
+                )}
+
+                {/* Date Overlay - Top Right */}
+                {controlsVisible && (
+                  <View style={styles.dateOverlayRight}>
+                    <Text style={styles.dateText}>
+                      {formatVideoDate(currentVideo.created_at)}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Play Button - Centered on video */}
+                {controlsVisible && !isLoading && !hasError && (
+                  <TouchableOpacity
+                    style={styles.splitPlayButton}
+                    onPress={handlePlayPause}
+                    activeOpacity={0.8}
+                  >
+                    <Icon
+                      name={isPlaying ? "pause" : "play"}
+                      size={32}
+                      color={theme.colors.white}
+                    />
+                  </TouchableOpacity>
+                )}
+
+                {/* Video Controls HUD - à l'intérieur du cadre */}
+                {controlsVisible && (
+                  <View style={styles.videoControlsHUD}>
+                  {/* Timeline centrée avec boutons aux extrémités */}
+                  <View style={styles.controlsRow}>
+                    {/* Play/Pause - Bas gauche */}
+                    <TouchableOpacity onPress={handlePlayPause} style={styles.playPauseButton}>
+                      <Icon
+                        name={isPlaying ? "pause" : "play"}
+                        size={18}
+                        color={theme.colors.white}
+                      />
+                    </TouchableOpacity>
+
+                    {/* Timeline interactive - Design ultra-minimaliste avec scrubbing fluide */}
+                    <View
+                      ref={progressBarRef}
+                      style={styles.timelineContainer}
+                      onTouchStart={handleProgressBarTouchStart}
+                      onTouchMove={handleProgressBarMove}
+                      onTouchEnd={handleProgressBarTouchEnd}
+                    >
+                      <View style={[
+                        styles.progressTrack,
+                        isDragging && styles.progressTrackActive
+                      ]} />
+                      <View style={[
+                        styles.progressFill,
+                        isDragging && styles.progressFillActive,
+                        { width: `${isDragging ? (tempPosition / duration) * 100 : progressPercentage}%` }
+                      ]} />
+                    </View>
+
+                    {/* Fullscreen - Bas droite */}
+                    <TouchableOpacity onPress={toggleFullscreen} style={styles.fullscreenButton}>
+                      <Icon
+                        name="maximize"
+                        size={18}
+                        color={theme.colors.white}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                )}
+                </View>
+              </Animated.View>
+
+              {/* Back Button - Outside the video container */}
+              {controlsVisible && (
+                <TouchableOpacity
+                  style={styles.backButtonOverlay}
+                  onPress={() => {
+                    console.log('🔙 Back button pressed - returning to calendar');
+                    onClose();
+                  }}
+                  activeOpacity={0.8}
+                  hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                >
+                  <Icon
+                    name="chevronLeft"
+                    size={24}
+                    color={theme.colors.white}
+                    style={styles.backButtonIcon}
+                  />
+                </TouchableOpacity>
+              )}
+
+              {/* Close Button - Outside the video container */}
+              {controlsVisible && (
+                <TouchableOpacity
+                  style={styles.closeButtonOverlay}
+                  onPress={() => {
+                    console.log('🔙 Close button pressed - closing video player');
+                    onClose();
+                  }}
+                  activeOpacity={0.8}
+                  hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                >
+                  <Icon
+                    name="close"
+                    size={24}
+                    color={theme.colors.white}
+                    style={styles.closeButtonIcon}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Video Information Section */}
+            <View style={styles.videoInfoSection}>
+              <ScrollView style={styles.videoInfoContent} showsVerticalScrollIndicator={false}>
+                {/* Multi-video navigation indicators */}
+                {isMultiVideoMode && (
+                  <View style={styles.videoNavigationHeader}>
+                    <View style={styles.videoCounterContainer}>
+                      <Text style={styles.videoCounter}>
+                        {currentIndex + 1}/{videoList.length}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.stackMenuButton}
+                        onPress={() => setShowVideoMenu(!showVideoMenu)}
+                        activeOpacity={0.7}
+                      >
+                        <Icon name="list" size={20} color={theme.colors.text.secondary} />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Dots indicator */}
+                    <View style={styles.dotsIndicator}>
+                      {videoList.map((_, index) => (
+                        <TouchableOpacity
+                          key={index}
+                          onPress={() => navigateToVideo(index)}
+                          hitSlop={{ top: 10, bottom: 10, left: 5, right: 5 }}
+                        >
+                          <View
+                            style={[
+                              styles.dot,
+                              index === currentIndex && styles.dotActive,
+                            ]}
+                          />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {/* Video Title - Only show if transcription is completed and title is available */}
+                {transcriptionJob?.status === 'completed' && currentVideo.title ? (
+                  <Text style={styles.videoTitle}>{currentVideo.title}</Text>
+                ) : transcriptionJob && transcriptionJob.status !== 'completed' ? (
+                  <View style={styles.titleProcessingContainer}>
+                    <ActivityIndicator size="small" color={theme.colors.text.secondary} />
+                    <Text style={styles.titleProcessingText}>Generating title...</Text>
+                  </View>
+                ) : null}
+
+                {/* Video Metadata */}
+                <Text style={styles.videoMetadata}>
+                  {currentVideo.arc_number ? `Arc ${currentVideo.arc_number}, ` : ''}
+                  {currentVideo.chapter_number ? `Chapters ${currentVideo.chapter_number}, ` : ''}
+                  {currentVideo.location ? `${currentVideo.location}, ` : ''}
+                  {formatTime(duration)}
+                </Text>
+
+                {/* Video Highlights from AI Analysis */}
+                <View style={styles.themesSection}>
+                  {loadingHighlights ? (
+                    <View style={styles.loadingHighlightsContainer}>
+                      <ActivityIndicator size="small" color={theme.colors.brand.primary} />
+                      <Text style={styles.loadingHighlightsText}>Chargement des moments clés...</Text>
+                    </View>
+                  ) : transcriptionJob && transcriptionJob.status !== 'completed' ? (
+                    // Transcription en cours - afficher message de processing
+                    <View style={styles.processingContainer}>
+                      <ActivityIndicator size="small" color={theme.colors.brand.primary} />
+                      <Text style={styles.processingTitle}>Your video is processing...</Text>
+                      <Text style={styles.processingSubtext}>
+                        {transcriptionJob.status === 'pending' && 'Your video is in queue'}
+                        {transcriptionJob.status === 'extracting_audio' && 'Extracting audio from video'}
+                        {transcriptionJob.status === 'transcribing' && 'Transcribing your video'}
+                      </Text>
+                    </View>
+                  ) : transcriptionJob?.transcript_highlight?.highlights ? (
+                    <>
+                      {transcriptionJob.transcript_highlight.highlights.map((highlight: any, index: number) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={styles.themeTag}
+                          onPress={() => handleHighlightPress(highlight)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={styles.highlightHeader}>
+                            <Text style={styles.themeText}>{highlight.title}</Text>
+                            {highlight.importance && (
+                              <View style={[
+                                styles.importanceBadge,
+                                { backgroundColor: getImportanceColor(highlight.importance) }
+                              ]}>
+                                <Text style={styles.importanceText}>{highlight.importance}</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={styles.themeSubtext}>
+                            {highlight.summary?.toString() || 'Pas de résumé disponible'}
+                          </Text>
+                          <View style={styles.highlightFooter}>
+                            {(highlight.start_time || highlight.startTime) && (
+                              <View style={styles.timestampContainer}>
+                                <Icon name="clock" size={12} color={theme.colors.brand.primary} />
+                                <Text style={styles.timestampText}>
+                                  {formatTime((highlight.start_time || highlight.startTime) * 1000)}
+                                </Text>
+                                <Text style={styles.clickableHint}>• Toucher pour aller au moment</Text>
+                              </View>
+                            )}
+                            <View style={styles.playIconContainer}>
+                              <Icon name="play" size={16} color={theme.colors.brand.primary} />
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  ) : (
+                    <View style={styles.noHighlightsContainer}>
+                      <Icon name="lightbulb" size={24} color={theme.colors.text.disabled} />
+                      <Text style={styles.noHighlightsText}>
+                        Aucun moment clé disponible
+                      </Text>
+                      <Text style={styles.noHighlightsSubtext}>
+                        Les highlights apparaîtront après la transcription
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </ScrollView>
+
+              {/* Video Selection Menu */}
+              {showVideoMenu && isMultiVideoMode && (
+                <View style={styles.videoMenuOverlay}>
+                  <TouchableWithoutFeedback onPress={() => setShowVideoMenu(false)}>
+                    <View style={styles.videoMenuBackdrop} />
+                  </TouchableWithoutFeedback>
+                  <View style={styles.videoMenu}>
+                    <View style={styles.videoMenuHeader}>
+                      <Text style={styles.videoMenuTitle}>
+                        {videoList.length} videos from this day
+                      </Text>
+                      <TouchableOpacity onPress={() => setShowVideoMenu(false)}>
+                        <Icon name="close" size={20} color={theme.colors.text.secondary} />
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView style={styles.videoMenuList}>
+                      {videoList.map((vid, index) => (
+                        <TouchableOpacity
+                          key={vid.id}
+                          style={[
+                            styles.videoMenuItem,
+                            index === currentIndex && styles.videoMenuItemActive,
+                          ]}
+                          onPress={() => {
+                            navigateToVideo(index);
+                            setShowVideoMenu(false);
+                          }}
+                        >
+                          <View style={styles.videoMenuItemNumber}>
+                            <Text style={styles.videoMenuItemNumberText}>{index + 1}</Text>
+                          </View>
+                          <View style={styles.videoMenuItemContent}>
+                            <Text
+                              style={[
+                                styles.videoMenuItemTitle,
+                                index === currentIndex && styles.videoMenuItemTitleActive,
+                              ]}
+                              numberOfLines={2}
+                            >
+                              {vid.title || 'Untitled video'}
+                            </Text>
+                            <Text style={styles.videoMenuItemTime}>
+                              {formatTime(vid.duration || 0)}
+                            </Text>
+                          </View>
+                          {index === currentIndex && (
+                            <Icon
+                              name="check"
+                              size={20}
+                              color={theme.colors.brand.primary}
+                            />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </View>
+              )}
+            </View>
+          </>
+        )}
+
+        {/* Loading State */}
+        {isLoading && !hasError && (
+          <View style={styles.loadingOverlay}>
+            <Icon name="loading" size={32} color={isFullscreen ? theme.colors.white : theme.colors.black} />
+            <Text style={[styles.loadingText, { color: isFullscreen ? theme.colors.white : theme.colors.black }]}>
+              Loading video...
+            </Text>
+          </View>
+        )}
+
+        {/* Buffering State - Only show when video is loaded but buffering */}
+        {!isLoading && isBuffering && !hasError && (
+          <View style={styles.bufferingOverlay}>
+            <ActivityIndicator size="large" color={isFullscreen ? theme.colors.white : theme.colors.brand.primary} />
+            <Text style={[styles.bufferingText, { color: isFullscreen ? theme.colors.white : theme.colors.black }]}>
+              Buffering...
+            </Text>
+          </View>
+        )}
+
+        {/* Error State */}
+        {hasError && (
+          <View style={styles.errorOverlay}>
+            <Icon name="close" size={32} color={isFullscreen ? theme.colors.white : theme.colors.black} />
+            <Text style={[styles.errorTitle, { color: isFullscreen ? theme.colors.white : theme.colors.black }]}>Video Unavailable</Text>
+            <Text style={[styles.errorText, { color: isFullscreen ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.8)' }]}>{errorMessage}</Text>
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => {
+                setHasError(false);
+                setIsLoading(true);
+                getVideoUri().then((uri) => {
+                  if (uri && videoRef.current) {
+                    videoRef.current.loadAsync({ uri }, {}, false);
+                  }
+                }).catch(() => {});
+              }}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </Modal>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.white,
+  },
+
+  // Fullscreen Mode Styles
+  fullscreenContainer: {
+    flex: 1,
+    backgroundColor: theme.colors.black,
+    position: 'relative',
+  },
+  fullscreenTouchable: {
+    width: '100%',
+    height: '100%',
+  },
+  fullscreenVideo: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
+    right: 0,
+    width: screenWidth,
+    height: screenHeight,
+    transform: [{ scaleX: -1 }], // Effet miroir pour correspondre à la preview d'enregistrement
+  },
+
+  // Top Controls - Respecte les safe zones
+  fullscreenTopLeft: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    zIndex: 10,
+  },
+  fullscreenBackButton: {
+    padding: theme.spacing['3'],
+    marginTop: theme.spacing['2'], // Petit espacement supplémentaire depuis le SafeArea
+  },
+  fullscreenTopRight: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  fullscreenIconButton: {
+    padding: theme.spacing['3'],
+  },
+
+  // Bottom Overlay - Avec plus d'opacité et marges améliorées
+  fullscreenBottomOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)', // Plus d'opacité pour meilleure lisibilité
+    paddingHorizontal: 28, // Plus de marges sur les côtés
+    paddingBottom: 56, // Remonté plus haut avec plus de marge en bas
+    paddingTop: 24,
+    zIndex: 10,
+  },
+  fullscreenHighlightContainer: {
+    marginBottom: theme.spacing['3'],
+    marginTop: theme.spacing['3'],
+  },
+  fullscreenHighlightText: {
+    color: theme.colors.white,
+    fontSize: 15,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  fullscreenMetadataRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing['3'],
+  },
+  fullscreenDateText: {
+    color: theme.colors.white,
+    fontSize: 14,
+    fontWeight: '400',
+  },
+  fullscreenChapterText: {
+    color: theme.colors.white,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+
+  // Controls Row
+  fullscreenControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing['2'],
+    marginBottom: theme.spacing['2'],
+  },
+  fullscreenPlayPauseButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fullscreenProgressBarContainer: {
+    flex: 1,
+    height: 40,
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  fullscreenProgressTrack: {
+    height: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderRadius: 1,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '50%',
+    marginTop: -1,
+  },
+  fullscreenProgressTrackActive: {
+    height: 3,
+    marginTop: -1.5,
+    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  fullscreenProgressFill: {
+    height: 2,
+    backgroundColor: theme.colors.white,
+    borderRadius: 1,
+    position: 'absolute',
+    left: 0,
+    top: '50%',
+    marginTop: -1,
+    shadowColor: theme.colors.white,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+  },
+  fullscreenProgressFillActive: {
+    height: 3,
+    marginTop: -1.5,
+    shadowOpacity: 0.7,
+    shadowRadius: 3,
+  },
+  fullscreenSpeedButton: {
+    paddingHorizontal: theme.spacing['2'],
+    paddingVertical: theme.spacing['1'],
+    minWidth: 44,
+    alignItems: 'center',
+  },
+  fullscreenSpeedText: {
+    color: theme.colors.white,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  fullscreenNextButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Speed Menu Popup
+  fullscreenSpeedMenu: {
+    position: 'absolute',
+    bottom: 80,
+    right: theme.spacing['4'],
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    borderRadius: 8,
+    paddingVertical: theme.spacing['2'],
+    minWidth: 80,
+  },
+  fullscreenSpeedMenuItem: {
+    paddingVertical: theme.spacing['2'],
+    paddingHorizontal: theme.spacing['4'],
+  },
+  fullscreenSpeedMenuItemActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  fullscreenSpeedMenuText: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  fullscreenSpeedMenuTextActive: {
+    color: theme.colors.white,
+    fontWeight: '600',
+  },
+
+  // Split Screen Mode Styles (Header removed)
+  // No more split header styles needed
+
+  videoSection: {
+    flex: 0.6, // Prend 60% de l'écran (3/5)
+    backgroundColor: theme.colors.white,
+    paddingTop: 72, // Marge supérieure extérieure
+    paddingBottom: 8, // Réduit pour rapprocher le titre
+    position: 'relative',
+  },
+  splitVideo: {
+    backgroundColor: theme.colors.black,
+    borderRadius: 16, // Coins arrondis égaux sur les 4 côtés
+    overflow: 'hidden', // Force tous les éléments dans le carré
+    position: 'relative',
+    marginHorizontal: 16, // Marges fixes de 16px de chaque côté
+    alignSelf: 'stretch', // Étire pour remplir la largeur disponible
+  },
+  videoElement: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    transform: [{ scaleX: -1 }], // Effet miroir pour correspondre à la preview d'enregistrement
+  },
+  videoTouchable: {
+    width: '100%',
+    height: '100%',
+  },
+
+  // Video overlay elements - HUD positioning
+  backArrowOverlay: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+  },
+  dateOverlayRight: {
+    position: 'absolute',
+    top: 12, // Aligné avec backArrow pour cohérence HUD
+    right: 12,
+    zIndex: 10,
+    // Pas de background - juste le texte
+  },
+  dateText: {
+    ...theme.typography.h3,
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.white,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  backButtonOverlay: {
+    position: 'absolute',
+    top: -60, // Placé au-dessus du cadre vidéo dans la marge
+    left: 0,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 22,
+    zIndex: 15,
+  },
+  backButtonIcon: {
+    textShadowColor: 'rgba(0, 0, 0, 0.7)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
+  },
+  closeButtonOverlay: {
+    position: 'absolute',
+    top: -60, // Placé au-dessus du cadre vidéo dans la marge
+    right: 0,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 22,
+    zIndex: 15,
+  },
+  closeButtonIcon: {
+    textShadowColor: 'rgba(0, 0, 0, 0.7)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
+  },
+
+  // HUD minimaliste et discret
+  videoControlsHUD: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    right: 16,
+    zIndex: 5,
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  playPauseButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Icône simple avec ombre pour lisibilité
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+  },
+  timelineContainer: {
+    flex: 1,
+    height: 32, // Hauteur pour zone de touch
+    position: 'relative',
+    marginHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fullscreenButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Icône simple avec ombre pour lisibilité
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+  },
+  splitPlayButton: {
+    position: 'absolute',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    top: '50%',
+    left: '50%',
+    marginTop: -32,
+    marginLeft: -32,
+    zIndex: 10,
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  // Simplified progress container
+  videoTimeText: {
+    ...theme.typography.caption,
+    color: theme.colors.white,
+    fontSize: 12,
+    fontWeight: '500',
+    minWidth: 40,
+  },
+  videoProgressBar: {
+    flex: 1,
+    height: 4,
+    position: 'relative',
+    marginHorizontal: theme.spacing['2'],
+  },
+  singleControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing['3'],
+  },
+  // Removed old speed dropdown styles
+
+  videoInfoSection: {
+    flex: 0.4, // Prend 40% de l'écran (2/5)
+    backgroundColor: theme.colors.white,
+  },
+  videoInfoContent: {
+    flex: 1,
+  },
+  videoTitle: {
+    ...theme.typography.h2,
+    fontSize: 24,
+    fontWeight: '700',
+    color: theme.colors.black,
+    lineHeight: 28, // Espacement réduit entre les lignes du titre
+    marginBottom: theme.spacing['1'], // Réduit de spacing['2'] à spacing['1']
+    paddingHorizontal: theme.spacing['4'],
+    paddingTop: theme.spacing['2'], // Réduit pour rapprocher du cadre vidéo
+  },
+  titleProcessingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing['2'],
+    paddingHorizontal: theme.spacing['4'],
+    paddingTop: theme.spacing['2'], // Réduit pour rapprocher du cadre vidéo
+    paddingBottom: theme.spacing['2'],
+  },
+  titleProcessingText: {
+    ...theme.typography.body2,
+    color: theme.colors.text.secondary,
+    fontStyle: 'italic',
+  },
+  videoMetadata: {
+    ...theme.typography.body,
+    fontSize: 16,
+    color: theme.colors.gray600,
+    marginBottom: theme.spacing['6'],
+    paddingHorizontal: theme.spacing['4'],
+  },
+  themesSection: {
+    paddingHorizontal: theme.spacing['4'],
+    paddingBottom: theme.spacing['4'],
+  },
+  themeTag: {
+    marginBottom: theme.spacing['4'],
+    borderWidth: 1,
+    borderColor: theme.colors.ui.border,
+    borderRadius: 12,
+    padding: theme.spacing['4'],
+    backgroundColor: theme.colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  themeText: {
+    ...theme.typography.h3,
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.black,
+    marginBottom: theme.spacing['1'],
+  },
+  themeSubtext: {
+    ...theme.typography.body,
+    fontSize: 14,
+    color: theme.colors.gray600,
+    lineHeight: 20,
+  },
+  // Highlights Styles
+  highlightHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: theme.spacing['1'],
+  },
+  importanceBadge: {
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  importanceText: {
+    ...theme.typography.tiny,
+    fontWeight: '700',
+    color: theme.colors.white,
+    fontSize: 10,
+  },
+  highlightFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: theme.spacing['3'],
+  },
+  timestampContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  timestampText: {
+    ...theme.typography.caption,
+    color: theme.colors.brand.primary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  clickableHint: {
+    ...theme.typography.caption,
+    color: theme.colors.text.tertiary,
+    fontSize: 10,
+    marginLeft: 8,
+  },
+  playIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.colors.brand.primary + '20',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  highlightMarker: {
+    position: 'absolute',
+    width: 4,
+    height: 12,
+    backgroundColor: '#FFA500',
+    borderRadius: 2,
+    top: -4,
+    marginLeft: -2,
+    zIndex: 2,
+  },
+  loadingHighlightsContainer: {
+    padding: theme.spacing['6'],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingHighlightsText: {
+    ...theme.typography.body,
+    color: theme.colors.text.secondary,
+    marginTop: theme.spacing['2'],
+  },
+  noHighlightsContainer: {
+    padding: theme.spacing['6'],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noHighlightsText: {
+    ...theme.typography.body,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginTop: theme.spacing['2'],
+  },
+  noHighlightsSubtext: {
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
+    marginTop: theme.spacing['1'],
+    textAlign: 'center',
+  },
+  processingContainer: {
+    padding: theme.spacing['6'],
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.ui.surfaceHover,
+    borderRadius: theme.layout.borderRadius.md,
+    marginHorizontal: theme.spacing['4'],
+    marginTop: theme.spacing['3'],
+  },
+  processingTitle: {
+    ...theme.typography.body,
+    fontWeight: '600',
+    color: theme.colors.brand.primary,
+    marginTop: theme.spacing['2'],
+    textAlign: 'center',
+  },
+  processingSubtext: {
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
+    marginTop: theme.spacing['1'],
+    textAlign: 'center',
+  },
+
+  // Shared Progress Bar Styles - Ultra-fine et élégante
+  progressBar: {
+    flex: 1,
+    height: 3,
+    marginHorizontal: 12,
+    position: 'relative',
+  },
+  progressTrack: {
+    width: '100%',
+    height: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderRadius: 1,
+    position: 'absolute',
+    top: '50%',
+    marginTop: -1,
+  },
+  progressTrackActive: {
+    height: 3,
+    marginTop: -1.5,
+    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  progressFill: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -1,
+    left: 0,
+    height: 2,
+    backgroundColor: theme.colors.white,
+    borderRadius: 1,
+    shadowColor: theme.colors.white,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+  },
+  progressFillActive: {
+    height: 3,
+    marginTop: -1.5,
+    shadowOpacity: 0.7,
+    shadowRadius: 3,
+  },
+
+  // Time Text
+  timeText: {
+    ...theme.typography.caption,
+    color: theme.colors.white,
+    fontSize: 12,
+    fontWeight: '500',
+    minWidth: 40,
+  },
+
+  // Loading and Error States
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    zIndex: 20,
+  },
+  loadingText: {
+    ...theme.typography.body,
+    marginTop: 16,
+  },
+  bufferingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    zIndex: 15,
+  },
+  bufferingText: {
+    ...theme.typography.caption,
+    marginTop: 12,
+    fontSize: 14,
+  },
+  errorOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    padding: 20,
+    zIndex: 20,
+  },
+  errorTitle: {
+    ...theme.typography.h3,
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  errorText: {
+    ...theme.typography.body,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 18,
+  },
+  retryButton: {
+    backgroundColor: theme.colors.white,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    ...theme.typography.bodyBold,
+    color: theme.colors.black,
+    fontSize: 14,
+  },
+
+  // Multi-video navigation styles
+  splitVideoContainer: {
+    flex: 1,
+  },
+  videoNavigationHeader: {
+    paddingHorizontal: theme.spacing['4'],
+    paddingTop: theme.spacing['3'],
+    paddingBottom: theme.spacing['2'],
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.ui.border,
+  },
+  videoCounterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing['2'],
+  },
+  videoCounter: {
+    ...theme.typography.bodyBold,
+    fontSize: 16,
+    color: theme.colors.text.primary,
+  },
+  stackMenuButton: {
+    padding: theme.spacing['1'],
+    borderRadius: 6,
+    backgroundColor: theme.colors.gray100,
+  },
+  dotsIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: theme.colors.gray300,
+  },
+  dotActive: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.colors.brand.primary,
+  },
+
+  // Video Menu Styles
+  videoMenuOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
+  },
+  videoMenuBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  videoMenu: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: theme.colors.white,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    maxHeight: '60%',
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  videoMenuHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['4'],
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.ui.border,
+  },
+  videoMenuTitle: {
+    ...theme.typography.h3,
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+  },
+  videoMenuList: {
+    maxHeight: 400,
+  },
+  videoMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing['4'],
+    paddingVertical: theme.spacing['3'],
+    gap: theme.spacing['3'],
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.gray100,
+  },
+  videoMenuItemActive: {
+    backgroundColor: theme.colors.ui.surfaceHover,
+  },
+  videoMenuItemNumber: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.colors.gray200,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoMenuItemNumberText: {
+    ...theme.typography.bodyBold,
+    fontSize: 14,
+    color: theme.colors.text.primary,
+  },
+  videoMenuItemContent: {
+    flex: 1,
+  },
+  videoMenuItemTitle: {
+    ...theme.typography.body,
+    fontSize: 15,
+    color: theme.colors.text.primary,
+    marginBottom: 2,
+  },
+  videoMenuItemTitleActive: {
+    fontWeight: '600',
+    color: theme.colors.brand.primary,
+  },
+  videoMenuItemTime: {
+    ...theme.typography.caption,
+    fontSize: 13,
+    color: theme.colors.text.secondary,
+  },
+  fullscreenVideoTitle: {
+    ...theme.typography.h3,
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.colors.white,
+    marginBottom: theme.spacing['1'],
+  },
+});

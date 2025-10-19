@@ -358,4 +358,54 @@ export class AuthService {
       throw error;
     }
   }
+
+  /**
+   * Reset password for a specific account (for testing purposes)
+   * This will sign in with old credentials, update password, then sign out
+   */
+  static async resetAccountPassword(
+    email: string,
+    oldPassword: string,
+    newPassword: string
+  ) {
+    try {
+      console.log('🔐 Resetting password for:', email);
+
+      // Sign in with old password
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password: oldPassword,
+      });
+
+      if (signInError) {
+        console.error('❌ Could not sign in with old password:', signInError.message);
+        throw new Error(`Failed to authenticate: ${signInError.message}`);
+      }
+
+      console.log('✅ Authenticated successfully');
+
+      // Update password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) {
+        console.error('❌ Password update error:', updateError);
+        throw updateError;
+      }
+
+      console.log('✅ Password updated successfully');
+
+      // Sign out
+      await this.signOut();
+
+      return {
+        success: true,
+        message: 'Password reset successfully',
+      };
+    } catch (error) {
+      console.error('❌ Reset account password failed:', error);
+      throw error;
+    }
+  }
 }

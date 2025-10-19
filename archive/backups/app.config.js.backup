@@ -1,0 +1,53 @@
+// app.config.js - Expo configuration with environment variable support
+module.exports = {
+  expo: {
+    name: "mobileapp",
+    slug: "mobileapp",
+    version: "1.0.0",
+    orientation: "portrait",
+    icon: "./assets/icon.png",
+    userInterfaceStyle: "light",
+    newArchEnabled: true,
+    splash: {
+      image: "./assets/splash-icon.png",
+      resizeMode: "contain",
+      backgroundColor: "#ffffff"
+    },
+    ios: {
+      supportsTablet: true,
+      infoPlist: {
+        NSCameraUsageDescription: "This app uses the camera to record personal video reflections for your chapters and life journey.",
+        NSMicrophoneUsageDescription: "This app uses the microphone to record audio with your video reflections.",
+        NSPhotoLibraryAddUsageDescription: "This app saves your recorded video reflections to your photo library for backup and sharing.",
+        NSPhotoLibraryUsageDescription: "This app needs access to your photo library to import existing videos for your life chapters."
+      },
+      bundleIdentifier: "com.gquthier.mobileapp"
+    },
+    android: {
+      adaptiveIcon: {
+        foregroundImage: "./assets/adaptive-icon.png",
+        backgroundColor: "#ffffff"
+      },
+      edgeToEdgeEnabled: true,
+      predictiveBackGestureEnabled: false,
+      package: "com.anonymous.mobileapp"
+    },
+    web: {
+      favicon: "./assets/favicon.png"
+    },
+    plugins: [
+      "expo-font",
+      "expo-video"
+    ],
+    extra: {
+      // ✅ Load Supabase credentials from environment variables
+      supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
+      supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+      openaiApiKey: process.env.EXPO_PUBLIC_OPENAI_API_KEY,
+      // EAS Update config (if needed later)
+      eas: {
+        projectId: process.env.EAS_PROJECT_ID || null
+      }
+    }
+  }
+};

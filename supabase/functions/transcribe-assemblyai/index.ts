@@ -38,9 +38,58 @@ serve(async (req) => {
     console.log('📁 Video URL:', videoUrl);
     console.log('🆔 Job ID:', jobId);
 
+    // Toujours utiliser une URL signée pour AssemblyAI (plus fiable)
+    let accessibleUrl = videoUrl;
+
+    if (videoUrl.includes('supabase.co/storage/v1/object/')) {
+      console.log('🔐 Generating signed URL for Supabase video...');
+
+      try {
+        // Extraire le nom du fichier depuis l'URL
+        // Format attendu: .../storage/v1/object/public/videos/...
+        let filePath = '';
+
+        if (videoUrl.includes('/storage/v1/object/public/videos/')) {
+          filePath = videoUrl.split('/storage/v1/object/public/videos/')[1];
+        } else if (videoUrl.includes('/storage/v1/object/videos/')) {
+          filePath = videoUrl.split('/storage/v1/object/videos/')[1];
+        }
+
+        console.log('📁 File path extracted:', filePath);
+
+        if (!filePath) {
+          console.error('❌ Could not extract file path from URL');
+          throw new Error('Invalid video URL format');
+        }
+
+        // Générer une URL signée valide 7 jours (max pour Supabase)
+        const { data: signedData, error: signedError } = await supabaseClient.storage
+          .from('videos')
+          .createSignedUrl(filePath, 604800); // 7 jours = 604800 secondes
+
+        if (signedError) {
+          console.error('❌ Failed to create signed URL:', signedError);
+          throw new Error(`Signed URL creation failed: ${signedError.message}`);
+        }
+
+        if (!signedData?.signedUrl) {
+          console.error('❌ No signed URL returned from Supabase');
+          throw new Error('No signed URL returned');
+        }
+
+        accessibleUrl = signedData.signedUrl;
+        console.log('✅ Using signed URL for transcription');
+        console.log('🔗 Signed URL (first 100 chars):', accessibleUrl.substring(0, 100) + '...');
+
+      } catch (error) {
+        console.error('❌ Error generating signed URL:', error);
+        throw new Error(`Cannot create accessible URL for AssemblyAI: ${error.message}`);
+      }
+    }
+
     // Configuration AssemblyAI
     const transcriptionConfig = {
-      audio_url: videoUrl,
+      audio_url: accessibleUrl,
       speech_model: "universal", // Meilleur modèle général
       language_code: "fr", // Français
       punctuate: true,

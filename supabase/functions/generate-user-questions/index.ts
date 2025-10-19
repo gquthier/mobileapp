@@ -35,81 +35,68 @@ serve(async (req) => {
 
     console.log('📝 Starting question generation for user:', userId);
 
-    // 1. Récupérer les 5 dernières transcriptions
-    const { data: recentVideos, error: recentError } = await supabaseClient
+    // 1. Récupérer TOUTES les transcriptions complétées de l'utilisateur
+    const { data: allVideos, error: videosError } = await supabaseClient
       .from('videos')
       .select('id, created_at')
       .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(5);
+      .order('created_at', { ascending: false });
 
-    if (recentError) {
-      throw new Error(`Failed to fetch recent videos: ${recentError.message}`);
+    if (videosError) {
+      throw new Error(`Failed to fetch videos: ${videosError.message}`);
     }
 
-    console.log(`✅ Found ${recentVideos?.length || 0} recent videos`);
+    console.log(`📹 Found ${allVideos?.length || 0} total videos for user`);
 
-    // Récupérer les transcriptions des 5 dernières vidéos
-    const recentVideoIds = recentVideos?.map(v => v.id) || [];
-    let recentTranscriptions: any[] = [];
+    // 2. Récupérer toutes les transcriptions complétées
+    const allVideoIds = allVideos?.map(v => v.id) || [];
+    let allCompletedTranscriptions: any[] = [];
 
-    if (recentVideoIds.length > 0) {
-      const { data: recentJobs, error: jobsError } = await supabaseClient
+    if (allVideoIds.length > 0) {
+      const { data: allJobs, error: jobsError } = await supabaseClient
         .from('transcription_jobs')
-        .select('video_id, transcription_text, transcription')
-        .in('video_id', recentVideoIds)
+        .select('video_id, transcription_text, transcription, created_at')
+        .in('video_id', allVideoIds)
         .eq('status', 'completed')
         .order('created_at', { ascending: false });
 
-      if (!jobsError && recentJobs) {
-        recentTranscriptions = recentJobs;
+      if (!jobsError && allJobs) {
+        allCompletedTranscriptions = allJobs;
       }
     }
 
-    console.log(`✅ Found ${recentTranscriptions.length} recent transcriptions`);
+    const totalTranscriptions = allCompletedTranscriptions.length;
+    console.log(`✅ Found ${totalTranscriptions} completed transcriptions`);
 
-    // 2. Récupérer 3 transcriptions aléatoires en dehors des 5 dernières
-    const { data: olderVideos, error: olderError } = await supabaseClient
-      .from('videos')
-      .select('id')
-      .eq('user_id', userId)
-      .not('id', 'in', `(${recentVideoIds.join(',')})`)
-      .order('created_at', { ascending: false });
+    // 3. Sélectionner les transcriptions à utiliser
+    let selectedTranscriptions: any[] = [];
 
-    let randomTranscriptions: any[] = [];
+    if (totalTranscriptions === 0) {
+      console.log('⚠️ No transcriptions available, will generate generic questions');
+    } else if (totalTranscriptions <= 5) {
+      // Si ≤5 transcriptions, prendre toutes celles disponibles
+      selectedTranscriptions = allCompletedTranscriptions;
+      console.log(`📝 Using all ${totalTranscriptions} available transcriptions`);
+    } else {
+      // Si >5 transcriptions: prendre 5 récentes + 3 aléatoires parmi les anciennes
+      const recentTranscriptions = allCompletedTranscriptions.slice(0, 5);
+      const olderTranscriptions = allCompletedTranscriptions.slice(5);
 
-    if (!olderError && olderVideos && olderVideos.length > 0) {
-      // Sélectionner 3 vidéos aléatoires
-      const shuffled = [...olderVideos].sort(() => 0.5 - Math.random());
-      const selectedOlder = shuffled.slice(0, Math.min(3, shuffled.length));
-      const olderVideoIds = selectedOlder.map(v => v.id);
+      // Sélectionner 3 transcriptions aléatoires parmi les anciennes
+      const shuffled = [...olderTranscriptions].sort(() => 0.5 - Math.random());
+      const randomOlder = shuffled.slice(0, Math.min(3, shuffled.length));
 
-      const { data: olderJobs, error: olderJobsError } = await supabaseClient
-        .from('transcription_jobs')
-        .select('video_id, transcription_text, transcription')
-        .in('video_id', olderVideoIds)
-        .eq('status', 'completed');
-
-      if (!olderJobsError && olderJobs) {
-        randomTranscriptions = olderJobs;
-      }
+      selectedTranscriptions = [...recentTranscriptions, ...randomOlder];
+      console.log(`📝 Using 5 recent + ${randomOlder.length} random older transcriptions`);
     }
 
-    console.log(`✅ Found ${randomTranscriptions.length} random older transcriptions`);
-
-    // 3. Préparer le contenu pour l'IA
-    const allTranscriptions = [...recentTranscriptions, ...randomTranscriptions];
-
-    if (allTranscriptions.length === 0) {
-      console.log('⚠️ No transcriptions available, generating generic questions');
-      // Pas de transcriptions → on génère quand même des questions génériques
-    }
+    // 4. Préparer le contenu pour l'IA
+    const allTranscriptions = selectedTranscriptions;
 
     // Créer le texte combiné des transcriptions
     const transcriptionsText = allTranscriptions.map((job, index) => {
       const text = job.transcription_text || job.transcription?.text || '';
-      const isRecent = index < recentTranscriptions.length;
-      return `[${isRecent ? 'RECENT' : 'OLDER'} VIDEO ${index + 1}]\n${text}`;
+      return `[VIDEO ${index + 1}]\n${text}`;
     }).join('\n\n---\n\n');
 
     console.log(`📄 Prepared ${transcriptionsText.length} characters of transcript content`);
@@ -127,6 +114,28 @@ serve(async (req) => {
 
     console.log(`📦 Inserting questions as batch #${nextBatchNumber}`);
 
+    // 5.1 Vérifier si ce batch existe déjà (protection contre les appels parallèles)
+    const { data: existingBatch } = await supabaseClient
+      .from('user_questions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('batch_number', nextBatchNumber)
+      .limit(1);
+
+    if (existingBatch && existingBatch.length > 0) {
+      console.log(`⚠️ Batch #${nextBatchNumber} already exists, skipping insertion (parallel call detected)`);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          batchNumber: nextBatchNumber,
+          questionCount: 0,
+          skipped: true,
+          message: 'Batch already generated by parallel request'
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      );
+    }
+
     // 6. Insérer les questions dans la base de données
     const questionsToInsert = questions.map((q, index) => ({
       user_id: userId,
@@ -141,6 +150,20 @@ serve(async (req) => {
       .insert(questionsToInsert);
 
     if (insertError) {
+      // Si l'erreur est un duplicate, c'est qu'un autre appel parallèle a réussi entre-temps
+      if (insertError.message.includes('duplicate key')) {
+        console.log(`⚠️ Duplicate key detected, another parallel call succeeded first`);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            batchNumber: nextBatchNumber,
+            questionCount: 0,
+            skipped: true,
+            message: 'Batch already generated by parallel request'
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+        );
+      }
       throw new Error(`Failed to insert questions: ${insertError.message}`);
     }
 
@@ -192,7 +215,18 @@ async function generateQuestionsWithAI(transcriptionsText: string): Promise<Arra
           id: promptId,
           version: promptVersion
         },
-        input: transcriptionsText || "No previous transcriptions available. Generate general introspective questions.",
+        input: `Please analyze these video transcriptions and generate 50 personalized introspection questions in JSON format.
+
+${transcriptionsText || "No previous transcriptions available. Generate general introspective questions."}
+
+IMPORTANT: Return your response as a JSON object with this exact structure:
+{
+  "questions": [
+    {"q": "Your question here"},
+    {"q": "Another question"},
+    ...
+  ]
+}`,
         model: 'gpt-4.1-nano',
         temperature: 0.7
       })

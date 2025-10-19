@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,21 +11,31 @@ import { Video, ResizeMode } from 'expo-av';
 import { VideoRecord } from '../lib/supabase';
 import { theme } from '../styles';
 import { Icon } from './Icon';
-import { AnimatedThumbnail } from './AnimatedThumbnail';
+import { SourceRect } from './library/types';
+import { useNetworkQuality } from '../hooks/useNetworkQuality'; // 🆕 Phase 1.3
 
 const { width } = Dimensions.get('window');
 const cardWidth = (width - 48) / 2; // 2 columns with 16px padding on sides and 16px gap
 
 interface VideoCardProps {
   video: VideoRecord;
-  onPress: (video: VideoRecord) => void;
+  onPress?: (video: VideoRecord) => void;
+  onPressWithRect?: (video: VideoRecord, rect: SourceRect) => void;
 }
 
-export const VideoCard: React.FC<VideoCardProps> = ({ video, onPress }) => {
+export const VideoCard: React.FC<VideoCardProps> = ({
+  video,
+  onPress,
+  onPressWithRect
+}) => {
+  // 🆕 Phase 1.3: Network quality detection (pour futures optimisations)
+  const networkQuality = useNetworkQuality();
+
   const [showPreview, setShowPreview] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const videoRef = useRef<Video>(null);
   const timeoutRef = useRef<NodeJS.Timeout>();
+  const containerRef = useRef<View>(null);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -91,9 +101,32 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onPress }) => {
     }
   };
 
-  const handlePress = () => {
+  const measureThumbnail = useCallback((): Promise<SourceRect> => {
+    return new Promise((resolve) => {
+      if (containerRef.current) {
+        containerRef.current.measureInWindow((x, y, width, height) => {
+          resolve({
+            x: 0,
+            y: 0,
+            width,
+            height,
+            pageX: x,
+            pageY: y,
+          });
+        });
+      }
+    });
+  }, []);
+
+  const handlePress = async () => {
     handlePressOut(); // Clean up preview
-    onPress(video);
+
+    if (onPressWithRect) {
+      const rect = await measureThumbnail();
+      onPressWithRect(video, rect);
+    } else if (onPress) {
+      onPress(video);
+    }
   };
 
   const handleVideoLoad = () => {
@@ -112,13 +145,13 @@ export const VideoCard: React.FC<VideoCardProps> = ({ video, onPress }) => {
       activeOpacity={0.7}
     >
       {/* Thumbnail/Video Preview */}
-      <View style={styles.thumbnailContainer}>
-        {/* Static thumbnail or animated frames */}
+      <View ref={containerRef} style={styles.thumbnailContainer}>
+        {/* Static thumbnail - display first frame only */}
         {!showPreview && video.thumbnail_frames && video.thumbnail_frames.length > 0 ? (
-          <AnimatedThumbnail
-            frames={video.thumbnail_frames}
+          <Image
+            source={{ uri: video.thumbnail_frames[0] }}
             style={styles.thumbnail}
-            interval={500}
+            resizeMode="cover"
           />
         ) : !showPreview && getThumbnailUri() ? (
           <Image
@@ -192,6 +225,7 @@ const styles = StyleSheet.create({
   thumbnail: {
     width: '100%',
     height: '100%',
+    transform: [{ scaleX: -1 }], // Effet miroir pour correspondre à la preview d'enregistrement
   },
   placeholderThumbnail: {
     width: '100%',

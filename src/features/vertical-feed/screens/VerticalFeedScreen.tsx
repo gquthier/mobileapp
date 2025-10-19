@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect, memo } from 'react'
-import { View, FlatList, StyleSheet, Dimensions, ViewToken } from 'react-native'
+import { View, FlatList, StyleSheet, Dimensions, ViewToken, Text } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient'
 import { VerticalVideoCard } from '../components/VerticalVideoCard'
@@ -14,10 +14,10 @@ import { useVerticalFeedAudio } from '../hooks/useVerticalFeedAudio'
 import { useVerticalGestures } from '../hooks/useVerticalGestures'
 import { VerticalFeedParams } from '../types'
 import { VERTICAL_FEED_CONFIG, VERTICAL_FEED_COLORS } from '../constants'
-import { VideoRecord } from '../../../types'
+import { supabase, VideoRecord } from '../../../lib/supabase'
 import { useVideoPreloaderV2 } from '../../../hooks/useVideoPreloaderV2'
 import { VideoInfoBar } from '../../../components/VideoInfoBar'
-import { supabase } from '../../../lib/supabase'
+import { getUserChapters, Chapter } from '../../../services/chapterService'
 
 const SCREEN_HEIGHT = Dimensions.get('window').height
 
@@ -107,6 +107,7 @@ export const VerticalFeedScreen: React.FC<VerticalFeedScreenProps> = ({
   const [isScreenFocused, setIsScreenFocused] = useState(true) // ✅ Track si l'écran est actif
   const [transcriptionHighlights, setTranscriptionHighlights] = useState<any[]>([]) // 🆕 Highlights de la vidéo active
   const [isInfoBarExpanded, setIsInfoBarExpanded] = useState(false) // 🆕 Track si VideoInfoBar est ouverte
+  const [chapters, setChapters] = useState<Chapter[]>([]) // 🆕 Chapitres de l'utilisateur
   const flatListRef = useRef<FlatList<VideoRecord>>(null)
   const activePlayerRef = useRef<any>(null) // 🆕 Référence au player de la vidéo active
 
@@ -413,6 +414,29 @@ export const VerticalFeedScreen: React.FC<VerticalFeedScreenProps> = ({
   }, [currentIndex, videos])
 
   /**
+   * 🆕 Load chapters on mount
+   */
+  useEffect(() => {
+    const loadChapters = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          console.log('[VerticalFeedScreen] ⚠️ No user, skipping chapter load')
+          return
+        }
+
+        const userChapters = await getUserChapters(user.id)
+        console.log('[VerticalFeedScreen] ✅ Loaded', userChapters.length, 'chapters')
+        setChapters(userChapters)
+      } catch (error) {
+        console.error('[VerticalFeedScreen] ❌ Error loading chapters:', error)
+      }
+    }
+
+    loadChapters()
+  }, [])
+
+  /**
    * Log info au mount
    */
   useEffect(() => {
@@ -499,6 +523,7 @@ export const VerticalFeedScreen: React.FC<VerticalFeedScreenProps> = ({
           bottomInset={insets.bottom + 49} // Safe area + tab bar height (49px)
           onHighlightPress={handleHighlightPress} // 🆕 Callback pour seek
           onExpandedChange={setIsInfoBarExpanded} // 🆕 Callback pour gérer l'état d'expansion
+          chapters={chapters} // 🆕 Passer les chapitres pour afficher "CHAPTER X"
         />
       )}
     </View>
