@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   Animated,
   Dimensions,
-  ActivityIndicator,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Modal,
@@ -18,8 +17,10 @@ import Svg, { Circle } from 'react-native-svg';
 import { VideoRecord, supabase } from '../lib/supabase';
 import { AnimatedThumbnail } from './AnimatedThumbnail';
 import { VideoPlayer } from './VideoPlayer';
+import { LoadingDots } from './LoadingDots';
 import { Icon } from './Icon';
 import { theme } from '../styles/theme';
+import { useTheme } from '../contexts/ThemeContext';
 import * as Haptics from 'expo-haptics';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -59,6 +60,7 @@ const LIFE_AREAS = [
 ];
 
 export const MemoriesSection: React.FC = () => {
+  const { brandColor } = useTheme();
   const [memoryVideos, setMemoryVideos] = useState<VideoRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0); // Track center bubble
@@ -446,7 +448,7 @@ export const MemoriesSection: React.FC = () => {
         {loading ? (
           // Loading state
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="small" color={theme.colors.gray400} />
+            <LoadingDots color={brandColor} size={6} />
           </View>
         ) : memoryVideos.length === 0 ? (
           // No videos

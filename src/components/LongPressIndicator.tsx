@@ -13,6 +13,7 @@ interface LongPressIndicatorProps {
   duration: number; // en ms
   isActive: boolean;
   onComplete: () => void;
+  color?: string; // ✅ Couleur personnalisable (défaut: rouge)
 }
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -23,6 +24,7 @@ export const LongPressIndicator: React.FC<LongPressIndicatorProps> = ({
   duration,
   isActive,
   onComplete,
+  color = '#EF4444', // ✅ Couleur par défaut (rouge)
 }) => {
   const progress = useRef(new Animated.Value(0)).current;
   const radius = 40;
@@ -85,7 +87,7 @@ export const LongPressIndicator: React.FC<LongPressIndicatorProps> = ({
           cx={radius}
           cy={radius}
           r={radius - strokeWidth / 2}
-          stroke="#EF4444"
+          stroke={color}
           strokeWidth={strokeWidth}
           fill="none"
           strokeDasharray={circumference}

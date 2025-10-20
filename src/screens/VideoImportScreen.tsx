@@ -5,7 +5,7 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
+  
   Alert,
   Dimensions,
   Image,
@@ -16,6 +16,8 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useNavigation } from '@react-navigation/native';
 import { theme } from '../styles';
 import { Icon } from '../components/Icon';
+import { LoadingDots } from '../components/LoadingDots';
+import { useTheme } from '../contexts/ThemeContext';
 import { ImportQueueService } from '../services/importQueueService';
 import { supabase } from '../lib/supabase';
 
@@ -37,9 +39,10 @@ interface VideoItemProps {
   isSelected: boolean;
   onPress: (id: string) => void;
   formatDuration: (seconds: number) => string;
+  brandColor: string;
 }
 
-const VideoItem: React.FC<VideoItemProps> = ({ item, isSelected, onPress, formatDuration }) => {
+const VideoItem: React.FC<VideoItemProps> = ({ item, isSelected, onPress, formatDuration, brandColor }) => {
   return (
     <TouchableOpacity
       style={styles.videoItem}
@@ -72,12 +75,14 @@ const VideoItem: React.FC<VideoItemProps> = ({ item, isSelected, onPress, format
 const VideoItemMemo = React.memo(VideoItem, (prevProps, nextProps) => {
   return (
     prevProps.item.id === nextProps.item.id &&
-    prevProps.isSelected === nextProps.isSelected
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.brandColor === nextProps.brandColor
   );
 });
 
 export function VideoImportScreen() {
   const navigation = useNavigation();
+  const { brandColor } = useTheme();
 
   // View state
   const [viewMode, setViewMode] = useState<ViewMode>('albums');
@@ -450,9 +455,10 @@ export function VideoImportScreen() {
         isSelected={isSelected}
         onPress={toggleSelection}
         formatDuration={formatDuration}
+        brandColor={brandColor}
       />
     );
-  }, [selectedIds, toggleSelection]);
+  }, [selectedIds, toggleSelection, brandColor]);
 
   /**
    * Render footer loader
@@ -461,7 +467,7 @@ export function VideoImportScreen() {
     if (!loadingVideos) return null;
     return (
       <View style={styles.footerLoader}>
-        <ActivityIndicator size="small" color={theme.colors.text.primary} />
+        <LoadingDots color={brandColor} size={6} />
       </View>
     );
   };
@@ -482,7 +488,7 @@ export function VideoImportScreen() {
         </View>
 
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.text.primary} />
+          <LoadingDots color={brandColor} />
           <Text style={styles.loadingText}>Chargement des albums...</Text>
         </View>
       </SafeAreaView>
@@ -544,7 +550,7 @@ export function VideoImportScreen() {
         <>
           {loadingVideos && videos.length === 0 ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={theme.colors.text.primary} />
+              <LoadingDots color={brandColor} />
               <Text style={styles.loadingText}>Chargement des vidéos...</Text>
             </View>
           ) : (

@@ -9,12 +9,27 @@ import { Icon } from './Icon';
 import { UserQuestionsService, UserQuestion } from '../services/userQuestionsService';
 import { useTheme } from '../contexts/ThemeContext';
 import { getUserMomentum, getMomentumLevel } from '../services/momentumService';
-import { getActiveLifeAreas } from '../services/lifeAreasService';
 import { supabase } from '../lib/supabase';
-import { MomentumScore, LifeArea, MomentumLevel } from '../types/momentum';
+import { MomentumScore, MomentumLevel } from '../types/momentum';
 
 const CACHE_KEY = '@current_card_cache';
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+// ✅ Static Life Areas configuration (12 fixed areas)
+const LIFE_AREAS_CONFIG: Record<string, { emoji: string; name: string }> = {
+  'Health': { emoji: '💪', name: 'Health' },
+  'Family': { emoji: '👨‍👩‍👧‍👦', name: 'Family' },
+  'Friends': { emoji: '🤝', name: 'Friends' },
+  'Love': { emoji: '❤️', name: 'Love' },
+  'Work': { emoji: '💼', name: 'Work' },
+  'Business': { emoji: '📈', name: 'Business' },
+  'Money': { emoji: '💰', name: 'Money' },
+  'Growth': { emoji: '🌱', name: 'Growth' },
+  'Leisure': { emoji: '🎯', name: 'Leisure' },
+  'Home': { emoji: '🏠', name: 'Home' },
+  'Spirituality': { emoji: '🙏', name: 'Spirituality' },
+  'Community': { emoji: '🌍', name: 'Community' },
+};
 
 interface TranscriptQuote {
   text: string;
@@ -26,10 +41,9 @@ interface CurrentCardCache {
   timestamp: number;
   momentum: MomentumScore | null;
   momentumLevel: MomentumLevel | null;
-  lifeAreas: LifeArea[];
-  allLifeAreas: LifeArea[];
   daysInChapter: number;
-  topMentionedAreas: { area: LifeArea; percentage: number }[];
+  topMentionedAreas: { area_key: string; display_name: string; percentage: number }[];
+  leastMentionedAreas: { area_key: string; display_name: string; percentage: number }[];
   questions: UserQuestion[]; // Questions cached for 24h
   quotes: TranscriptQuote[]; // 3 random quotes cached for 24h
 }
@@ -68,12 +82,11 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
   const [currentPage, setCurrentPage] = useState(0); // Track current page for pagination dots
   const scrollViewRef = useRef<ScrollView>(null); // Ref for programmatic scrolling
   const [momentum, setMomentum] = useState<MomentumScore | null>(null);
-  const [lifeAreas, setLifeAreas] = useState<LifeArea[]>([]); // Top 3 for detailed pages
-  const [allLifeAreas, setAllLifeAreas] = useState<LifeArea[]>([]); // All active life areas
   const [momentumLevel, setMomentumLevel] = useState<MomentumLevel | null>(null);
   const [questions, setQuestions] = useState<UserQuestion[]>([]); // User questions from database
   const [daysInChapter, setDaysInChapter] = useState<number>(0); // Days since chapter started
-  const [topMentionedAreas, setTopMentionedAreas] = useState<{ area: LifeArea; percentage: number }[]>([]); // Top 3 mentioned Life Areas
+  const [topMentionedAreas, setTopMentionedAreas] = useState<{ area_key: string; display_name: string; percentage: number }[]>([]); // Top 3 mentioned Life Areas from current chapter
+  const [leastMentionedAreas, setLeastMentionedAreas] = useState<{ area_key: string; display_name: string; percentage: number }[]>([]); // Bottom 3 mentioned Life Areas from current chapter
   const [quotes, setQuotes] = useState<TranscriptQuote[]>([]); // 3 random quotes from transcriptions
 
   // Load momentum, life areas, and questions for current chapter
@@ -101,10 +114,9 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
           console.log('✅ Using cached CurrentCard data (24h cache)');
           setMomentum(cache.momentum);
           setMomentumLevel(cache.momentumLevel);
-          setLifeAreas(cache.lifeAreas || []);
-          setAllLifeAreas(cache.allLifeAreas || []);
           setDaysInChapter(cache.daysInChapter || 0);
           setTopMentionedAreas(cache.topMentionedAreas || []);
+          setLeastMentionedAreas(cache.leastMentionedAreas || []);
           setQuestions(cache.questions || []); // Questions also cached for 24h (fallback to empty array)
           setQuotes(cache.quotes || []); // Quotes also cached for 24h
           return;
@@ -127,7 +139,7 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
   const refreshAllData = async () => {
     try {
       // Load all data in parallel and capture return values (including questions and quotes)
-      const [momentumResult, topMentionedResult, questionsResult, quotesResult] = await Promise.all([
+      const [momentumResult, lifeAreasResult, questionsResult, quotesResult] = await Promise.all([
         loadMomentumData(),
         loadLifeAreaMentions(),
         loadQuestions(),
@@ -139,10 +151,9 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
         timestamp: Date.now(),
         momentum: momentumResult.momentum,
         momentumLevel: momentumResult.momentumLevel,
-        lifeAreas: momentumResult.lifeAreas,
-        allLifeAreas: momentumResult.allLifeAreas,
         daysInChapter: momentumResult.daysInChapter,
-        topMentionedAreas: topMentionedResult,
+        topMentionedAreas: lifeAreasResult.top,
+        leastMentionedAreas: lifeAreasResult.least,
         questions: questionsResult, // Questions cached for 24h
         quotes: quotesResult, // Quotes cached for 24h
       };
@@ -161,8 +172,6 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
         return {
           momentum: null,
           momentumLevel: null,
-          lifeAreas: [],
-          allLifeAreas: [],
           daysInChapter: 0,
         };
       }
@@ -175,18 +184,6 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
         setMomentum(momentumData);
         setMomentumLevel(level);
       }
-
-      // Load active life areas
-      const areasData = await getActiveLifeAreas(user.id);
-      // Sort by score descending
-      const sortedAreas = areasData.sort((a, b) => b.score - a.score);
-
-      // Store all life areas
-      setAllLifeAreas(sortedAreas);
-
-      // Take top 3 for detailed pages
-      const topAreas = sortedAreas.slice(0, 3);
-      setLifeAreas(topAreas);
 
       // Calculate days in current chapter
       const { data: currentChapter } = await supabase
@@ -203,17 +200,12 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
         const diffTime = Math.abs(now.getTime() - startDate.getTime());
         diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         setDaysInChapter(diffDays);
-        console.log('📅 Days in chapter:', diffDays);
       }
-
-      console.log('✅ Loaded momentum data:', momentumData?.score, 'and', sortedAreas.length, 'life areas (top 3 for details)');
 
       // Return data for cache
       return {
         momentum: momentumData,
         momentumLevel: level,
-        lifeAreas: topAreas,
-        allLifeAreas: sortedAreas,
         daysInChapter: diffDays,
       };
     } catch (error) {
@@ -221,8 +213,6 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
       return {
         momentum: null,
         momentumLevel: null,
-        lifeAreas: [],
-        allLifeAreas: [],
         daysInChapter: 0,
       };
     }
@@ -337,108 +327,93 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return [];
 
-      // Get all transcription jobs with highlights
+      // Get current chapter videos only
+      const { data: currentChapter } = await supabase
+        .from('chapters')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('is_current', true)
+        .single();
+
+      if (!currentChapter) return [];
+
+      // Get videos for current chapter
+      const { data: videos } = await supabase
+        .from('videos')
+        .select('id')
+        .eq('chapter_id', currentChapter.id);
+
+      if (!videos || videos.length === 0) return [];
+
+      const videoIds = videos.map(v => v.id);
+
+      // Get transcription jobs with highlights for current chapter videos only
       const { data: jobs, error: jobsError } = await supabase
         .from('transcription_jobs')
         .select('transcript_highlight, video_id')
+        .in('video_id', videoIds)
         .not('transcript_highlight', 'is', null);
 
-      if (jobsError || !jobs) {
-        console.error('❌ Error loading transcription jobs:', jobsError);
-        return [];
-      }
+      if (jobsError || !jobs || jobs.length === 0) return [];
 
-      console.log('🔍 DEBUG: Found', jobs.length, 'transcription jobs with highlights');
-
-      // Debug: Log first job structure
-      if (jobs.length > 0) {
-        console.log('🔍 DEBUG: First job structure:', JSON.stringify(jobs[0], null, 2));
-      }
-
-      // Get active life areas
-      const areasData = await getActiveLifeAreas(user.id);
-      if (areasData.length === 0) {
-        console.log('⚠️ DEBUG: No active life areas found for user');
-        return [];
-      }
-
-      console.log('🔍 DEBUG: Found', areasData.length, 'active life areas:', areasData.map(a => a.display_name));
-
-      // Create a map of area names to LifeArea objects (case-insensitive)
-      const areaMap = new Map<string, LifeArea>();
-      areasData.forEach(area => {
-        // Match by display_name or area_key
-        areaMap.set(area.display_name.toLowerCase(), area);
-        areaMap.set(area.area_key.toLowerCase(), area);
-      });
-
-      console.log('🔍 DEBUG: Area map keys:', Array.from(areaMap.keys()));
-
-      // Count mentions per life area by reading the "area" field in highlights
-      const mentionCounts = new Map<string, number>(); // area.id -> count
+      // Count mentions per life area (simple string counting)
+      const mentionCounts = new Map<string, number>();
       let totalHighlights = 0;
 
-      jobs.forEach((job, jobIndex) => {
-        if (!job.transcript_highlight) {
-          console.log(`🔍 DEBUG: Job ${jobIndex} has no transcript_highlight`);
-          return;
-        }
+      jobs.forEach((job) => {
+        if (!job.transcript_highlight) return;
 
         const highlights = job.transcript_highlight.highlights || [];
-        console.log(`🔍 DEBUG: Job ${jobIndex} has ${highlights.length} highlights`);
 
-        highlights.forEach((highlight: any, highlightIndex: number) => {
+        highlights.forEach((highlight: any) => {
           totalHighlights++;
 
-          // Get the area field from the highlight (e.g., "Work", "Health")
+          // Get the area field from the highlight (simple string)
           const highlightArea = highlight.area;
-          console.log(`🔍 DEBUG: Job ${jobIndex}, Highlight ${highlightIndex}: area="${highlightArea}"`);
 
-          if (!highlightArea) {
-            console.log(`⚠️ DEBUG: Job ${jobIndex}, Highlight ${highlightIndex} has no area field`);
-            return;
-          }
+          if (highlightArea && typeof highlightArea === 'string') {
+            // Normalize to capitalized form (e.g., "health" → "Health")
+            const normalizedArea = highlightArea.charAt(0).toUpperCase() + highlightArea.slice(1).toLowerCase();
 
-          // Find matching LifeArea
-          const matchedArea = areaMap.get(highlightArea.toLowerCase());
-          if (matchedArea) {
-            const currentCount = mentionCounts.get(matchedArea.id) || 0;
-            mentionCounts.set(matchedArea.id, currentCount + 1);
-            console.log(`✅ DEBUG: Matched "${highlightArea}" to Life Area "${matchedArea.display_name}"`);
-          } else {
-            console.log(`⚠️ DEBUG: No match found for area "${highlightArea}"`);
+            // Check if it exists in our config
+            if (LIFE_AREAS_CONFIG[normalizedArea]) {
+              const currentCount = mentionCounts.get(normalizedArea) || 0;
+              mentionCounts.set(normalizedArea, currentCount + 1);
+            }
           }
         });
       });
 
-      if (totalHighlights === 0) {
-        console.log('ℹ️ No highlights found yet');
-        return [];
-      }
+      if (totalHighlights === 0) return { top: [], least: [] };
 
-      console.log(`📊 Total highlights analyzed: ${totalHighlights}`);
-      console.log('📊 Mentions per area:', Object.fromEntries(mentionCounts));
+      // Calculate percentages for ALL areas (including those with 0 mentions)
+      const allAreaKeys = Object.keys(LIFE_AREAS_CONFIG);
+      const allAreaPercentages = allAreaKeys.map(areaKey => ({
+        area_key: areaKey,
+        display_name: LIFE_AREAS_CONFIG[areaKey].name,
+        count: mentionCounts.get(areaKey) || 0,
+        percentage: Math.round(((mentionCounts.get(areaKey) || 0) / totalHighlights) * 100)
+      }));
 
-      // Calculate percentages and get top 3
-      const areaPercentages = areasData
-        .map(area => ({
-          area,
-          count: mentionCounts.get(area.id) || 0,
-          percentage: Math.round(((mentionCounts.get(area.id) || 0) / totalHighlights) * 100)
-        }))
+      // Top mentioned (sorted by count descending, only areas with mentions)
+      const topMentioned = allAreaPercentages
         .filter(item => item.count > 0) // Only areas with at least one mention
-        .sort((a, b) => b.count - a.count) // Sort by count
-        .slice(0, 3) // Top 3
-        .map(item => ({ area: item.area, percentage: item.percentage }));
+        .sort((a, b) => b.count - a.count) // Sort by count descending
+        .slice(0, 3); // Top 3
 
-      setTopMentionedAreas(areaPercentages);
-      console.log('✅ Loaded top mentioned areas:', areaPercentages);
+      setTopMentionedAreas(topMentioned);
 
-      // Return data for cache
-      return areaPercentages;
+      // Least mentioned (sorted by count ascending, take bottom 3)
+      const leastMentioned = allAreaPercentages
+        .sort((a, b) => a.count - b.count) // Sort by count ascending
+        .slice(0, 3); // Take bottom 3
+
+      setLeastMentionedAreas(leastMentioned);
+
+      return { top: topMentioned, least: leastMentioned };
     } catch (error) {
       console.error('❌ Error loading life area mentions:', error);
-      return [];
+      return { top: [], least: [] };
     }
   };
 
@@ -579,15 +554,14 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
 
                   {/* Page 3: Top Mentioned Life Areas in Highlights */}
                   <View style={[styles.currentChapterPage, styles.topMentionedPage]}>
-                    <Text style={styles.topMentionedTitle}>This Chapter is all about...</Text>
+                    <Text style={styles.topMentionedTitle}>all about...</Text>
                     {topMentionedAreas.length > 0 && count >= 5 ? (
                       /* Real data - User has 5+ videos */
                       <View style={styles.momentumStatsThree}>
                         {topMentionedAreas.map((item, index) => (
-                          <View key={item.area.id} style={styles.momentumStatItem}>
-                            <Text style={styles.topMentionedEmojiLarge}>{item.area.emoji}</Text>
+                          <View key={item.area_key} style={styles.momentumStatItem}>
                             <Text style={styles.momentumStatValue}>{item.percentage}%</Text>
-                            <Text style={styles.momentumStatLabel}>{item.area.display_name}</Text>
+                            <Text style={styles.momentumStatLabel}>{item.display_name}</Text>
                           </View>
                         ))}
                       </View>
@@ -600,6 +574,43 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                             { name: 'Work', percentage: 42 },
                             { name: 'Love', percentage: 31 },
                             { name: 'Health', percentage: 27 },
+                          ].map((item, index) => (
+                            <View key={index} style={styles.momentumStatItem}>
+                              <Text style={[styles.momentumStatValue, styles.blurredMax]}>{item.percentage}%</Text>
+                              <Text style={[styles.momentumStatLabel, styles.blurredMax]}>{item.name}</Text>
+                            </View>
+                          ))}
+                        </View>
+                        {/* Text overlay without background */}
+                        <View style={styles.textOverlay}>
+                          <Text style={styles.emptyStateText}>record your first 5 videos to reveal</Text>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Page 4: Least Mentioned Life Areas in Highlights */}
+                  <View style={[styles.currentChapterPage, styles.topMentionedPage]}>
+                    <Text style={styles.topMentionedTitle}>less about...</Text>
+                    {leastMentionedAreas.length > 0 && count >= 5 ? (
+                      /* Real data - User has 5+ videos */
+                      <View style={styles.momentumStatsThree}>
+                        {leastMentionedAreas.map((item) => (
+                          <View key={item.area_key} style={styles.momentumStatItem}>
+                            <Text style={styles.momentumStatValue}>{item.percentage}%</Text>
+                            <Text style={styles.momentumStatLabel}>{item.display_name}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      /* Preview - User has < 5 videos */
+                      <View style={styles.previewContainer}>
+                        {/* Blurred stats in background */}
+                        <View style={styles.momentumStatsThree}>
+                          {[
+                            { name: 'Friends', percentage: 8 },
+                            { name: 'Community', percentage: 5 },
+                            { name: 'Spirituality', percentage: 3 },
                           ].map((item, index) => (
                             <View key={index} style={styles.momentumStatItem}>
                               <Text style={[styles.momentumStatValue, styles.blurredMax]}>{item.percentage}%</Text>
@@ -670,11 +681,18 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                     currentPage === 2 && styles.activeDot,
                     currentPage === 2 && { backgroundColor: brandColor, shadowColor: brandColor }
                   ]} />
+                  {/* Dot for least mentioned page (always shown) */}
+                  <View style={[
+                    styles.dot,
+                    currentPage === 3 && styles.activeDot,
+                    currentPage === 3 && { backgroundColor: brandColor, shadowColor: brandColor }
+                  ]} />
                   {/* Dots for alternating questions and quotes */}
                   {(() => {
                     const dots = [];
                     const maxLength = Math.max(questions.length, quotes.length);
-                    let pageIndex = 3; // Start after the 3 fixed pages
+                    // Start after the 4 fixed pages (momentum, stats, all about, less about)
+                    let pageIndex = 4;
 
                     for (let i = 0; i < maxLength; i++) {
                       // Dot for question
@@ -717,12 +735,24 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
               <>
                 {/* Header with title and chevron */}
                 <View style={styles.titleRow}>
-                  <Text
-                    style={[styles.title]}
-                    numberOfLines={0}
-                  >
-                    {title}
-                  </Text>
+                  <View style={styles.titleWithColorIcon}>
+                    <TouchableOpacity
+                      style={[
+                        styles.colorButtonHeader,
+                        { backgroundColor: color || staticTheme.colors.gray300 },
+                      ]}
+                      onPress={handleColorButtonPress}
+                      activeOpacity={0.7}
+                    >
+                      {/* Empty circle, just the background color */}
+                    </TouchableOpacity>
+                    <Text
+                      style={[styles.title]}
+                      numberOfLines={0}
+                    >
+                      {title}
+                    </Text>
+                  </View>
                   <TouchableOpacity
                     onPress={onPress}
                     style={styles.chevronButton}
@@ -890,6 +920,12 @@ const styles = StyleSheet.create({
     zIndex: 1, // Above chapter number
     position: 'relative',
   },
+  titleWithColorIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
   title: {
     fontSize: 17,
     fontWeight: '600',
@@ -906,9 +942,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   colorButtonHeader: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     borderWidth: 1.5,
     borderColor: 'rgba(255, 255, 255, 0.9)',
     shadowColor: '#000',
@@ -1128,71 +1164,17 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  // Life Areas Overview Page
-  lifeAreasOverviewPage: {
-    flexDirection: 'column',
-    paddingVertical: staticTheme.spacing['2'],
-  },
-  overviewTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: staticTheme.colors.text.secondary,
-    marginBottom: staticTheme.spacing['3'],
-    textAlign: 'center',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  lifeAreasOverviewList: {
-    gap: staticTheme.spacing['2'],
-  },
-  lifeAreaOverviewItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: staticTheme.spacing['1'],
-  },
-  lifeAreaOverviewLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: staticTheme.spacing['2'],
-    flex: 1,
-  },
-  lifeAreaOverviewEmoji: {
-    fontSize: 20,
-  },
-  lifeAreaOverviewName: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: staticTheme.colors.text.primary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  lifeAreaOverviewScore: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: staticTheme.colors.text.primary,
-    fontFamily: 'Georgia', // Romanesque serif font
-    minWidth: 40,
-    textAlign: 'right',
-  },
   // Top Mentioned Life Areas Page
   topMentionedPage: {
     flexDirection: 'column',
     paddingVertical: staticTheme.spacing['2'],
   },
   topMentionedTitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: staticTheme.colors.text.secondary,
-    marginBottom: staticTheme.spacing['3'],
+    fontSize: 16,
+    fontWeight: '600',
+    color: staticTheme.colors.text.primary,
+    marginBottom: 16,
     textAlign: 'center',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  topMentionedEmojiLarge: {
-    fontSize: 32,
-    textAlign: 'center',
-    marginBottom: staticTheme.spacing['2'],
   },
   topMentionedList: {
     gap: staticTheme.spacing['3'],

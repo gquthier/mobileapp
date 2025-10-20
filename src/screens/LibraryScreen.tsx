@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   ScrollView,
   Image,
   TextInput,
@@ -26,6 +25,7 @@ import { theme } from '../styles';
 import { useTheme } from '../hooks/useTheme';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
+import { LoadingDots } from '../components/LoadingDots';
 import { CalendarGallerySimple as CalendarGallery } from '../components/CalendarGallerySimple';
 import { VideoGallery } from '../components/VideoGallery';
 import { VideoPlayer } from '../components/VideoPlayer';
@@ -37,7 +37,9 @@ import { libraryReducer, initialLibraryState } from './LibraryScreen.reducer';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { GlassButton, GlassContainer } from './OptimizedGlassComponents';
 import { getUserChapters, getCurrentChapter, Chapter } from '../services/chapterService';
+import { useTheme as useThemeContext } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: screenWidth } = Dimensions.get('window');
 const GRID_PADDING = 4;
@@ -59,6 +61,7 @@ const LibraryScreen: React.FC = () => {
   const route = useRoute();
   const theme = useTheme();
   const insets = useSafeAreaInsets(); // ✅ Get safe area insets manually
+  const { brandColor } = useThemeContext(); // ✅ Get user's selected color (auto or custom)
 
   // ✅ Replace 20+ useState with single useReducer
   const [state, dispatch] = useReducer(libraryReducer, initialLibraryState);
@@ -103,7 +106,6 @@ const LibraryScreen: React.FC = () => {
   const scrollY = animations.scrollY;
   const headerOpacity = animations.headerOpacity;
 
-  const lastScrollY = useRef(0);
   const lifeAreaScrollViewRef = useRef<ScrollView>(null);
 
   // ✅ FIX: Stable ref for fetchVideos to avoid re-subscriptions
@@ -672,44 +674,25 @@ const LibraryScreen: React.FC = () => {
     }).start();
   }, [state.search.showSearchBar, searchBarProgress]);
 
-  // Handle tap on "Chapters" title to expand search bar
-  const handleChaptersTitlePress = useCallback(() => {
-    console.log('📖 Chapters title tapped - expanding search bar');
-    
-    // Haptic feedback (slightly stronger for discovery)
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
-    // Expand search bar if not already expanded
-    if (!state.search.showSearchBar) {
-      dispatch({ type: 'TOGGLE_SEARCH_BAR', show: true });
-      
-      // Animate the transition
-      Animated.spring(searchBarProgress, {
-        toValue: 1,
-        useNativeDriver: false,
-        tension: 60,
-        friction: 10,
-      }).start();
-    }
-  }, [state.search.showSearchBar, searchBarProgress]);
+  // Handle tap on chevron to collapse search bar
+  const handleCollapseSearchBar = useCallback(() => {
+    console.log('◀ Chevron tapped - collapsing search bar');
 
-  // Handle scroll behavior for smart header
-  const handleScroll = useCallback((event: any) => {
-    const currentScrollY = event.nativeEvent.contentOffset.y;
-    const scrollingUp = currentScrollY < lastScrollY.current;
+    // Haptic feedback
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-    lastScrollY.current = currentScrollY;
+    // Collapse search bar
+    dispatch({ type: 'TOGGLE_SEARCH_BAR', show: false });
 
-    // ❌ DISABLED: Auto-expand animation during scroll causes UI freeze
-    // This was triggering a non-native animation (useNativeDriver: false) during scroll,
-    // blocking the JavaScript thread for 300-500ms and freezing the scroll
-    // User can still manually expand the search bar by tapping "Chapters"
+    // Animate the transition
+    Animated.spring(searchBarProgress, {
+      toValue: 0,
+      useNativeDriver: false,
+      tension: 60,
+      friction: 10,
+    }).start();
+  }, [searchBarProgress]);
 
-    // if (scrollingUp && currentScrollY > 50 && !state.search.showSearchBar && !state.search.showSearch) {
-    //   console.log('📜 Smart scroll detected - showing search hint');
-    //   handleChaptersTitlePress();
-    // }
-  }, [state.search.showSearchBar, state.search.showSearch, handleChaptersTitlePress]);
 
   const handleOutsidePress = useCallback(() => {
     // Priority 1: If keyboard is visible, dismiss it
@@ -818,8 +801,7 @@ const LibraryScreen: React.FC = () => {
     setSelectedChapterId(chapterId);
     handleCloseChapterModal();
 
-    // TODO: Filter videos by selected chapter
-    // This will be implemented in the next step
+    // Videos are automatically filtered by the filteredVideos useMemo
   }, [handleCloseChapterModal]);
 
   const performSearch = useCallback(async (query: string) => {
@@ -923,7 +905,7 @@ const LibraryScreen: React.FC = () => {
     if (state.loading && state.videos.length === 0) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.brand.primary} />
+          <LoadingDots color={brandColor} />
           <Text style={styles.loadingText}>Loading your memories...</Text>
         </View>
       );
@@ -1099,10 +1081,9 @@ const LibraryScreen: React.FC = () => {
             <Animated.View style={[styles.header, { paddingTop: insets.top + theme.spacing['3'] }]}>
               {!state.search.showSearchBar ? (
                   <>
-                    {/* Normal mode: Chapters + spacer + icons aligned right */}
+                    {/* Left side: Chapters Logo */}
                     <Animated.View
                       style={{
-                        backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
                         opacity: searchBarProgress.interpolate({
                           inputRange: [0, 1],
                           outputRange: [1, 0],
@@ -1110,14 +1091,14 @@ const LibraryScreen: React.FC = () => {
                         transform: [{
                           translateX: searchBarProgress.interpolate({
                             inputRange: [0, 1],
-                            outputRange: [0, -100],
+                            outputRange: [0, -200], // Slide left when opening
                           }),
                         }],
                       }}
                     >
                       <TouchableOpacity
-                        onPress={handleChaptersTitlePress}
-                        activeOpacity={0.8}
+                        onPress={handleOpenChapterModal}
+                        activeOpacity={0.7}
                         style={styles.chaptersGlassContainer}
                       >
                         <LiquidGlassView
@@ -1127,101 +1108,72 @@ const LibraryScreen: React.FC = () => {
                               backgroundColor: theme.colors.gray100,
                             }
                           ]}
-                          interactive={true}
+                          interactive={false}
                         >
                           <View style={styles.chaptersTextContainer}>
-                            <Text style={styles.title}>Chapters</Text>
+                            <Text style={styles.title}>
+                              {selectedChapterId === null
+                                ? 'Chapters'
+                                : chapters.find(c => c.id === selectedChapterId)?.title || 'Chapters'}
+                            </Text>
                           </View>
                         </LiquidGlassView>
                       </TouchableOpacity>
                     </Animated.View>
 
-                    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0)' }} />
+                    {/* Center spacer */}
+                    <View style={{ flex: 1 }} />
 
-                    {/* ✅ Container optimisé pour grouper les éléments Glass de droite */}
-                    <GlassContainer spacing={6} style={styles.headerRight}>
-                      {/* View Mode Toggle with Liquid Glass */}
-                      <LiquidGlassView
-                        style={[
-                          styles.viewToggleContainer,
-                          !isLiquidGlassSupported && {
-                            backgroundColor: theme.colors.gray100,
-                          }
-                        ]}
-                        interactive={false}
-                      >
-                        <View style={styles.viewToggleInner}>
-                          {/* Animated Selection Indicator */}
-                          <Animated.View
-                            style={[
-                              styles.toggleSelector,
-                              {
-                                transform: [{
-                                  translateX: toggleSelectorPosition.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [0, 42], // 40px button width + 2px gap
-                                  }),
-                                }],
-                              },
-                              !isLiquidGlassSupported && {
-                                backgroundColor: theme.colors.white,
-                                borderWidth: 1,
-                                borderColor: theme.colors.gray200,
-                              }
-                            ]}
-                          >
-                            {isLiquidGlassSupported && (
-                              <LiquidGlassView 
-                                style={styles.toggleSelectorGlass}
-                                interactive={true}
-                              />
-                            )}
+                    {/* Right side: Chevron + View Toggle */}
+                    <Animated.View
+                      style={{
+                        opacity: searchBarProgress.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [1, 0],
+                        }),
+                        transform: [{
+                          translateX: searchBarProgress.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, 200], // Slide right when opening (follows chevron direction)
+                          }),
+                        }],
+                      }}
+                    >
+                      <GlassContainer spacing={6} style={styles.headerRight}>
+                        {/* Chevron button - expands top bar (points left) */}
+                        <GlassButton
+                          onPress={toggleSearchBar}
+                          style={styles.chevronGlassContainer}
+                          fallbackStyle={{ backgroundColor: theme.colors.gray100 }}
+                        >
+                          <Icon name="chevronLeft" size={18} color={theme.colors.text.primary} />
+                        </GlassButton>
+
+                        {/* Single View Toggle Button - shows current view icon */}
+                        <GlassButton
+                          onPress={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            // Toggle between calendar and grid
+                            const newMode = state.viewMode === 'calendar' ? 'grid' : 'calendar';
+                            dispatch({ type: 'SET_VIEW_MODE', mode: newMode });
+                          }}
+                          style={styles.singleViewToggle}
+                          fallbackStyle={{ backgroundColor: theme.colors.gray100 }}
+                        >
+                          <Animated.View style={{
+                            transform: [{
+                              scale: state.viewMode === 'calendar' ? calendarIconScale : gridIconScale
+                            }],
+                          }}>
+                            <Icon
+                              name={state.viewMode === 'calendar' ? 'calendar' : 'grid'}
+                              size={18}
+                              color={theme.colors.text.primary}
+                            />
                           </Animated.View>
-
-                          {/* Calendar Button */}
-                          <TouchableOpacity
-                            onPress={() => {
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                              dispatch({ type: 'SET_VIEW_MODE', mode: 'calendar' });
-                            }}
-                            style={styles.viewToggleOption}
-                            activeOpacity={0.7}
-                          >
-                            <Animated.View style={{ 
-                              transform: [{ scale: calendarIconScale }],
-                              zIndex: 10, // Ensure icon stays above selector
-                            }}>
-                              <Icon 
-                                name="calendar" 
-                                size={18} 
-                                color={state.viewMode === 'calendar' ? theme.colors.text.primary : theme.colors.text.secondary}
-                              />
-                            </Animated.View>
-                          </TouchableOpacity>
-
-                          {/* Grid Button */}
-                          <TouchableOpacity
-                            onPress={() => {
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                              dispatch({ type: 'SET_VIEW_MODE', mode: 'grid' });
-                            }}
-                            style={styles.viewToggleOption}
-                            activeOpacity={0.7}
-                          >
-                            <Animated.View style={{ 
-                              transform: [{ scale: gridIconScale }],
-                              zIndex: 10, // Ensure icon stays above selector
-                            }}>
-                              <Icon 
-                                name="grid" 
-                                size={18} 
-                                color={state.viewMode === 'grid' ? theme.colors.text.primary : theme.colors.text.secondary}
-                              />
-                            </Animated.View>
-                          </TouchableOpacity>
-                        </View>
-                      </LiquidGlassView>
-                    </GlassContainer>
+                        </GlassButton>
+                      </GlassContainer>
+                    </Animated.View>
                   </>
                 ) : (
                   <>
@@ -1272,13 +1224,13 @@ const LibraryScreen: React.FC = () => {
                           <Icon name="plus" size={18} />
                         </GlassButton>
 
-                        {/* Settings Button with Liquid Glass */}
+                        {/* Close button - chevron pointing right to collapse */}
                         <GlassButton
-                          onPress={handleNavigateToSettings}
+                          onPress={handleCollapseSearchBar}
                           style={styles.chevronGlassContainer}
-                          fallbackStyle={{ backgroundColor: theme.colors.ui.surfaceHover }}
+                          fallbackStyle={{ backgroundColor: theme.colors.gray100 }}
                         >
-                          <Icon name="settings" size={18} />
+                          <Icon name="chevronRight" size={18} color={theme.colors.text.primary} />
                         </GlassButton>
                       </GlassContainer>
                     </Animated.View>
@@ -1345,7 +1297,7 @@ const LibraryScreen: React.FC = () => {
                 {/* Results Area */}
                 {state.search.isSearchingLifeArea ? (
                   <View style={[styles.searchLoadingContainer, { paddingHorizontal: theme.spacing['4'] }]}>
-                    <ActivityIndicator size="small" color={theme.colors.brand.primary} />
+                    <LoadingDots color={brandColor} size={6} />
                     <Text style={styles.searchLoadingText}>Loading...</Text>
                   </View>
                 ) : state.search.selectedLifeArea && state.search.lifeAreaResults.length > 0 ? (
@@ -1402,7 +1354,7 @@ const LibraryScreen: React.FC = () => {
                   </View>
                 ) : state.search.isSearching ? (
                   <View style={[styles.searchLoadingContainer, { paddingHorizontal: theme.spacing['4'] }]}>
-                    <ActivityIndicator size="small" color={theme.colors.brand.primary} />
+                    <LoadingDots color={brandColor} size={6} />
                     <Text style={styles.searchLoadingText}>Searching...</Text>
                   </View>
                 ) : state.search.query.trim() === '' && !state.search.selectedLifeArea ? (
@@ -1425,32 +1377,28 @@ const LibraryScreen: React.FC = () => {
               </View>
             </TouchableWithoutFeedback>
           ) : (
-            <TouchableWithoutFeedback onPress={handleOutsidePress}>
-              <View style={styles.contentContainer}>
-                {filteredVideos.length === 0 ? (
-                  renderEmpty()
-                ) : state.viewMode === 'grid' ? (
-                  <VideoGallery
-                    videos={filteredVideos}
-                    onVideoPress={handleGridVideoPress}
-                    onEndReached={handleLoadMore}
-                    onEndReachedThreshold={0.8}
-                    contentInsetTop={headerHeightGrid} // ✅ Less padding for grid view (photos closer to top bar)
-                    onScroll={handleScroll} // ✅ Add scroll behavior for smart header
-                  />
-                ) : (
-                  <CalendarGallery
-                    videos={filteredVideos}
-                    onVideoPress={handleCalendarVideoPress}
-                    chapters={chapters}
-                    onEndReached={handleLoadMore}
-                    onEndReachedThreshold={0.8}
-                    contentInsetTop={headerHeightCalendar} // ✅ More padding for calendar view
-                    onScroll={handleScroll} // ✅ Add scroll behavior for smart header
-                  />
-                )}
-              </View>
-            </TouchableWithoutFeedback>
+            <View style={styles.contentContainer}>
+              {filteredVideos.length === 0 ? (
+                renderEmpty()
+              ) : state.viewMode === 'grid' ? (
+                <VideoGallery
+                  videos={filteredVideos}
+                  onVideoPress={handleGridVideoPress}
+                  onEndReached={handleLoadMore}
+                  onEndReachedThreshold={0.8}
+                  contentInsetTop={headerHeightGrid} // ✅ Less padding for grid view (photos closer to top bar)
+                />
+              ) : (
+                <CalendarGallery
+                  videos={filteredVideos}
+                  onVideoPress={handleCalendarVideoPress}
+                  chapters={chapters}
+                  onEndReached={handleLoadMore}
+                  onEndReachedThreshold={0.8}
+                  contentInsetTop={headerHeightCalendar} // ✅ More padding for calendar view
+                />
+              )}
+            </View>
           )}
 
           {/* Video Player (from grid AND calendar) */}
@@ -1561,112 +1509,142 @@ const LibraryScreen: React.FC = () => {
             </View>
           </Modal>
 
-          {/* Chapter Filter Modal (iOS-style like Momentum) */}
-          <Modal
-            visible={showChapterModal}
-            transparent
-            animationType="none"
-            onRequestClose={handleCloseChapterModal}
-          >
-            <TouchableWithoutFeedback onPress={handleCloseChapterModal}>
-              <View style={styles.chapterModalOverlay}>
-                <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-                  <Animated.View
-                    style={[
-                      styles.chaptersModalContainer,
-                      {
-                        top: insets.top + theme.spacing['3'],
-                        right: theme.spacing['4'],
-                        opacity: modalOpacity,
-                        transform: [{ scale: modalScale }]
-                      }
-                    ]}
+          {/* Chapter Bubbles - Scrollable vertical list of separate bubbles */}
+          {showChapterModal && (
+            <>
+              {/* Overlay to close bubbles when tapping outside */}
+              <TouchableWithoutFeedback onPress={handleCloseChapterModal}>
+                <View style={styles.chapterBubblesOverlay} />
+              </TouchableWithoutFeedback>
+
+              <Animated.View
+                style={[
+                  styles.chapterBubblesContainer,
+                  {
+                    top: insets.top + 60,
+                    left: theme.spacing['4'],
+                    opacity: modalOpacity,
+                  }
+                ]}
+              >
+                <ScrollView
+                  style={styles.chapterBubblesScroll}
+                  showsVerticalScrollIndicator={false}
+                  bounces={true}
+                >
+                  {/* All Chapters option */}
+                  <TouchableOpacity
+                    onPress={() => handleSelectChapter(null)}
+                    activeOpacity={0.7}
+                    style={styles.chapterBubbleWrapper}
                   >
                     <LiquidGlassView
                       style={[
-                        styles.chaptersModalGlass,
+                        styles.chapterBubbleGlass,
+                        selectedChapterId === null && { backgroundColor: brandColor },
                         !isLiquidGlassSupported && {
-                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                          backgroundColor: selectedChapterId === null ? brandColor : theme.colors.gray100,
                         }
                       ]}
-                      interactive={true}
+                      interactive={false}
                     >
-                      {/* Header */}
-                      <View style={styles.chaptersModalHeader}>
-                        <Text style={styles.chaptersModalHeaderText}>
-                          {selectedChapterId === null
-                            ? 'Chapters'
-                            : chapters.find(c => c.id === selectedChapterId)?.title || 'Chapters'}
+                      <View style={styles.chapterBubbleContent}>
+                        <Text style={[
+                          styles.chapterBubbleText,
+                          selectedChapterId === null && styles.chapterBubbleTextSelected
+                        ]}>
+                          Chapters
                         </Text>
                       </View>
-
-                      {/* Scrollable list */}
-                      <ScrollView
-                        style={styles.chaptersModalScroll}
-                        showsVerticalScrollIndicator={false}
-                      >
-                        {/* All Chapters option */}
-                        <TouchableOpacity
-                          style={[
-                            styles.chapterModalItem,
-                            selectedChapterId === null && styles.chapterModalItemSelected
-                          ]}
-                          onPress={() => handleSelectChapter(null)}
-                        >
-                          <Text style={[
-                            styles.chapterModalItemText,
-                            selectedChapterId === null && styles.chapterModalItemTextSelected
-                          ]}>
-                            All Chapters
-                          </Text>
-                        </TouchableOpacity>
-
-                        {/* Current chapter first */}
-                        {currentChapter && (
-                          <TouchableOpacity
-                            key={currentChapter.id}
-                            style={[
-                              styles.chapterModalItem,
-                              selectedChapterId === currentChapter.id && styles.chapterModalItemSelected
-                            ]}
-                            onPress={() => handleSelectChapter(currentChapter.id!)}
-                          >
-                            <Text style={[
-                              styles.chapterModalItemText,
-                              selectedChapterId === currentChapter.id && styles.chapterModalItemTextSelected
-                            ]}>
-                              {currentChapter.title} (Current)
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-
-                        {/* Other chapters */}
-                        {chapters
-                          .filter(chapter => chapter.id !== currentChapter?.id)
-                          .map((chapter) => (
-                            <TouchableOpacity
-                              key={chapter.id}
-                              style={[
-                                styles.chapterModalItem,
-                                selectedChapterId === chapter.id && styles.chapterModalItemSelected
-                              ]}
-                              onPress={() => handleSelectChapter(chapter.id!)}
-                            >
-                              <Text style={[
-                                styles.chapterModalItemText,
-                                selectedChapterId === chapter.id && styles.chapterModalItemTextSelected
-                              ]}>
-                                {chapter.title}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                      </ScrollView>
                     </LiquidGlassView>
-                  </Animated.View>
-                </TouchableWithoutFeedback>
-              </View>
-            </TouchableWithoutFeedback>
-          </Modal>
+                  </TouchableOpacity>
+
+                  {/* Current chapter first */}
+                  {currentChapter && (
+                    <TouchableOpacity
+                      key={currentChapter.id}
+                      onPress={() => handleSelectChapter(currentChapter.id!)}
+                      activeOpacity={0.7}
+                      style={styles.chapterBubbleWrapper}
+                    >
+                      <LiquidGlassView
+                        style={[
+                          styles.chapterBubbleGlass,
+                          selectedChapterId === currentChapter.id && { backgroundColor: brandColor },
+                          !isLiquidGlassSupported && {
+                            backgroundColor: selectedChapterId === currentChapter.id ? brandColor : theme.colors.gray100,
+                          }
+                        ]}
+                        interactive={false}
+                      >
+                        <View style={styles.chapterBubbleContent}>
+                          <Text style={[
+                            styles.chapterBubbleText,
+                            selectedChapterId === currentChapter.id && styles.chapterBubbleTextSelected
+                          ]}>
+                            {currentChapter.title}
+                          </Text>
+                          <View style={[styles.currentBadgeBubble, {
+                            backgroundColor: selectedChapterId === currentChapter.id ? 'rgba(255,255,255,0.3)' : brandColor
+                          }]}>
+                            <Icon
+                              name="star"
+                              size={6}
+                              color="#FFFFFF"
+                            />
+                          </View>
+                        </View>
+                      </LiquidGlassView>
+                    </TouchableOpacity>
+                  )}
+
+                  {/* Other chapters */}
+                  {chapters
+                    .filter(chapter => chapter.id !== currentChapter?.id)
+                    .map((chapter) => (
+                      <TouchableOpacity
+                        key={chapter.id}
+                        onPress={() => handleSelectChapter(chapter.id!)}
+                        activeOpacity={0.7}
+                        style={styles.chapterBubbleWrapper}
+                      >
+                        <LiquidGlassView
+                          style={[
+                            styles.chapterBubbleGlass,
+                            selectedChapterId === chapter.id && { backgroundColor: brandColor },
+                            !isLiquidGlassSupported && {
+                              backgroundColor: selectedChapterId === chapter.id ? brandColor : theme.colors.gray100,
+                            }
+                          ]}
+                          interactive={false}
+                        >
+                          <View style={styles.chapterBubbleContent}>
+                            <Text style={[
+                              styles.chapterBubbleText,
+                              selectedChapterId === chapter.id && styles.chapterBubbleTextSelected
+                            ]}>
+                              {chapter.title}
+                            </Text>
+                          </View>
+                        </LiquidGlassView>
+                      </TouchableOpacity>
+                    ))}
+                </ScrollView>
+
+                {/* Fade gradients for smooth scroll effect */}
+                <LinearGradient
+                  colors={['rgba(255,255,255,1)', 'rgba(255,255,255,0)']}
+                  style={styles.chapterBubblesFadeTop}
+                  pointerEvents="none"
+                />
+                <LinearGradient
+                  colors={['rgba(255,255,255,0)', 'rgba(255,255,255,1)']}
+                  style={styles.chapterBubblesFadeBottom}
+                  pointerEvents="none"
+                />
+              </Animated.View>
+            </>
+          )}
 
           {/* Removed Import Progress Modal - videos now show inline with spinner */}
         </View>
@@ -1698,6 +1676,13 @@ const styles = StyleSheet.create({
   logo: {
     width: 32,
     height: 32,
+  },
+  // Left side container: Chapters + Chevron + View Toggle
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
   },
   headerRight: {
     flexDirection: 'row',
@@ -1741,6 +1726,15 @@ const styles = StyleSheet.create({
   chevronButton: {
     width: '100%',
     height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Single view toggle button (shows current view icon)
+  singleViewToggle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2266,56 +2260,82 @@ const styles = StyleSheet.create({
     height: ((screenWidth - 4 - 6) / 4) * 1.33,
   },
   // Chapter Modal Styles (iOS-style like Momentum)
-  chapterModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  },
-  chaptersModalContainer: {
+  // Chapter Bubbles - Scrollable separate bubbles
+  chapterBubblesOverlay: {
     position: 'absolute',
-    width: 280,
-    maxHeight: 450,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    zIndex: 999,
   },
-  chaptersModalGlass: {
-    borderRadius: 18,
+  chapterBubblesContainer: {
+    position: 'absolute',
+    zIndex: 1000,
+  },
+  chapterBubblesScroll: {
+    maxHeight: '70%', // Max 70% of screen height for scrolling
+  },
+  chapterBubbleWrapper: {
+    marginBottom: 8, // Space between bubbles
+    alignSelf: 'flex-start', // Width adapts to content
+  },
+  chapterBubbleGlass: {
+    borderRadius: 22,
     overflow: 'hidden',
+    height: 44, // Same height as main Chapters button
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  chaptersModalHeader: {
-    paddingVertical: theme.spacing['3'],
-    paddingHorizontal: theme.spacing['4'],
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+  chapterBubbleContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center', // Center text horizontally
+    paddingHorizontal: 16,
+    paddingRight: 30, // More space for badge
+    height: '100%',
+    position: 'relative',
   },
-  chaptersModalHeaderText: {
+  chapterBubbleText: {
+    fontFamily: 'Poppins-SemiBoldItalic',
     fontSize: 16,
     fontWeight: '600',
+    fontStyle: 'italic',
+    letterSpacing: -0.48,
     color: theme.colors.text.primary,
-    textAlign: 'center',
+    textAlign: 'center', // Center text
   },
-  chaptersModalScroll: {
-    maxHeight: 350,
+  chapterBubbleTextSelected: {
+    color: theme.colors.white,
   },
-  chapterModalItem: {
-    paddingVertical: theme.spacing['3'],
-    paddingHorizontal: theme.spacing['4'],
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.03)',
+  currentBadgeBubble: {
+    position: 'absolute',
+    right: 12,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  chapterModalItemSelected: {
-    backgroundColor: 'rgba(147, 51, 234, 0.1)', // Purple tint for selected
+  chapterBubblesFadeTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 40,
+    zIndex: 1001,
   },
-  chapterModalItemText: {
-    fontSize: 15,
-    fontWeight: '400',
-    color: theme.colors.text.primary,
-  },
-  chapterModalItemTextSelected: {
-    fontWeight: '600',
-    color: theme.colors.brand.primary,
+  chapterBubblesFadeBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 40,
+    zIndex: 1001,
   },
 });
 

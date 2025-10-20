@@ -5,7 +5,9 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { View, ActivityIndicator, StyleSheet, Text } from 'react-native'
+import { View,  StyleSheet, Text } from 'react-native'
+import { LoadingDots } from '../components/LoadingDots';
+import { useTheme } from '../contexts/ThemeContext';
 import { VerticalFeedScreen } from '../features/vertical-feed/screens/VerticalFeedScreen'
 import { VideoService } from '../services/videoService'
 import { VideoRecord } from '../lib/supabase'
@@ -16,6 +18,7 @@ interface VerticalFeedTabScreenProps {
 }
 
 export const VerticalFeedTabScreen: React.FC<VerticalFeedTabScreenProps> = ({ navigation }) => {
+  const { brandColor } = useTheme();
   const [videos, setVideos] = useState<VideoRecord[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -81,7 +84,7 @@ export const VerticalFeedTabScreen: React.FC<VerticalFeedTabScreenProps> = ({ na
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.brand.primary} />
+        <LoadingDots color={brandColor} />
         <Text style={styles.loadingText}>Loading your videos...</Text>
       </View>
     )

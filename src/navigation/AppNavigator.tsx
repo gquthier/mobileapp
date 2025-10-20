@@ -20,6 +20,7 @@ import { VideoImportScreen } from '../screens/VideoImportScreen';
 import ChapterManagementScreen from '../screens/ChapterManagementScreen';
 import ChapterSetupScreen from '../screens/ChapterSetupScreen';
 import ChapterDetailScreen from '../screens/ChapterDetailScreen';
+import EditChapterScreen from '../screens/EditChapterScreen';
 import { VerticalFeedScreen } from '../features/vertical-feed/screens/VerticalFeedScreen';
 import { VerticalFeedTabScreen } from '../screens/VerticalFeedTabScreen';
 
@@ -132,6 +133,8 @@ function LibraryStackNavigator() {
       <LibraryStack.Screen name="LibraryMain" component={LibraryScreen} />
       <LibraryStack.Screen name="Settings" component={SettingsScreen} />
       <LibraryStack.Screen name="VideoImport" component={VideoImportScreen} />
+      <LibraryStack.Screen name="ChapterManagement" component={ChapterManagementScreen} />
+      <LibraryStack.Screen name="EditChapter" component={EditChapterScreen} />
       <LibraryStack.Screen
         name="VerticalFeed"
         component={VerticalFeedScreen}
@@ -150,6 +153,7 @@ function MomentumStackNavigator() {
       <MomentumStack.Screen name="MomentumMain" component={MomentumDashboardScreen} />
       <MomentumStack.Screen name="ChapterDetail" component={ChapterDetailScreen} />
       <MomentumStack.Screen name="ChapterManagement" component={ChapterManagementScreen} />
+      <MomentumStack.Screen name="EditChapter" component={EditChapterScreen} />
       <MomentumStack.Screen name="ChapterSetup" component={ChapterSetupScreen} />
     </MomentumStack.Navigator>
   );

@@ -10,7 +10,6 @@ import {
   Image,
   TextInput,
   Modal,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -21,15 +20,33 @@ import { useTheme as useThemeContext } from '../contexts/ThemeContext';
 import { useDarkMode } from '../contexts/DarkModeContext';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
+import { LoadingDots } from '../components/LoadingDots';
 import { AuthService, Profile } from '../services/authService';
-import { supabase } from '../lib/supabase';
+import { supabase, Chapter } from '../lib/supabase';
 import {
   generateMissingChapterStories,
   countChaptersWithoutStories
 } from '../services/chapterStoryService';
+import { getCurrentChapter } from '../services/chapterService';
 import { CHAPTER_COLORS } from '../constants/chapterColors';
 import ProfileScreen from './ProfileScreen';
 import AuthScreen from './AuthScreen';
+
+// ✅ Static Life Areas configuration (12 fixed areas)
+const LIFE_AREAS_CONFIG: Record<string, { emoji: string; name: string }> = {
+  'Health': { emoji: '💪', name: 'Health' },
+  'Family': { emoji: '👨‍👩‍👧‍👦', name: 'Family' },
+  'Friends': { emoji: '🤝', name: 'Friends' },
+  'Love': { emoji: '❤️', name: 'Love' },
+  'Work': { emoji: '💼', name: 'Work' },
+  'Business': { emoji: '📈', name: 'Business' },
+  'Money': { emoji: '💰', name: 'Money' },
+  'Growth': { emoji: '🌱', name: 'Growth' },
+  'Leisure': { emoji: '🎯', name: 'Leisure' },
+  'Home': { emoji: '🏠', name: 'Home' },
+  'Spirituality': { emoji: '🙏', name: 'Spirituality' },
+  'Community': { emoji: '🌍', name: 'Community' },
+};
 
 interface SettingsItemProps {
   icon: string;
@@ -118,13 +135,15 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ title, children }) =>
 
 interface ProfileHeaderProps {
   profile: Profile | null;
+  currentChapter: Chapter | null;
   onPhotoPress: () => void;
   onNamePress: () => void;
   isUploading?: boolean;
 }
 
-const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, onPhotoPress, onNamePress, isUploading }) => {
+const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, currentChapter, onPhotoPress, onNamePress, isUploading }) => {
   const theme = useHookTheme();
+  const { brandColor } = useThemeContext();
 
   return (
     <View style={styles.profileHeader}>
@@ -136,7 +155,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, onPhotoPress, on
       >
         {isUploading ? (
           <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.ui.surfaceHover }]}>
-            <ActivityIndicator size="large" color={theme.colors.brand.primary} />
+            <LoadingDots color={brandColor} />
           </View>
         ) : profile?.avatar_url ? (
           <Image
@@ -169,11 +188,22 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({ profile, onPhotoPress, on
           </Text>
         </View>
       )}
+
+      {/* Current Chapter label - below name */}
+      {currentChapter && (
+        <Text style={[styles.chapterLabel, { color: theme.colors.text.secondary }]}>
+          CHAPTER {currentChapter.chapter_number || ''}
+        </Text>
+      )}
     </View>
   );
 };
 
-const SettingsScreen: React.FC = () => {
+interface SettingsScreenProps {
+  navigation?: any;
+}
+
+const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const theme = useHookTheme();
   const { brandColor, colorMode, customColor, setColorMode, setCustomColor, loadCurrentChapterColor } = useThemeContext();
   const { isDarkMode, toggleDarkMode } = useDarkMode();
@@ -181,6 +211,7 @@ const SettingsScreen: React.FC = () => {
   const [currentView, setCurrentView] = useState<'settings' | 'profile' | 'auth'>('settings');
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Settings state
@@ -219,6 +250,27 @@ const SettingsScreen: React.FC = () => {
         setUser(currentUser.user);
         setProfile(currentUser.profile);
 
+        // Load current chapter
+        const chapter = await getCurrentChapter(currentUser.user.id);
+
+        // If chapter doesn't have chapter_number, calculate it
+        if (chapter && !chapter.chapter_number) {
+          // Get all user chapters to count
+          const { data: allChapters } = await supabase
+            .from('chapters')
+            .select('id, started_at')
+            .eq('user_id', currentUser.user.id)
+            .order('started_at', { ascending: true });
+
+          if (allChapters) {
+            // Find index of current chapter
+            const chapterIndex = allChapters.findIndex(c => c.id === chapter.id);
+            chapter.chapter_number = chapterIndex + 1; // 1-indexed
+          }
+        }
+
+        setCurrentChapter(chapter);
+
         // Load user preferences from profile
         if (currentUser.profile?.notification_settings) {
           const notifSettings = currentUser.profile.notification_settings;
@@ -246,6 +298,17 @@ const SettingsScreen: React.FC = () => {
       setCurrentView('auth');
     } else {
       setCurrentView('profile');
+    }
+  };
+
+  const handleManageChaptersPress = () => {
+    if (!user) {
+      Alert.alert('Sign In Required', 'Please sign in to manage your chapters');
+      return;
+    }
+    if (navigation) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      navigation.navigate('ChapterManagement');
     }
   };
 
@@ -566,6 +629,106 @@ const SettingsScreen: React.FC = () => {
   };
 
   /**
+   * 🧪 DEV ONLY: Test Life Areas calculation (simplified - reads from highlights JSON)
+   */
+  const handleTestLifeAreas = async () => {
+    if (!user) {
+      Alert.alert('Error', 'Please sign in first');
+      return;
+    }
+
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      console.log('🧪 TEST: Starting Life Areas analysis...');
+
+      // Get all transcription jobs with highlights
+      const { data: jobs, error: jobsError } = await supabase
+        .from('transcription_jobs')
+        .select('transcript_highlight, video_id')
+        .not('transcript_highlight', 'is', null);
+
+      if (jobsError) {
+        console.error('❌ Error loading transcription jobs:', jobsError);
+        Alert.alert('Error', 'Failed to load transcription jobs');
+        return;
+      }
+
+      console.log(`📊 Found ${jobs?.length || 0} transcription jobs with highlights`);
+
+      if (!jobs || jobs.length === 0) {
+        Alert.alert('No Data', 'No transcription jobs with highlights found.\n\nMake sure your videos are transcribed.');
+        return;
+      }
+
+      // Count mentions per life area (simple string counting from JSON)
+      const mentionCounts = new Map<string, number>();
+      let totalHighlights = 0;
+      let highlightsWithArea = 0;
+
+      jobs.forEach((job, jobIndex) => {
+        if (!job.transcript_highlight) return;
+
+        const highlights = job.transcript_highlight.highlights || [];
+        console.log(`📝 Job ${jobIndex}: ${highlights.length} highlights`);
+
+        highlights.forEach((highlight: any, highlightIndex: number) => {
+          totalHighlights++;
+
+          // Get the area field from the highlight (simple string)
+          const highlightArea = highlight.area;
+          console.log(`  - Highlight ${highlightIndex}: area="${highlightArea}"`);
+
+          if (highlightArea && typeof highlightArea === 'string') {
+            highlightsWithArea++;
+
+            // Normalize to capitalized form (e.g., "health" → "Health")
+            const normalizedArea = highlightArea.charAt(0).toUpperCase() + highlightArea.slice(1).toLowerCase();
+
+            // Check if it exists in our static config
+            if (LIFE_AREAS_CONFIG[normalizedArea]) {
+              const currentCount = mentionCounts.get(normalizedArea) || 0;
+              mentionCounts.set(normalizedArea, currentCount + 1);
+              console.log(`    ✅ Matched to "${normalizedArea}"`);
+            } else {
+              console.log(`    ⚠️ No match found for "${highlightArea}" (normalized: "${normalizedArea}")`);
+            }
+          }
+        });
+      });
+
+      console.log(`\n📊 RESULTS:`);
+      console.log(`   Total highlights: ${totalHighlights}`);
+      console.log(`   Highlights with area: ${highlightsWithArea}`);
+      console.log(`   Mentions per area:`, Object.fromEntries(mentionCounts));
+
+      // Calculate percentages for areas with mentions
+      const areaPercentages = Array.from(mentionCounts.entries())
+        .map(([areaKey, count]) => ({
+          display_name: LIFE_AREAS_CONFIG[areaKey].name,
+          count,
+          percentage: Math.round((count / totalHighlights) * 100)
+        }))
+        .filter(item => item.count > 0) // Only areas with at least one mention
+        .sort((a, b) => b.count - a.count); // Sort by count descending
+
+      const resultsText = areaPercentages
+        .map(item => `${item.display_name}: ${item.percentage}% (${item.count} mentions)`)
+        .join('\n');
+
+      Alert.alert(
+        'Life Areas Analysis',
+        `Total highlights: ${totalHighlights}\nHighlights with area: ${highlightsWithArea}\n\n${resultsText || 'No life areas found in highlights'}`,
+        [{ text: 'OK' }]
+      );
+
+    } catch (error: any) {
+      console.error('❌ Error testing life areas:', error);
+      Alert.alert('Error', error.message || 'An unexpected error occurred');
+    }
+  };
+
+  /**
    * Generate AI stories for all old chapters without them
    */
   const handleGenerateChapterStories = async () => {
@@ -658,6 +821,7 @@ const SettingsScreen: React.FC = () => {
           {user && (
             <ProfileHeader
               profile={profile}
+              currentChapter={currentChapter}
               onPhotoPress={handlePhotoPress}
               onNamePress={handleNamePress}
               isUploading={isUploadingPhoto}
@@ -678,6 +842,19 @@ const SettingsScreen: React.FC = () => {
               onPress={handleAccountPress}
             />
           </SettingsSection>
+
+          {/* Chapters Management Section */}
+          {user && (
+            <SettingsSection title="Chapters">
+              <SettingsItem
+                icon="bookOpen"
+                title="Manage Chapters"
+                subtitle="Edit titles, dates, and organize your chapters"
+                showChevron
+                onPress={handleManageChaptersPress}
+              />
+            </SettingsSection>
+          )}
 
           {/* Appearance Section */}
           <SettingsSection title="Appearance">
@@ -806,7 +983,7 @@ const SettingsScreen: React.FC = () => {
                         : theme.colors.ui.surfaceHover
                     }]}>
                       {isGeneratingStories ? (
-                        <ActivityIndicator size="small" color={theme.colors.brand.primary} />
+                        <LoadingDots color={brandColor} size={6} />
                       ) : (
                         <Icon name="sparkles" size={24} color={theme.colors.brand.primary} />
                       )}
@@ -857,6 +1034,35 @@ const SettingsScreen: React.FC = () => {
                       </Text>
                       <Text style={[styles.aiFeatureSubtitle, { color: theme.colors.text.secondary }]}>
                         For videos without transcriptions
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {/* 🧪 DEV: Test Life Areas */}
+              <TouchableOpacity
+                style={[styles.aiFeatureCard, {
+                  backgroundColor: theme.colors.ui.surface,
+                  borderColor: theme.colors.ui.border,
+                  marginTop: theme.spacing['3'],
+                }]}
+                onPress={handleTestLifeAreas}
+                activeOpacity={0.7}
+              >
+                <View style={styles.aiFeatureContent}>
+                  <View style={styles.aiFeatureHeader}>
+                    <View style={[styles.aiIconContainer, {
+                      backgroundColor: theme.colors.ui.surfaceHover
+                    }]}>
+                      <Icon name="target" size={24} color={theme.colors.brand.primary} />
+                    </View>
+                    <View style={styles.aiFeatureText}>
+                      <Text style={[styles.aiFeatureTitle, { color: theme.colors.text.primary }]}>
+                        🧪 Test Life Areas
+                      </Text>
+                      <Text style={[styles.aiFeatureSubtitle, { color: theme.colors.text.secondary }]}>
+                        Analyze Life Areas in highlights (DEV)
                       </Text>
                     </View>
                   </View>
@@ -1119,6 +1325,13 @@ const styles = StyleSheet.create({
     borderRadius: 60,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  chapterLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginTop: 0,
   },
   nameContainer: {
     flexDirection: 'row',

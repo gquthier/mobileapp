@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Image, View, StyleSheet, ActivityIndicator } from 'react-native';
+import { Image, View, StyleSheet } from 'react-native';
+import { LoadingDots } from './LoadingDots';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface AnimatedThumbnailProps {
   frames: string[];
@@ -14,6 +16,7 @@ export const AnimatedThumbnail: React.FC<AnimatedThumbnailProps> = ({
   interval = 400, // Default: change frame every 400ms (balanced GIF effect with 10 frames)
   isUploading = false,
 }) => {
+  const { brandColor } = useTheme();
   const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
   const intervalRef = useRef<NodeJS.Timeout>();
 
@@ -71,7 +74,7 @@ export const AnimatedThumbnail: React.FC<AnimatedThumbnailProps> = ({
       />
       {isUploading && (
         <View style={styles.uploadingOverlay}>
-          <ActivityIndicator size="large" color="#FFFFFF" />
+          <LoadingDots color={brandColor} />
         </View>
       )}
     </View>

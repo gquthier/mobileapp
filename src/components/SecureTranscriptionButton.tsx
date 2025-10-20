@@ -1,6 +1,8 @@
 // Composant bouton pour la transcription sécurisée
 import React from 'react';
-import { TouchableOpacity, Text, View, ActivityIndicator, Alert } from 'react-native';
+import { TouchableOpacity, Text, View, Alert } from 'react-native';
+import { LoadingDots } from './LoadingDots';
+import { useTheme } from '../contexts/ThemeContext';
 import { useSecureTranscription } from '../hooks/useSecureTranscription';
 import { theme } from '../styles/theme';
 
@@ -21,6 +23,7 @@ export const SecureTranscriptionButton: React.FC<SecureTranscriptionButtonProps>
   style,
   onTranscriptionComplete
 }) => {
+  const { brandColor } = useTheme();
   const {
     isTranscribing,
     transcriptionStatus,
@@ -117,7 +120,9 @@ export const SecureTranscriptionButton: React.FC<SecureTranscriptionButtonProps>
       >
         {isTranscribing ? (
           <>
-            <ActivityIndicator size="small" color="white" style={{ marginRight: 8 }} />
+            <View style={{ marginRight: 8 }}>
+              <LoadingDots color={brandColor} size={6} />
+            </View>
             <Text style={{ color: 'white', fontSize: 14, fontWeight: '600' }}>
               {getButtonText()}
             </Text>

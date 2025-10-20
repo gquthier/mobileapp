@@ -18,7 +18,6 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { supabase, VideoRecord } from '../lib/supabase';
 import { Icon } from './Icon';
 import { VideoInfoBar } from './VideoInfoBar';
@@ -482,27 +481,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           initialNumToRender={1}
         />
 
-        {/* Back Button - Top Left - Liquid Glass Style */}
-        <LiquidGlassView
+        {/* Back Button - Top Left - Simple Chevron */}
+        <TouchableOpacity
           style={[
             styles.backButton,
             {
               top: insets.top + 16,
-            },
-            !isLiquidGlassSupported && {
-              backgroundColor: 'rgba(0, 0, 0, 0.5)',
             }
           ]}
-          interactive={true}
+          onPress={handleClose}
+          activeOpacity={0.7}
         >
-          <TouchableOpacity
-            style={styles.backButtonTouchable}
-            onPress={handleClose}
-            activeOpacity={0.7}
-          >
-            <Icon name="x" size={24} color="#FFFFFF" />
-          </TouchableOpacity>
-        </LiquidGlassView>
+          <Icon name="chevronLeft" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
 
         {/* Progress Bar - Sous le titre de l'InfoBar */}
         <View
@@ -552,20 +543,9 @@ const styles = StyleSheet.create({
     left: 16,
     width: 44,
     height: 44,
-    borderRadius: 22,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-    zIndex: 1000,
-  },
-  backButtonTouchable: {
-    width: '100%',
-    height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 1000,
   },
   progressBarContainer: {
     position: 'absolute',

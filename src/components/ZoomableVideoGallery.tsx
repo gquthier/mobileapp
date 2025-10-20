@@ -6,7 +6,7 @@ import {
   Image,
   Dimensions,
   ScrollView,
-  ActivityIndicator,
+  
 } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, {
@@ -17,6 +17,8 @@ import Animated, {
   Extrapolate,
   withSpring,
 } from 'react-native-reanimated';
+import { LoadingDots } from './LoadingDots';
+import { useTheme } from '../contexts/ThemeContext';
 import { VideoRecord } from '../lib/supabase';
 import { Icon } from './Icon';
 import { theme } from '../styles';
@@ -40,6 +42,7 @@ const ZoomableVideoGalleryComponent: React.FC<ZoomableVideoGalleryProps> = ({
   onEndReached,
   onEndReachedThreshold = 0.8,
 }) => {
+  const { brandColor } = useTheme();
   // Number of columns: 1 (fully zoomed) to 5 (default)
   const [numColumns, setNumColumns] = useState(5);
   const lastUpdateRef = useRef(0);
@@ -591,7 +594,7 @@ const ZoomableVideoGalleryComponent: React.FC<ZoomableVideoGalleryProps> = ({
           {/* Uploading indicator */}
           {video.metadata?.isUploading && (
             <View style={styles.processingOverlay}>
-              <ActivityIndicator size="large" color="#FFFFFF" />
+              <LoadingDots color={brandColor} />
             </View>
           )}
 

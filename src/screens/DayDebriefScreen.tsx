@@ -8,13 +8,15 @@ import {
   Image,
   Dimensions,
   Modal,
-  ActivityIndicator,
+  
 } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { VideoRecord, supabase } from '../lib/supabase';
 import { theme } from '../styles/theme';
 import { Icon } from '../components/Icon';
+import { LoadingDots } from '../components/LoadingDots';
+import { useTheme } from '../contexts/ThemeContext';
 import { AnimatedThumbnail } from '../components/AnimatedThumbnail';
 import { TranscriptionJobService, TranscriptionJob } from '../services/transcriptionJobService';
 import { VideoPlayer } from '../components/VideoPlayer';
@@ -35,6 +37,7 @@ export const DayDebriefScreen: React.FC<DayDebriefScreenProps> = ({
   videos,
   onClose,
 }) => {
+  const { brandColor } = useTheme();
   const [selectedVideoIndex, setSelectedVideoIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -452,7 +455,7 @@ export const DayDebriefScreen: React.FC<DayDebriefScreenProps> = ({
               >
                 {loadingHighlights ? (
                   <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="small" color={theme.colors.brand.primary} />
+                    <LoadingDots color={brandColor} size={6} />
                     <Text style={styles.loadingText}>Loading highlights...</Text>
                   </View>
                 ) : selectedTranscription?.status === 'completed' &&
@@ -486,7 +489,7 @@ export const DayDebriefScreen: React.FC<DayDebriefScreenProps> = ({
                   })
                 ) : selectedTranscription?.status !== 'completed' ? (
                   <View style={styles.processingContainer}>
-                    <ActivityIndicator size="small" color={theme.colors.brand.primary} />
+                    <LoadingDots color={brandColor} size={6} />
                     <Text style={styles.processingText}>Processing transcription...</Text>
                   </View>
                 ) : (

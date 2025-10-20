@@ -9,7 +9,7 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  ActivityIndicator,
+  
   RefreshControl,
   TouchableOpacity,
   Dimensions,
@@ -49,6 +49,7 @@ import {
   formatChapterPeriod,
 } from '../services/chapterService';
 import { ChapterCard } from '../components/ChapterCard';
+import { LoadingDots } from '../components/LoadingDots';
 import { Icon } from '../components/Icon';
 import { getRandomChapterColor } from '../constants/chapterColors';
 
@@ -378,7 +379,7 @@ export default function MomentumDashboardScreen({ navigation }: MomentumDashboar
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.brand.primary} />
+        <LoadingDots color={brandColor} />
       </View>
     );
   }

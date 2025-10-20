@@ -10,7 +10,7 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
+  
   SafeAreaView,
   Alert,
 } from 'react-native';
@@ -18,6 +18,8 @@ import { theme } from '../styles/theme';
 import { LifeAreaTemplate } from '../types/momentum';
 import { getLifeAreaTemplates, initializeMomentumSystem } from '../services/lifeAreasService';
 import { supabase } from '../lib/supabase';
+import { LoadingDots } from '../components/LoadingDots';
+import { useTheme } from '../contexts/ThemeContext';
 
 const MIN_AREAS = 3;
 const MAX_AREAS = 5;
@@ -31,6 +33,7 @@ export default function LifeAreasSelectionScreen({
   navigation,
   onComplete,
 }: LifeAreasSelectionScreenProps) {
+  const { brandColor } = useTheme();
   const [templates, setTemplates] = useState<LifeAreaTemplate[]>([]);
   const [selectedAreas, setSelectedAreas] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -149,7 +152,7 @@ export default function LifeAreasSelectionScreen({
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <LoadingDots color={brandColor} />
         <Text style={styles.loadingText}>Chargement...</Text>
       </View>
     );
@@ -239,7 +242,7 @@ export default function LifeAreasSelectionScreen({
           activeOpacity={0.8}
         >
           {submitting ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <LoadingDots color="#FFFFFF" />
           ) : (
             <Text style={styles.continueButtonText}>Commencer</Text>
           )}

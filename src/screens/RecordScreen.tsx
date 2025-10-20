@@ -35,6 +35,7 @@ import { useMomentumAnalysis } from '../hooks/useMomentumAnalysis';
 import { supabase } from '../lib/supabase';
 import { getCurrentChapter } from '../services/chapterService';
 import { ImportQueueService } from '../services/importQueueService';
+import { useTheme } from '../contexts/ThemeContext';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -43,6 +44,9 @@ const QUESTIONS_CACHE_KEY = '@questions_cache';
 const CACHE_EXPIRY_MS = 1000 * 60 * 60; // 1 heure
 
 const RecordScreen: React.FC = ({ route, navigation }: any) => {
+  // Theme context
+  const { brandColor } = useTheme();
+
   // Permissions hooks
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
@@ -1787,6 +1791,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
             duration={500}
             isActive={isLongPressing}
             onComplete={handleLongPressComplete}
+            color={brandColor}
           />
 
           {/* Instruction text */}
@@ -1929,6 +1934,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
           duration={500}
           isActive={isLongPressing}
           onComplete={handleLongPressComplete}
+          color={brandColor}
         />
 
 

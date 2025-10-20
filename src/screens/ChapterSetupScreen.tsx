@@ -14,7 +14,7 @@ import {
   ScrollView,
   Platform,
   Alert,
-  ActivityIndicator,
+  
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { theme } from '../styles/theme';
@@ -24,6 +24,8 @@ import {
   getVideosWithoutChapter,
   assignVideosToChapter,
 } from '../services/chapterService';
+import { LoadingDots } from '../components/LoadingDots';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface ChapterSetupScreenProps {
   navigation: any;
@@ -31,6 +33,7 @@ interface ChapterSetupScreenProps {
 }
 
 export default function ChapterSetupScreen({ navigation, route }: ChapterSetupScreenProps) {
+  const { brandColor } = useTheme();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [startedAt, setStartedAt] = useState(new Date());
@@ -249,7 +252,7 @@ export default function ChapterSetupScreen({ navigation, route }: ChapterSetupSc
           disabled={loading || !title.trim()}
         >
           {loading ? (
-            <ActivityIndicator color={theme.colors.white} />
+            <LoadingDots color={theme.colors.white} />
           ) : (
             <Text style={styles.createButtonText}>
               {isFirstChapter ? 'Start This Chapter' : 'Create Chapter'}
