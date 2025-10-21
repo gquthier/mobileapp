@@ -845,6 +845,14 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           {/* Appearance Section */}
           <SettingsSection title="Appearance">
             <SettingsItem
+              icon="moon"
+              title="Night Mode"
+              subtitle="Switch to dark theme"
+              showSwitch
+              switchValue={isDarkMode}
+              onSwitchChange={toggleDarkMode}
+            />
+            <SettingsItem
               icon="droplet"
               title="App Color Theme"
               subtitle={getColorModeLabel()}

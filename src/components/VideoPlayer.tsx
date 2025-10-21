@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase, VideoRecord } from '../lib/supabase';
+import { useTheme } from '../hooks/useTheme';
 import { Icon } from './Icon';
 import { VideoInfoBar } from './VideoInfoBar';
 import { VerticalVideoCard } from '../features/vertical-feed/components/VerticalVideoCard';
@@ -73,7 +74,7 @@ const VideoCardWrapper: React.FC<VideoCardWrapperProps> = memo(
           style={{
             width: Dimensions.get('window').width,
             height: SCREEN_HEIGHT,
-            backgroundColor: '#000000'
+            backgroundColor: '#000000' // Keep black for video player background
           }}
         />
       );
@@ -129,6 +130,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const insets = useSafeAreaInsets();
 
   // Hooks
+  const theme = useTheme();
   const { isMuted } = useVerticalFeedAudio();
 
   // Préchargement intelligent ±1 vidéo
@@ -454,7 +456,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       statusBarTranslucent={true}
       onRequestClose={handleClose}
     >
-      <StatusBar hidden={false} barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar hidden={false} barStyle="light-content" backgroundColor="#000000" /> {/* Video player always dark */}
       <View style={styles.container}>
         {/* FlatList with vertical snap (exactement comme VerticalFeedScreen) */}
         <FlatList
