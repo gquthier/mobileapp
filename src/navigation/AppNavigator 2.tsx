@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View } from 'react-native';
-import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
 import { createNativeBottomTabNavigator } from '@bottom-tabs/react-navigation';
 import { createStackNavigator } from '@react-navigation/stack';
 import { supabase } from '../lib/supabase';
@@ -23,7 +23,6 @@ import ChapterDetailScreen from '../screens/ChapterDetailScreen';
 import EditChapterScreen from '../screens/EditChapterScreen';
 import { VerticalFeedScreen } from '../features/vertical-feed/screens/VerticalFeedScreen';
 import { VerticalFeedTabScreen } from '../screens/VerticalFeedTabScreen';
-import { setupNotificationClickListener, requestNotificationPermissions } from '../services/notificationService';
 
 const Tab = createNativeBottomTabNavigator();
 const LibraryStack = createStackNavigator();
@@ -167,39 +166,6 @@ export const AppNavigator = () => {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showLifeAreasSelection, setShowLifeAreasSelection] = useState(false);
   const [hideTabBar, setHideTabBar] = useState(false);
-  const navigationRef = useRef<NavigationContainerRef<any>>(null);
-
-  // 🔔 Demander les permissions de notification après l'onboarding
-  useEffect(() => {
-    if (session && !isFirstTime && !showOnboarding && !showLifeAreasSelection) {
-      // Attendre 2 secondes après l'onboarding pour demander les permissions
-      const timer = setTimeout(async () => {
-        await requestNotificationPermissions();
-      }, 2000);
-
-      return () => clearTimeout(timer);
-    }
-  }, [session, isFirstTime, showOnboarding, showLifeAreasSelection]);
-
-  // 🔔 Setup listener pour navigation quand on clique sur une notification
-  useEffect(() => {
-    const cleanup = setupNotificationClickListener((data) => {
-      console.log('🔔 Navigation depuis notification:', data);
-
-      // Navigate vers l'écran approprié
-      if (navigationRef.current?.isReady()) {
-        if (data.screen === 'RecordScreen') {
-          // Ouvrir RecordScreen en modal
-          navigationRef.current.navigate('MainTabs', {
-            screen: 'Record'
-          });
-        }
-        // 🔮 Ajouter d'autres screens ici si nécessaire
-      }
-    });
-
-    return cleanup;
-  }, []);
 
   useEffect(() => {
     // Get initial session
@@ -273,7 +239,7 @@ export const AppNavigator = () => {
   }
 
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer>
       {content}
     </NavigationContainer>
   );

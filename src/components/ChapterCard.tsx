@@ -667,25 +667,25 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                   <View style={[
                     styles.dot,
                     currentPage === 0 && styles.activeDot,
-                    currentPage === 0 && { backgroundColor: brandColor, shadowColor: brandColor }
+                    currentPage === 0 && { backgroundColor: color || brandColor, shadowColor: color || brandColor }
                   ]} />
                   {/* Dot for stats page */}
                   <View style={[
                     styles.dot,
                     currentPage === 1 && styles.activeDot,
-                    currentPage === 1 && { backgroundColor: brandColor, shadowColor: brandColor }
+                    currentPage === 1 && { backgroundColor: color || brandColor, shadowColor: color || brandColor }
                   ]} />
                   {/* Dot for top mentioned page */}
                   <View style={[
                     styles.dot,
                     currentPage === 2 && styles.activeDot,
-                    currentPage === 2 && { backgroundColor: brandColor, shadowColor: brandColor }
+                    currentPage === 2 && { backgroundColor: color || brandColor, shadowColor: color || brandColor }
                   ]} />
                   {/* Dot for least mentioned page (always shown) */}
                   <View style={[
                     styles.dot,
                     currentPage === 3 && styles.activeDot,
-                    currentPage === 3 && { backgroundColor: brandColor, shadowColor: brandColor }
+                    currentPage === 3 && { backgroundColor: color || brandColor, shadowColor: color || brandColor }
                   ]} />
                   {/* Dots for alternating questions and quotes */}
                   {(() => {
@@ -703,7 +703,7 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                             style={[
                               styles.dot,
                               currentPage === pageIndex && styles.activeDot,
-                              currentPage === pageIndex && { backgroundColor: brandColor, shadowColor: brandColor }
+                              currentPage === pageIndex && { backgroundColor: color || brandColor, shadowColor: color || brandColor }
                             ]}
                           />
                         );
@@ -718,7 +718,7 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
                             style={[
                               styles.dot,
                               currentPage === pageIndex && styles.activeDot,
-                              currentPage === pageIndex && { backgroundColor: brandColor, shadowColor: brandColor }
+                              currentPage === pageIndex && { backgroundColor: color || brandColor, shadowColor: color || brandColor }
                             ]}
                           />
                         );
@@ -1376,7 +1376,7 @@ const styles = StyleSheet.create({
     height: 5, // Reduced from 8 to 5
     borderRadius: 2.5,
     opacity: 0.6, // More transparent (was 1)
-    // backgroundColor and shadowColor are set inline with brandColor
+    // backgroundColor and shadowColor are set inline with chapter.color (fallback to brandColor)
     shadowOffset: { width: 0, height: 1 }, // Reduced shadow
     shadowOpacity: 0.2, // Reduced shadow opacity
     shadowRadius: 2, // Reduced shadow radius

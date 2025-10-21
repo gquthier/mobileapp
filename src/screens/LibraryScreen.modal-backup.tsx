@@ -21,7 +21,6 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
-import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { theme } from '../styles';
 import { useTheme } from '../hooks/useTheme';
 import { TopBar } from '../components/TopBar';
@@ -82,11 +81,6 @@ const LibraryScreen: React.FC = () => {
   const modalScale = useRef(new Animated.Value(0.95)).current;
   const modalOpacity = useRef(new Animated.Value(0)).current;
   const filterButtonScale = useRef(new Animated.Value(1)).current;
-  const chapterScrollY = useRef(new Animated.Value(0)).current;
-
-  // Animation values for chapter title swipe (wheel effect)
-  const chapterTitleSlide = useRef(new Animated.Value(0)).current;
-  const chapterTitleOpacity = useRef(new Animated.Value(1)).current;
 
   // ✅ Calculate header height for content inset
   // Different padding for calendar vs grid view
@@ -566,141 +560,6 @@ const LibraryScreen: React.FC = () => {
     // Navigate to the Settings tab
     navigation.navigate('Settings' as never);
   };
-
-  // 🎡 CHAPTER SWIPE NAVIGATION (Wheel effect)
-  // Sort chapters chronologically
-  const sortedChapters = useMemo(() => {
-    const allChapters = [
-      { id: null, title: 'Chapters', started_at: new Date(0).toISOString() }, // "All Chapters" at the beginning
-      ...chapters.sort((a, b) =>
-        new Date(a.started_at || 0).getTime() - new Date(b.started_at || 0).getTime()
-      )
-    ];
-    return allChapters;
-  }, [chapters]);
-
-  // Navigate to next/previous chapter with animation
-  const navigateToChapter = useCallback((direction: 'up' | 'down') => {
-    try {
-      // Safety checks
-      if (!sortedChapters || sortedChapters.length === 0) {
-        console.warn('⚠️ No chapters available for navigation');
-        return;
-      }
-
-      if (sortedChapters.length === 1) {
-        console.log('ℹ️ Only one chapter, skipping navigation');
-        return;
-      }
-
-      const currentIndex = sortedChapters.findIndex(ch => ch.id === selectedChapterId);
-
-      // If current chapter not found, default to first chapter
-      if (currentIndex === -1) {
-        console.warn('⚠️ Current chapter not found, defaulting to first');
-        const firstChapter = sortedChapters[0];
-        if (firstChapter) {
-          setSelectedChapterId(firstChapter.id ?? null);
-        }
-        return;
-      }
-
-      let newIndex: number;
-
-      if (direction === 'up') {
-        // Swipe up = previous chapter
-        newIndex = currentIndex > 0 ? currentIndex - 1 : sortedChapters.length - 1;
-      } else {
-        // Swipe down = next chapter
-        newIndex = currentIndex < sortedChapters.length - 1 ? currentIndex + 1 : 0;
-      }
-
-      const newChapter = sortedChapters[newIndex];
-
-      // Safety check for new chapter
-      if (!newChapter) {
-        console.warn('⚠️ New chapter not found at index:', newIndex);
-        return;
-      }
-
-      // Haptic feedback
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(err => {
-        console.warn('⚠️ Haptic feedback failed:', err);
-      });
-
-      // Animate title change (slide effect)
-      const slideDirection = direction === 'up' ? -1 : 1;
-
-      Animated.sequence([
-        Animated.parallel([
-          Animated.timing(chapterTitleSlide, {
-            toValue: slideDirection * 20,
-            duration: 150,
-            useNativeDriver: true,
-          }),
-          Animated.timing(chapterTitleOpacity, {
-            toValue: 0,
-            duration: 150,
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(chapterTitleSlide, {
-            toValue: 0,
-            duration: 150,
-            useNativeDriver: true,
-          }),
-          Animated.timing(chapterTitleOpacity, {
-            toValue: 1,
-            duration: 150,
-            useNativeDriver: true,
-          }),
-        ]),
-      ]).start();
-
-      // Update selected chapter (without closing modal)
-      setSelectedChapterId(newChapter.id ?? null);
-    } catch (error) {
-      console.error('❌ Error in navigateToChapter:', error instanceof Error ? error.message : JSON.stringify(error));
-    }
-  }, [sortedChapters, selectedChapterId, chapterTitleSlide, chapterTitleOpacity]);
-
-  // Gesture handler for chapter button swipe
-  const chapterSwipeGesture = useMemo(() => {
-    return Gesture.Pan()
-      .activeOffsetY([-15, 15]) // Require 15px vertical movement to activate (prevents accidental triggers)
-      .failOffsetX([-30, 30]) // Fail if horizontal movement is too large (30px tolerance)
-      .onEnd((event) => {
-        try {
-          // Safety check: ensure event exists
-          if (!event) {
-            console.warn('⚠️ Swipe event is null');
-            return;
-          }
-
-          const velocityY = event.velocityY ?? 0;
-          const translationY = event.translationY ?? 0;
-          const translationX = event.translationX ?? 0;
-
-          // Ensure movement is primarily vertical (not horizontal)
-          const isVerticalMovement = Math.abs(translationY) > Math.abs(translationX) * 1.5;
-
-          // Require minimum swipe distance or velocity AND vertical movement
-          if (isVerticalMovement && (Math.abs(translationY) > 25 || Math.abs(velocityY) > 600)) {
-            if (translationY < 0) {
-              // Swiped up
-              navigateToChapter('up');
-            } else {
-              // Swiped down
-              navigateToChapter('down');
-            }
-          }
-        } catch (error) {
-          console.error('❌ Error in chapter swipe gesture:', error instanceof Error ? error.message : JSON.stringify(error));
-        }
-      })
-      .enabled(sortedChapters.length > 1); // Only enable if there are multiple chapters
-  }, [navigateToChapter, sortedChapters.length]);
 
   // 🚀 OPTIMIZATION: Memoize month days calculation - only recalculate when needed
   const getCurrentMonthDays = useMemo(() => {
@@ -1236,39 +1095,29 @@ const LibraryScreen: React.FC = () => {
                         }],
                       }}
                     >
-                      <GestureDetector gesture={chapterSwipeGesture}>
-                        <TouchableOpacity
-                          onPress={handleOpenChapterModal}
-                          activeOpacity={0.7}
-                          style={styles.chaptersGlassContainer}
+                      <TouchableOpacity
+                        onPress={handleOpenChapterModal}
+                        activeOpacity={0.7}
+                        style={styles.chaptersGlassContainer}
+                      >
+                        <LiquidGlassView
+                          style={[
+                            styles.chaptersGlassInner,
+                            !isLiquidGlassSupported && {
+                              backgroundColor: theme.colors.gray100,
+                            }
+                          ]}
+                          interactive={false}
                         >
-                          <LiquidGlassView
-                            style={[
-                              styles.chaptersGlassInner,
-                              !isLiquidGlassSupported && {
-                                backgroundColor: theme.colors.gray100,
-                              }
-                            ]}
-                            interactive={false}
-                          >
-                            <View style={styles.chaptersTextContainer}>
-                              <Animated.Text
-                                style={[
-                                  styles.title,
-                                  {
-                                    opacity: chapterTitleOpacity,
-                                    transform: [{ translateY: chapterTitleSlide }],
-                                  }
-                                ]}
-                              >
-                                {selectedChapterId === null
-                                  ? 'Chapters'
-                                  : chapters.find(c => c.id === selectedChapterId)?.title || 'Chapters'}
-                              </Animated.Text>
-                            </View>
-                          </LiquidGlassView>
-                        </TouchableOpacity>
-                      </GestureDetector>
+                          <View style={styles.chaptersTextContainer}>
+                            <Text style={styles.title}>
+                              {selectedChapterId === null
+                                ? 'Chapters'
+                                : chapters.find(c => c.id === selectedChapterId)?.title || 'Chapters'}
+                            </Text>
+                          </View>
+                        </LiquidGlassView>
+                      </TouchableOpacity>
                     </Animated.View>
 
                     {/* Center spacer */}
@@ -1372,6 +1221,15 @@ const LibraryScreen: React.FC = () => {
                           fallbackStyle={{ backgroundColor: theme.colors.ui.surfaceHover }}
                         >
                           <Icon name="plus" size={18} />
+                        </GlassButton>
+
+                        {/* Settings Button with Liquid Glass */}
+                        <GlassButton
+                          onPress={handleNavigateToSettings}
+                          style={styles.chevronGlassContainer}
+                          fallbackStyle={{ backgroundColor: theme.colors.ui.surfaceHover }}
+                        >
+                          <Icon name="settings" size={18} />
                         </GlassButton>
 
                         {/* Close button - chevron pointing right to collapse */}
@@ -1659,199 +1517,108 @@ const LibraryScreen: React.FC = () => {
             </View>
           </Modal>
 
-          {/* Chapter Bubbles - Scrollable vertical list of separate bubbles */}
-          {showChapterModal && (
-            <>
-              {/* Overlay to close bubbles when tapping outside */}
-              <TouchableWithoutFeedback onPress={handleCloseChapterModal}>
-                <View style={styles.chapterBubblesOverlay} />
-              </TouchableWithoutFeedback>
-
-              <Animated.View
-                style={[
-                  styles.chapterBubblesContainer,
-                  {
-                    top: insets.top + 60,
-                    left: theme.spacing['4'],
-                    opacity: modalOpacity,
-                  }
-                ]}
-              >
-                <Animated.ScrollView
-                  style={styles.chapterBubblesScroll}
-                  showsVerticalScrollIndicator={false}
-                  bounces={true}
-                  onScroll={Animated.event(
-                    [{ nativeEvent: { contentOffset: { y: chapterScrollY } } }],
-                    { useNativeDriver: true }
-                  )}
-                  scrollEventThrottle={16}
-                >
-                  {/* All Chapters option */}
-                  {(() => {
-                    const index = 0;
-                    const itemHeight = 52; // 44px height + 8px margin
-                    const itemY = index * itemHeight;
-                    const containerHeight = Dimensions.get('window').height * 0.7;
-                    const fadeZone = containerHeight * 0.15; // 15% fade zones
-
-                    const opacity = chapterScrollY.interpolate({
-                      inputRange: [
-                        itemY - containerHeight,
-                        itemY - containerHeight + fadeZone,
-                        itemY - fadeZone,
-                        itemY,
-                      ],
-                      outputRange: [0, 1, 1, 0],
-                      extrapolate: 'clamp',
-                    });
-
-                    return (
-                      <Animated.View style={{ opacity }}>
+          {/* Chapter Filter Modal (iOS-style like Momentum) */}
+          <Modal
+            visible={showChapterModal}
+            transparent
+            animationType="none"
+            onRequestClose={handleCloseChapterModal}
+          >
+            <TouchableWithoutFeedback onPress={handleCloseChapterModal}>
+              <View style={styles.chapterModalOverlay}>
+                <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+                  <Animated.View
+                    style={[
+                      styles.chaptersModalContainer,
+                      {
+                        top: insets.top + 60, // Position just below the Chapters button with small gap
+                        left: theme.spacing['4'],
+                        opacity: modalOpacity,
+                        transform: [{ scale: modalScale }]
+                      }
+                    ]}
+                  >
+                    <LiquidGlassView
+                      style={[
+                        styles.chaptersModalGlass,
+                        !isLiquidGlassSupported && {
+                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                        }
+                      ]}
+                      interactive={true}
+                    >
+                      {/* Scrollable list */}
+                      <ScrollView
+                        style={styles.chaptersModalScroll}
+                        showsVerticalScrollIndicator={false}
+                      >
+                        {/* All Chapters option */}
                         <TouchableOpacity
+                          style={[
+                            styles.chapterModalItem,
+                            selectedChapterId === null && { backgroundColor: `${brandColor}15` }
+                          ]}
                           onPress={() => handleSelectChapter(null)}
-                          activeOpacity={0.7}
-                          style={styles.chapterBubbleWrapper}
                         >
-                          <LiquidGlassView
-                            style={[
-                              styles.chapterBubbleGlass,
-                              selectedChapterId === null && { backgroundColor: brandColor },
-                              !isLiquidGlassSupported && {
-                                backgroundColor: selectedChapterId === null ? brandColor : theme.colors.gray100,
-                              }
-                            ]}
-                            interactive={false}
-                          >
-                            <View style={styles.chapterBubbleContent}>
-                              <Text style={[
-                                styles.chapterBubbleText,
-                                selectedChapterId === null && styles.chapterBubbleTextSelected
-                              ]}>
-                                Chapters
-                              </Text>
-                            </View>
-                          </LiquidGlassView>
+                          <Text style={[
+                            styles.chapterModalItemText,
+                            selectedChapterId === null && { color: brandColor, fontWeight: '600' }
+                          ]}>
+                            All Chapters
+                          </Text>
                         </TouchableOpacity>
-                      </Animated.View>
-                    );
-                  })()}
 
-                  {/* Current chapter first */}
-                  {currentChapter && (() => {
-                    const index = 1;
-                    const itemHeight = 52;
-                    const itemY = index * itemHeight;
-                    const containerHeight = Dimensions.get('window').height * 0.7;
-                    const fadeZone = containerHeight * 0.15; // 15% fade zones
-
-                    const opacity = chapterScrollY.interpolate({
-                      inputRange: [
-                        itemY - containerHeight,
-                        itemY - containerHeight + fadeZone,
-                        itemY - fadeZone,
-                        itemY,
-                      ],
-                      outputRange: [0, 1, 1, 0],
-                      extrapolate: 'clamp',
-                    });
-
-                    return (
-                      <Animated.View style={{ opacity }}>
-                        <TouchableOpacity
-                          key={currentChapter.id}
-                          onPress={() => handleSelectChapter(currentChapter.id!)}
-                          activeOpacity={0.7}
-                          style={styles.chapterBubbleWrapper}
-                        >
-                          <LiquidGlassView
+                        {/* Current chapter first */}
+                        {currentChapter && (
+                          <TouchableOpacity
+                            key={currentChapter.id}
                             style={[
-                              styles.chapterBubbleGlass,
-                              selectedChapterId === currentChapter.id && { backgroundColor: brandColor },
-                              !isLiquidGlassSupported && {
-                                backgroundColor: selectedChapterId === currentChapter.id ? brandColor : theme.colors.gray100,
-                              }
+                              styles.chapterModalItem,
+                              selectedChapterId === currentChapter.id && { backgroundColor: `${brandColor}15` }
                             ]}
-                            interactive={false}
+                            onPress={() => handleSelectChapter(currentChapter.id!)}
                           >
-                            <View style={styles.chapterBubbleContent}>
+                            <View style={styles.chapterModalItemRow}>
                               <Text style={[
-                                styles.chapterBubbleText,
-                                selectedChapterId === currentChapter.id && styles.chapterBubbleTextSelected
+                                styles.chapterModalItemText,
+                                selectedChapterId === currentChapter.id && { color: brandColor, fontWeight: '600' }
                               ]}>
                                 {currentChapter.title}
                               </Text>
-                              <View style={[styles.currentBadgeBubble, {
-                                backgroundColor: selectedChapterId === currentChapter.id ? 'rgba(255,255,255,0.3)' : brandColor
-                              }]}>
-                                <Icon
-                                  name="star"
-                                  size={6}
-                                  color="#FFFFFF"
-                                />
+                              <View style={[styles.currentBadge, { backgroundColor: brandColor }]}>
+                                <Icon name="star" size={10} color="#FFFFFF" />
                               </View>
                             </View>
-                          </LiquidGlassView>
-                        </TouchableOpacity>
-                      </Animated.View>
-                    );
-                  })()}
-
-                  {/* Other chapters */}
-                  {chapters
-                    .filter(chapter => chapter.id !== currentChapter?.id)
-                    .map((chapter, idx) => {
-                      const index = (currentChapter ? 2 : 1) + idx;
-                      const itemHeight = 52;
-                      const itemY = index * itemHeight;
-                      const containerHeight = Dimensions.get('window').height * 0.7;
-                      const fadeZone = containerHeight * 0.15; // 15% fade zones
-
-                      const opacity = chapterScrollY.interpolate({
-                        inputRange: [
-                          itemY - containerHeight,
-                          itemY - containerHeight + fadeZone,
-                          itemY - fadeZone,
-                          itemY,
-                        ],
-                        outputRange: [0, 1, 1, 0],
-                        extrapolate: 'clamp',
-                      });
-
-                      return (
-                        <Animated.View key={chapter.id} style={{ opacity }}>
-                          <TouchableOpacity
-                            onPress={() => handleSelectChapter(chapter.id!)}
-                            activeOpacity={0.7}
-                            style={styles.chapterBubbleWrapper}
-                          >
-                            <LiquidGlassView
-                              style={[
-                                styles.chapterBubbleGlass,
-                                selectedChapterId === chapter.id && { backgroundColor: brandColor },
-                                !isLiquidGlassSupported && {
-                                  backgroundColor: selectedChapterId === chapter.id ? brandColor : theme.colors.gray100,
-                                }
-                              ]}
-                              interactive={false}
-                            >
-                              <View style={styles.chapterBubbleContent}>
-                                <Text style={[
-                                  styles.chapterBubbleText,
-                                  selectedChapterId === chapter.id && styles.chapterBubbleTextSelected
-                                ]}>
-                                  {chapter.title}
-                                </Text>
-                              </View>
-                            </LiquidGlassView>
                           </TouchableOpacity>
-                        </Animated.View>
-                      );
-                    })}
-                </Animated.ScrollView>
-              </Animated.View>
-            </>
-          )}
+                        )}
+
+                        {/* Other chapters */}
+                        {chapters
+                          .filter(chapter => chapter.id !== currentChapter?.id)
+                          .map((chapter) => (
+                            <TouchableOpacity
+                              key={chapter.id}
+                              style={[
+                                styles.chapterModalItem,
+                                selectedChapterId === chapter.id && { backgroundColor: `${brandColor}15` }
+                              ]}
+                              onPress={() => handleSelectChapter(chapter.id!)}
+                            >
+                              <Text style={[
+                                styles.chapterModalItemText,
+                                selectedChapterId === chapter.id && { color: brandColor, fontWeight: '600' }
+                              ]}>
+                                {chapter.title}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                      </ScrollView>
+                    </LiquidGlassView>
+                  </Animated.View>
+                </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
 
           {/* Removed Import Progress Modal - videos now show inline with spinner */}
         </View>
@@ -2467,64 +2234,55 @@ const styles = StyleSheet.create({
     height: ((screenWidth - 4 - 6) / 4) * 1.33,
   },
   // Chapter Modal Styles (iOS-style like Momentum)
-  // Chapter Bubbles - Scrollable separate bubbles
-  chapterBubblesOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+  chapterModalOverlay: {
+    flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    zIndex: 999,
   },
-  chapterBubblesContainer: {
+  chaptersModalContainer: {
     position: 'absolute',
-    zIndex: 1000,
+    width: 220, // Narrower to match dropdown style
+    maxHeight: '70%', // Allow modal to grow but not exceed 70% of screen
   },
-  chapterBubblesScroll: {
-    maxHeight: '70%', // Max 70% of screen height for scrolling
-  },
-  chapterBubbleWrapper: {
-    marginBottom: 8, // Space between bubbles
-    alignSelf: 'flex-start', // Width adapts to content
-  },
-  chapterBubbleGlass: {
-    borderRadius: 22,
+  chaptersModalGlass: {
+    borderRadius: 16,
+    borderTopLeftRadius: 8, // Smaller radius on top left to connect with button
+    borderTopRightRadius: 16,
     overflow: 'hidden',
-    height: 44, // Same height as main Chapters button
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
-  chapterBubbleContent: {
+  chaptersModalScroll: {
+    paddingTop: 8, // Small spacing from button
+    paddingBottom: 8,
+  },
+  chapterModalItem: {
+    paddingVertical: 14, // Much more breathing room between items (14px top + 14px bottom = 28px total)
+    paddingHorizontal: theme.spacing['4'],
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.03)',
+  },
+  chapterModalItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center', // Center text horizontally
-    paddingHorizontal: 16,
-    paddingRight: 30, // More space for badge
-    height: '100%',
-    position: 'relative',
+    justifyContent: 'space-between',
+    gap: 8,
   },
-  chapterBubbleText: {
+  chapterModalItemText: {
     fontFamily: 'Poppins-SemiBoldItalic',
     fontSize: 16,
-    fontWeight: '600',
-    fontStyle: 'italic',
-    letterSpacing: -0.48,
+    fontWeight: '600', // semi-bold
+    fontStyle: 'italic', // backup for systems without custom font
+    letterSpacing: -0.48, // -3% de 16px (same ratio as title)
     color: theme.colors.text.primary,
-    textAlign: 'center', // Center text
+    flex: 1,
   },
-  chapterBubbleTextSelected: {
-    color: theme.colors.white,
-  },
-  currentBadgeBubble: {
-    position: 'absolute',
-    right: 12,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+  currentBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },

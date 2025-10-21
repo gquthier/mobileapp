@@ -30,7 +30,6 @@ import {
 import { getCurrentChapter } from '../services/chapterService';
 import { CHAPTER_COLORS } from '../constants/chapterColors';
 import ProfileScreen from './ProfileScreen';
-import NotificationSettingsScreen from './NotificationSettingsScreen';
 import AuthScreen from './AuthScreen';
 
 // ✅ Static Life Areas configuration (12 fixed areas)
@@ -209,7 +208,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const { brandColor, colorMode, customColor, setColorMode, setCustomColor, loadCurrentChapterColor } = useThemeContext();
   const { isDarkMode, toggleDarkMode } = useDarkMode();
 
-  const [currentView, setCurrentView] = useState<'settings' | 'profile' | 'notifications' | 'auth'>('settings');
+  const [currentView, setCurrentView] = useState<'settings' | 'profile' | 'auth'>('settings');
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
@@ -314,8 +313,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   };
 
   const handleNotificationSettings = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setCurrentView('notifications');
+    Alert.alert('Notification Settings', 'Advanced notification settings coming soon');
   };
 
   const handleBackupSettings = () => {
@@ -340,6 +338,30 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
   const handleAboutPress = () => {
     Alert.alert('About', 'Chapters App v1.0.0\nBuilt for personal reflection and growth');
+  };
+
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AuthService.signOut();
+              setUser(null);
+              setProfile(null);
+              setCurrentView('auth');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to sign out');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const updateNotificationSettings = async (key: string, value: boolean) => {
@@ -790,10 +812,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
   if (currentView === 'profile') {
     return <ProfileScreen onBack={() => setCurrentView('settings')} />;
-  }
-
-  if (currentView === 'notifications') {
-    return <NotificationSettingsScreen onBack={() => setCurrentView('settings')} />;
   }
 
   return (

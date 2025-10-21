@@ -12,48 +12,26 @@ import {
   TouchableOpacity,
   Image,
   Dimensions,
+  ActivityIndicator,
   Modal,
   TouchableWithoutFeedback,
   Animated,
-  TextInput,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
-import Svg, { Circle, Path } from 'react-native-svg';
+import Svg, { Circle } from 'react-native-svg';
 import { theme } from '../styles';
 import { Chapter, VideoRecord, supabase } from '../lib/supabase';
 import { formatChapterPeriod } from '../services/chapterService';
 import { TranscriptionJob } from '../services/transcriptionJobService';
 import { Icon } from '../components/Icon';
 import { VideoPlayer } from '../components/VideoPlayer';
-import { LoadingDots } from '../components/LoadingDots';
 import { CHAPTER_COLORS } from '../constants/chapterColors';
-import { useTheme as useThemeContext } from '../contexts/ThemeContext';
 import * as Haptics from 'expo-haptics';
-import DateTimePicker from '@react-native-community/datetimepicker';
 
 const { width: screenWidth } = Dimensions.get('window');
 const MARGIN = 16;
-
-// ✅ Static Life Areas configuration (12 fixed areas)
-const LIFE_AREAS_CONFIG: Record<string, { emoji: string; name: string }> = {
-  'Health': { emoji: '💪', name: 'Health' },
-  'Family': { emoji: '👨‍👩‍👧‍👦', name: 'Family' },
-  'Friends': { emoji: '🤝', name: 'Friends' },
-  'Love': { emoji: '❤️', name: 'Love' },
-  'Work': { emoji: '💼', name: 'Work' },
-  'Business': { emoji: '📈', name: 'Business' },
-  'Money': { emoji: '💰', name: 'Money' },
-  'Growth': { emoji: '🌱', name: 'Growth' },
-  'Leisure': { emoji: '🎯', name: 'Leisure' },
-  'Home': { emoji: '🏠', name: 'Home' },
-  'Spirituality': { emoji: '🙏', name: 'Spirituality' },
-  'Community': { emoji: '🌍', name: 'Community' },
-};
 
 // Create animated Circle component for SVG (used in circular preview)
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -78,7 +56,6 @@ interface ChapterDetailScreenProps {
 export default function ChapterDetailScreen({ navigation, route }: ChapterDetailScreenProps) {
   const { chapter: initialChapter } = route.params;
   const insets = useSafeAreaInsets();
-  const { brandColor } = useThemeContext(); // ✅ Get user's selected color (auto or custom)
   const [loading, setLoading] = useState(true);
   const [chapter, setChapter] = useState<Chapter>(initialChapter); // State for chapter with AI data
   const [videos, setVideos] = useState<VideoRecord[]>([]);
@@ -91,22 +68,10 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const [allChapters, setAllChapters] = useState<Chapter[]>([]);
   const [showFullStory, setShowFullStory] = useState(false);
+  const [expandedInsight, setExpandedInsight] = useState<'challenge' | 'growth' | 'lessons' | null>('challenge');
   const [showColorPicker, setShowColorPicker] = useState(false);
-
   const [quotes, setQuotes] = useState<Quote[]>([]); // 🆕 Quotes from transcript_highlight
   const [quotesCurrentPage, setQuotesCurrentPage] = useState(0); // 🆕 Current quote page for swipe
-  const [summaryCardCurrentPage, setSummaryCardCurrentPage] = useState(0); // 🆕 Current page for Chapter Summary Card
-  const [randomQuote, setRandomQuote] = useState<Quote | null>(null); // 🆕 Random quote for summary card
-  const [lifeAreaMentions, setLifeAreaMentions] = useState<{
-    area_key: string;
-    display_name: string;
-    percentage: number;
-  }[]>([]); // 🆕 All Life Areas with percentages for this chapter (from highlights JSON)
-  const [leastMentionedAreas, setLeastMentionedAreas] = useState<{
-    area_key: string;
-    display_name: string;
-    percentage: number;
-  }[]>([]); // 🆕 Bottom 3 Life Areas (least mentioned) for "Less About" page
   const circularVideoRef = useRef<Video>(null);
 
   // Animation values for modal (iOS native-style animation)
@@ -147,7 +112,7 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     if (hours > 0) {
-      return `${hours}h${minutes}m`; // ✅ Compact format without space
+      return `${hours}h ${minutes}m`;
     }
     return `${minutes}m`;
   };
@@ -157,20 +122,12 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
     loadAllChapters();
   }, [chapter.id]);
 
-  // 🆕 Load quotes and life areas when videos are loaded
+  // 🆕 Load quotes when videos are loaded
   useEffect(() => {
     if (videos.length > 0) {
       loadQuotes();
-      loadLifeAreaMentions();
     }
   }, [videos]);
-
-  // 🆕 Load random quote when quotes are available
-  useEffect(() => {
-    if (quotes.length > 0) {
-      loadRandomQuote();
-    }
-  }, [quotes]);
 
   // ============================================================================
   // Action Handlers
@@ -182,9 +139,10 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
     console.log('📤 Share chapter:', chapter.title);
   }, [chapter]);
 
-  const handleEditChapter = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    navigation.navigate('EditChapter', { chapter });
+  const handleEdit = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    // TODO: Navigate to chapter edit screen
+    console.log('✏️ Edit chapter:', chapter.title);
   }, [chapter, navigation]);
 
   const handleColorButtonPress = useCallback(() => {
@@ -235,14 +193,6 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
     setQuotesCurrentPage(page);
   };
 
-  // 🆕 Handle summary card scroll for pagination
-  const handleSummaryCardScroll = (event: any) => {
-    const scrollPosition = event.nativeEvent.contentOffset.x;
-    const pageWidth = screenWidth - (MARGIN * 2); // Card width
-    const page = Math.round(scrollPosition / pageWidth);
-    setSummaryCardCurrentPage(page);
-  };
-
   // 🆕 Open vertical feed with all chapter videos (starting from first video)
   const handleReliveChapter = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -283,18 +233,6 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
 
       if (!chapterError && chapterData) {
         setChapter(chapterData as Chapter);
-        console.log('📊 Chapter Data Loaded:', {
-          title: chapterData.title,
-          hasChallenges: !!chapterData.challenges,
-          challengesCount: chapterData.challenges?.length || 0,
-          challenges: chapterData.challenges,
-          hasGrowth: !!chapterData.growth,
-          growthCount: chapterData.growth?.length || 0,
-          growth: chapterData.growth,
-          hasLessons: !!chapterData.lessons_learned,
-          lessonsCount: chapterData.lessons_learned?.length || 0,
-          lessons: chapterData.lessons_learned,
-        });
       }
 
       // Load videos
@@ -398,96 +336,6 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
       setQuotes(allQuotes);
     } catch (error) {
       console.error('❌ Error in loadQuotes:', error);
-    }
-  };
-
-  // 🆕 Load random quote for Chapter Summary Card
-  const loadRandomQuote = () => {
-    try {
-      if (quotes.length === 0) {
-        // Will be called again when quotes load
-        return;
-      }
-
-      // Pick random quote
-      const randomIndex = Math.floor(Math.random() * quotes.length);
-      setRandomQuote(quotes[randomIndex]);
-      console.log('✅ Random quote selected for summary card');
-    } catch (error) {
-      console.error('❌ Error in loadRandomQuote:', error);
-    }
-  };
-
-  // 🆕 Load Life Area mentions for this chapter (simplified - reads from highlights JSON)
-  const loadLifeAreaMentions = async () => {
-    try {
-      if (videos.length === 0) return;
-
-      const videoIds = videos.map(v => v.id);
-
-      // Get transcription jobs with highlights for this chapter's videos
-      const { data: jobs, error: jobsError } = await supabase
-        .from('transcription_jobs')
-        .select('transcript_highlight, video_id')
-        .in('video_id', videoIds)
-        .not('transcript_highlight', 'is', null);
-
-      if (jobsError || !jobs || jobs.length === 0) return;
-
-      // Count mentions per life area (simple string counting)
-      const mentionCounts = new Map<string, number>();
-      let totalHighlights = 0;
-
-      jobs.forEach((job) => {
-        if (!job.transcript_highlight) return;
-
-        const highlights = job.transcript_highlight.highlights || [];
-
-        highlights.forEach((highlight: any) => {
-          totalHighlights++;
-
-          // Get the area field from the highlight (simple string)
-          const highlightArea = highlight.area;
-
-          if (highlightArea && typeof highlightArea === 'string') {
-            // Normalize to capitalized form (e.g., "health" → "Health")
-            const normalizedArea = highlightArea.charAt(0).toUpperCase() + highlightArea.slice(1).toLowerCase();
-
-            // Check if it exists in our config
-            if (LIFE_AREAS_CONFIG[normalizedArea]) {
-              const currentCount = mentionCounts.get(normalizedArea) || 0;
-              mentionCounts.set(normalizedArea, currentCount + 1);
-            }
-          }
-        });
-      });
-
-      if (totalHighlights === 0) return;
-
-      // Calculate percentages for ALL areas (including those with 0 mentions)
-      const allAreaKeys = Object.keys(LIFE_AREAS_CONFIG);
-      const allAreaPercentages = allAreaKeys.map(areaKey => ({
-        area_key: areaKey,
-        display_name: LIFE_AREAS_CONFIG[areaKey].name,
-        count: mentionCounts.get(areaKey) || 0,
-        percentage: Math.round(((mentionCounts.get(areaKey) || 0) / totalHighlights) * 100)
-      }));
-
-      // Top mentioned (sorted by count descending, only areas with mentions)
-      const topMentioned = allAreaPercentages
-        .filter(item => item.count > 0) // Only areas with at least one mention
-        .sort((a, b) => b.count - a.count); // Sort by count descending
-
-      setLifeAreaMentions(topMentioned);
-
-      // Least mentioned (sorted by count ascending, take bottom 3)
-      const leastMentioned = allAreaPercentages
-        .sort((a, b) => a.count - b.count) // Sort by count ascending
-        .slice(0, 3); // Take bottom 3
-
-      setLeastMentionedAreas(leastMentioned);
-    } catch (error) {
-      console.error('❌ Error loading life area mentions:', error);
     }
   };
 
@@ -669,25 +517,29 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
     }).start();
   }, [longPressProgress]);
 
-  // ✅ Get chapter color for cards (same as Chapters page)
-  const getCardBackgroundColor = () => {
-    if (!chapter.color) return undefined;
-    return `${chapter.color}15`; // 15% opacity (same as ChapterCard.tsx)
-  };
+  // Convert chapter color to rgba with transparency
+  const getBackgroundColor = () => {
+    if (!chapter.color) return theme.colors.white;
 
-  // 🆕 Divider component for visual separation between sections
-  const Divider = () => <View style={styles.divider} />;
+    // Convert hex to rgba with 0.05 opacity for subtle background
+    const hex = chapter.color.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+
+    return `rgba(${r}, ${g}, ${b}, 0.05)`;
+  };
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <LoadingDots color={brandColor} />
+      <View style={[styles.loadingContainer, { backgroundColor: getBackgroundColor() }]}>
+        <ActivityIndicator size="large" color={theme.colors.brand.primary} />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: getBackgroundColor() }]} edges={['top']}>
       {/* Chapter Selector Modal (iOS-style with Liquid Glass) */}
       <Modal
         visible={showChaptersModal}
@@ -902,7 +754,7 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
               </Text>
             )}
           </View>
-          {/* Action buttons (Color) */}
+          {/* Action buttons (Color + Edit) */}
           <View style={styles.headerActions}>
             {/* Color Button */}
             <TouchableOpacity onPress={handleColorButtonPress} activeOpacity={0.8}>
@@ -921,265 +773,67 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
                 ]} />
               </LiquidGlassView>
             </TouchableOpacity>
+
+            {/* Edit Icon in Liquid Glass bubble */}
+            <TouchableOpacity onPress={handleEdit} activeOpacity={0.8}>
+              <LiquidGlassView
+                style={[
+                  styles.editIconGlass,
+                  !isLiquidGlassSupported && {
+                    backgroundColor: theme.colors.gray100,
+                  }
+                ]}
+                interactive={true}
+              >
+                <Icon name="edit" size={20} color={theme.colors.text.primary} />
+              </LiquidGlassView>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* 🆕 Chapter Summary Card - Scrollable horizontal card (inspired by Current Chapter Card) */}
-        <View style={styles.chapterSummarySection}>
+        {/* Stats Card - 4 métriques clés */}
+        <View style={styles.statsSection}>
           <LiquidGlassView
             style={[
-              styles.chapterSummaryGlass,
-              { backgroundColor: getCardBackgroundColor() }, // ✅ Chapter color
+              styles.statsGlass,
               !isLiquidGlassSupported && {
-                backgroundColor: getCardBackgroundColor() || 'rgba(255, 255, 255, 0.8)',
+                backgroundColor: 'rgba(255, 255, 255, 0.8)',
               }
             ]}
             interactive={false}
           >
-            <ScrollView
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onScroll={handleSummaryCardScroll}
-              scrollEventThrottle={16}
-              style={styles.summaryCardScrollView}
-            >
-              {/* Page 1: Stats (Videos, Duration, Days) - 3 items */}
-              <View style={[styles.summaryCardPage, { width: screenWidth - (MARGIN * 2) }]}>
-                <View style={styles.summaryStatsGrid}>
-                  <View style={styles.summaryStatItem}>
-                    <Text style={styles.summaryStatValue}>{stats.videosCount}</Text>
-                    <Text style={styles.summaryStatLabel}>videos</Text>
-                  </View>
-                  <View style={styles.summaryStatItem}>
-                    <Text style={styles.summaryStatValue}>{formatDuration(stats.totalDuration)}</Text>
-                    <Text style={styles.summaryStatLabel}>duration</Text>
-                  </View>
-                  <View style={styles.summaryStatItem}>
-                    <Text style={styles.summaryStatValue}>{stats.activeDays}</Text>
-                    <Text style={styles.summaryStatLabel}>days</Text>
-                  </View>
-                </View>
+            <View style={styles.statsGrid}>
+              {/* Videos */}
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{stats.videosCount}</Text>
+                <Text style={styles.statLabel}>Videos</Text>
               </View>
 
-              {/* Pages 2+: Life Areas "All About" - 3 per page */}
-              {lifeAreaMentions.length > 0 ? (() => {
-                // Group Life Areas into pages of 3
-                const pages = [];
-                for (let i = 0; i < lifeAreaMentions.length; i += 3) {
-                  const pageAreas = lifeAreaMentions.slice(i, i + 3);
-                  pages.push(
-                    <View key={`life-areas-${i}`} style={[styles.summaryCardPage, { width: screenWidth - (MARGIN * 2) }]}>
-                      <Text style={styles.summaryPageTitle}>all about...</Text>
-                      <View style={styles.lifeAreasStatsThree}>
-                        {pageAreas.map((item, index) => (
-                          <View key={item.area_key} style={styles.lifeAreaStatItem}>
-                            <Text style={styles.lifeAreaStatValue}>{item.percentage}%</Text>
-                            <Text style={styles.lifeAreaStatLabel}>{item.display_name}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    </View>
-                  );
-                }
-                return pages;
-              })() : (
-                <View key="no-life-areas" style={[styles.summaryCardPage, { width: screenWidth - (MARGIN * 2) }]}>
-                  <Text style={styles.summaryPageTitle}>Debug</Text>
-                  <Text style={{ textAlign: 'center', color: theme.colors.text.secondary }}>
-                    No Life Areas loaded yet ({lifeAreaMentions.length} items)
-                  </Text>
-                </View>
-              )}
-
-              {/* Page "Less About" - Bottom 3 Life Areas */}
-              {leastMentionedAreas.length > 0 && (
-                <View key="less-about" style={[styles.summaryCardPage, { width: screenWidth - (MARGIN * 2) }]}>
-                  <Text style={styles.summaryPageTitle}>less about...</Text>
-                  <View style={styles.lifeAreasStatsThree}>
-                    {leastMentionedAreas.map((item) => (
-                      <View key={item.area_key} style={styles.lifeAreaStatItem}>
-                        <Text style={styles.lifeAreaStatValue}>{item.percentage}%</Text>
-                        <Text style={styles.lifeAreaStatLabel}>{item.display_name}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              {/* Challenge */}
-              <View style={[styles.summaryCardPage, { width: screenWidth - (MARGIN * 2) }]}>
-                <Text style={styles.summaryPageTitle}>Challenge</Text>
-                <View style={styles.insightContentContainer}>
-                  {chapter.challenges && chapter.challenges.length > 0 ? (
-                    chapter.challenges.map((challenge, index) => (
-                      <Text key={index} style={styles.insightText} numberOfLines={4}>
-                        {challenge}
-                      </Text>
-                    ))
-                  ) : (
-                    <Text style={styles.insightPlaceholder}>
-                      No challenges identified yet.{'\n'}Generate chapter story to unlock insights.
-                    </Text>
-                  )}
-                </View>
+              {/* Duration */}
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{formatDuration(stats.totalDuration)}</Text>
+                <Text style={styles.statLabel}>Duration</Text>
               </View>
 
-              {/* Growth */}
-              <View style={[styles.summaryCardPage, { width: screenWidth - (MARGIN * 2) }]}>
-                <Text style={styles.summaryPageTitle}>Growth</Text>
-                <View style={styles.insightContentContainer}>
-                  {chapter.growth && chapter.growth.length > 0 ? (
-                    chapter.growth.map((item, index) => (
-                      <Text key={index} style={styles.insightText} numberOfLines={4}>
-                        {item}
-                      </Text>
-                    ))
-                  ) : (
-                    <Text style={styles.insightPlaceholder}>
-                      No growth insights yet.{'\n'}Generate chapter story to unlock insights.
-                    </Text>
-                  )}
-                </View>
+              {/* Active Days */}
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{stats.activeDays}</Text>
+                <Text style={styles.statLabel}>Days</Text>
               </View>
 
-              {/* Lessons */}
-              <View style={[styles.summaryCardPage, { width: screenWidth - (MARGIN * 2) }]}>
-                <Text style={styles.summaryPageTitle}>Lessons</Text>
-                <View style={styles.insightContentContainer}>
-                  {chapter.lessons_learned && chapter.lessons_learned.length > 0 ? (
-                    chapter.lessons_learned.map((lesson, index) => (
-                      <Text key={index} style={styles.insightText} numberOfLines={4}>
-                        {lesson}
-                      </Text>
-                    ))
-                  ) : (
-                    <Text style={styles.insightPlaceholder}>
-                      No lessons learned yet.{'\n'}Generate chapter story to unlock insights.
-                    </Text>
-                  )}
-                </View>
+              {/* Mood */}
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{stats.averageMood}%</Text>
+                <Text style={styles.statLabel}>Mood</Text>
               </View>
-
-              {/* Page Quote */}
-              {randomQuote && (
-                <View style={[styles.summaryCardPage, { width: screenWidth - (MARGIN * 2) }]}>
-                  <Text style={styles.summaryQuoteMarkBackground}>"</Text>
-                  <Text style={styles.summaryQuoteText} numberOfLines={6}>
-                    {randomQuote.text}
-                  </Text>
-                </View>
-              )}
-            </ScrollView>
-
-            {/* Pagination dots */}
-            <View style={styles.summaryCardPaginationDots}>
-              {(() => {
-                const dots = [];
-                dots.push(true); // Page 1: Stats
-
-                // Add dots for Life Areas pages (3 per page)
-                const lifeAreaPages = Math.ceil(lifeAreaMentions.length / 3);
-                for (let i = 0; i < lifeAreaPages; i++) {
-                  dots.push(true);
-                }
-
-                if (leastMentionedAreas.length > 0) dots.push(true); // Less About page
-
-                // Always show Challenge, Growth, Lessons pages (after Life Areas)
-                dots.push(true); // Challenge
-                dots.push(true); // Growth
-                dots.push(true); // Lessons
-
-                if (randomQuote) dots.push(true); // Quote
-
-                console.log('📍 Pagination dots count:', dots.length, {
-                  stats: true,
-                  challenge: true,
-                  growth: true,
-                  lessons: true,
-                  lifeAreaPages,
-                  lessAbout: leastMentionedAreas.length > 0,
-                  quote: !!randomQuote,
-                });
-
-                return dots.map((_, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.summaryCardDot,
-                      summaryCardCurrentPage === index && [
-                        styles.summaryCardActiveDot,
-                        {
-                          backgroundColor: chapter.color || brandColor || theme.colors.brand.primary,
-                          shadowColor: chapter.color || brandColor || theme.colors.brand.primary,
-                        }
-                      ],
-                    ]}
-                  />
-                ));
-              })()}
             </View>
           </LiquidGlassView>
         </View>
 
-        {/* Keywords - Scrollable horizontal avec LiquidGlass */}
-        {chapter.keywords && chapter.keywords.length > 0 && (
-          <View style={styles.keywordsSection}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.keywordsContainer}
-              style={styles.keywordsScrollView}
-            >
-              {chapter.keywords
-                .slice(0, 10) // Max 10 keywords
-                .map((keyword, index) => (
-                  <TouchableOpacity
-                    key={`${keyword}-${index}`}
-                    style={styles.keywordWrapper}
-                    onPress={() => handleKeywordPress(keyword)}
-                    activeOpacity={0.7}
-                  >
-                    <LiquidGlassView
-                      style={[
-                        styles.keywordPill,
-                        { backgroundColor: getCardBackgroundColor() },
-                        !isLiquidGlassSupported && {
-                          backgroundColor: getCardBackgroundColor() || 'rgba(255, 255, 255, 0.8)',
-                        }
-                      ]}
-                      interactive={true}
-                    >
-                      <Text style={styles.keywordText}>
-                        {keyword}
-                      </Text>
-                    </LiquidGlassView>
-                  </TouchableOpacity>
-                ))}
-            </ScrollView>
-          </View>
-        )}
-
         {/* Story Section - AI-generated summary */}
         <View style={styles.storySection}>
           {/* Centered Summary Card with AI Title inside */}
-          <LiquidGlassView
-            style={[
-              styles.storySummaryContainer,
-              { backgroundColor: getCardBackgroundColor() },
-              !isLiquidGlassSupported && {
-                backgroundColor: getCardBackgroundColor() || 'rgba(255, 255, 255, 0.8)',
-              }
-            ]}
-            interactive={false}
-          >
-            {/* 🆕 AI Generated badge */}
-            <View style={styles.aiGeneratedBadge}>
-              <Icon name="sparkles" size={10} color={theme.colors.text.tertiary} />
-              <Text style={styles.aiGeneratedText}>AI Generated</Text>
-            </View>
-
+          <View style={styles.storySummaryContainer}>
             {/* AI Title (optional) - Now inside the card */}
             {chapter.ai_title && (
               <Text style={styles.storyLiteraryTitle}>{chapter.ai_title}</Text>
@@ -1195,101 +849,248 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
                     chapter.description ||
                     "Generate this chapter's story to see an AI-powered summary of this period...")}
             </Text>
+          </View>
 
-            {/* Read Full Story button - inside card */}
-            {chapter.ai_detailed_description && (
-              <TouchableOpacity
-                style={styles.readFullStoryButton}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setShowFullStory(!showFullStory);
-                }}
-              >
-                <Text style={styles.readFullStoryText}>
-                  {showFullStory ? 'Show Less' : 'Read Full Story'}
-                </Text>
-                <Icon
-                  name={showFullStory ? 'chevronUp' : 'arrowRight'}
-                  size={16}
-                  color={theme.colors.text.secondary}
-                />
-              </TouchableOpacity>
-            )}
-          </LiquidGlassView>
+          {/* Read Full Story button */}
+          {chapter.ai_detailed_description && (
+            <TouchableOpacity
+              style={styles.readFullStoryButton}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setShowFullStory(!showFullStory);
+              }}
+            >
+              <Text style={styles.readFullStoryText}>
+                {showFullStory ? 'Show Less' : 'Read Full Story'}
+              </Text>
+              <Icon
+                name={showFullStory ? 'chevronUp' : 'arrowRight'}
+                size={16}
+                color={theme.colors.text.secondary}
+              />
+            </TouchableOpacity>
+          )}
         </View>
 
-        {/* Journey - Scrollable list of all videos */}
-        {videos.length > 0 && (
-          <View style={styles.timelineSection}>
-            <LiquidGlassView
-              style={[
-                styles.timelineCard,
-                { backgroundColor: getCardBackgroundColor() },
-                !isLiquidGlassSupported && {
-                  backgroundColor: getCardBackgroundColor() || 'rgba(255, 255, 255, 0.8)',
-                }
-              ]}
-              interactive={false}
-            >
-              {/* Title inside the card */}
-              <Text style={styles.timelineSectionTitle}>journey</Text>
+        {/* Insights & Lessons - Accordion expandable */}
+        <View style={styles.insightsSection}>
+          {/* Challenge */}
+          <TouchableOpacity
+            style={styles.accordionItem}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setExpandedInsight(expandedInsight === 'challenge' ? null : 'challenge');
+            }}
+            activeOpacity={0.8}
+          >
+            <View style={styles.accordionHeader}>
+              <View style={styles.accordionTitleContainer}>
+                <Text style={styles.accordionEmoji}>💪</Text>
+                <Text style={styles.accordionTitle}>Challenge</Text>
+              </View>
+              <Icon
+                name={expandedInsight === 'challenge' ? 'chevronDown' : 'chevronRight'}
+                size={20}
+                color={theme.colors.text.secondary}
+              />
+            </View>
+            {expandedInsight === 'challenge' && (
+              <View style={styles.accordionContent}>
+                {chapter.challenges && chapter.challenges.length > 0 ? (
+                  chapter.challenges.map((challenge, index) => (
+                    <Text key={index} style={styles.accordionText}>
+                      {challenge}
+                    </Text>
+                  ))
+                ) : (
+                  <Text style={styles.accordionPlaceholder}>
+                    No challenges identified yet. Generate chapter story to see AI-extracted insights.
+                  </Text>
+                )}
+              </View>
+            )}
+          </TouchableOpacity>
 
-              {/* Scrollable video list */}
-              <ScrollView
-                style={styles.timelineScrollView}
-                showsVerticalScrollIndicator={false}
-                nestedScrollEnabled={true}
-              >
-                {videos.map((video, index) => (
+          {/* Growth */}
+          <TouchableOpacity
+            style={styles.accordionItem}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setExpandedInsight(expandedInsight === 'growth' ? null : 'growth');
+            }}
+            activeOpacity={0.8}
+          >
+            <View style={styles.accordionHeader}>
+              <View style={styles.accordionTitleContainer}>
+                <Text style={styles.accordionEmoji}>🌱</Text>
+                <Text style={styles.accordionTitle}>Growth</Text>
+              </View>
+              <Icon
+                name={expandedInsight === 'growth' ? 'chevronDown' : 'chevronRight'}
+                size={20}
+                color={theme.colors.text.secondary}
+              />
+            </View>
+            {expandedInsight === 'growth' && (
+              <View style={styles.accordionContent}>
+                {chapter.growth && chapter.growth.length > 0 ? (
+                  chapter.growth.map((item, index) => (
+                    <Text key={index} style={styles.accordionText}>
+                      {item}
+                    </Text>
+                  ))
+                ) : (
+                  <Text style={styles.accordionPlaceholder}>
+                    No growth insights yet. Generate chapter story to see AI-extracted insights.
+                  </Text>
+                )}
+              </View>
+            )}
+          </TouchableOpacity>
+
+          {/* Lessons Learned */}
+          <TouchableOpacity
+            style={styles.accordionItem}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setExpandedInsight(expandedInsight === 'lessons' ? null : 'lessons');
+            }}
+            activeOpacity={0.8}
+          >
+            <View style={styles.accordionHeader}>
+              <View style={styles.accordionTitleContainer}>
+                <Text style={styles.accordionEmoji}>🎯</Text>
+                <Text style={styles.accordionTitle}>Lessons Learned</Text>
+              </View>
+              <Icon
+                name={expandedInsight === 'lessons' ? 'chevronDown' : 'chevronRight'}
+                size={20}
+                color={theme.colors.text.secondary}
+              />
+            </View>
+            {expandedInsight === 'lessons' && (
+              <View style={styles.accordionContent}>
+                {chapter.lessons_learned && chapter.lessons_learned.length > 0 ? (
+                  chapter.lessons_learned.map((lesson, index) => (
+                    <Text key={index} style={styles.accordionText}>
+                      {lesson}
+                    </Text>
+                  ))
+                ) : (
+                  <Text style={styles.accordionPlaceholder}>
+                    No lessons learned yet. Generate chapter story to see AI-extracted insights.
+                  </Text>
+                )}
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* Keywords - Scrollable horizontal avec LiquidGlass + cliquables */}
+        {chapter.keywords && chapter.keywords.length > 0 && (
+          <View style={styles.keywordsSection}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.keywordsContainer}
+              style={styles.keywordsScrollView}
+            >
+              {chapter.keywords.map((keyword, index) => {
+                const count = getKeywordCount(keyword);
+                return (
                   <TouchableOpacity
-                    key={video.id}
-                    style={styles.timelineItem}
-                    onPress={() => handleVideoThumbnailPress(index)}
+                    key={`${keyword}-${index}`}
+                    style={styles.keywordWrapper}
+                    onPress={() => handleKeywordPress(keyword)}
                     activeOpacity={0.7}
                   >
-                    <View style={[
-                      styles.timelineDot,
-                      { backgroundColor: chapter.color || brandColor || theme.colors.brand.primary }
-                    ]} />
-                    <View style={styles.timelineContent}>
-                      <Text style={styles.timelineDate}>
-                        {video.created_at
-                          ? new Date(video.created_at).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                            })
-                          : 'Unknown date'}
+                    <LiquidGlassView
+                      style={[
+                        styles.keywordPill,
+                        !isLiquidGlassSupported && {
+                          backgroundColor: theme.colors.gray100,
+                        }
+                      ]}
+                      interactive={true}
+                    >
+                      <Text style={styles.keywordText}>
+                        {keyword} <Text style={styles.keywordCount}>({count})</Text>
                       </Text>
-                      <Text style={styles.timelineTitle} numberOfLines={2}>
-                        {video.title || 'Untitled Video'}
-                      </Text>
-                    </View>
-                    {video.duration && (
-                      <Text style={styles.timelineDuration}>
-                        {formatDuration(video.duration)}
-                      </Text>
+                    </LiquidGlassView>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Memories - Horizontal scrollable list (max 5 videos) */}
+        {videos.length > 0 && (
+          <View style={styles.memoriesSection}>
+            <View style={styles.memoriesHeader}>
+              <Text style={styles.memoriesTitle}>Memories ({videos.length} videos)</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.memoriesScrollContent}
+              style={styles.memoriesScrollView}
+            >
+              {videos.slice(0, 5).map((video, index) => {
+                const thumbnailUri = getThumbnailUri(video);
+                return (
+                  <TouchableOpacity
+                    key={video.id}
+                    style={styles.memoriesVideoItem}
+                    onPress={() => handleVideoThumbnailPress(index)}
+                    activeOpacity={0.8}
+                  >
+                    {thumbnailUri ? (
+                      <Image
+                        source={{ uri: thumbnailUri }}
+                        style={styles.memoriesVideoThumbnail}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.memoriesVideoPlaceholder}>
+                        <Icon name="video" size={24} color={theme.colors.gray400} />
+                      </View>
+                    )}
+                    {video.title && (
+                      <View style={styles.memoriesVideoOverlay}>
+                        <Text style={styles.memoriesVideoTitle} numberOfLines={2}>
+                          {video.title}
+                        </Text>
+                      </View>
                     )}
                   </TouchableOpacity>
-                ))}
-              </ScrollView>
+                );
+              })}
 
-              {/* View All button at bottom */}
-              <TouchableOpacity
-                style={styles.timelineViewAllButton}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  navigation.navigate('Library', {
-                    filterChapterId: chapter.id,
-                    filterChapterTitle: chapter.title,
-                    openSearchWithFilter: true,
-                  });
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.timelineViewAllText}>View All Videos</Text>
-                <Icon name="arrowRight" size={16} color={theme.colors.text.secondary} />
-              </TouchableOpacity>
-            </LiquidGlassView>
+              {/* View Full Video card (if more than 5 videos) */}
+              {videos.length > 5 && (
+                <TouchableOpacity
+                  style={styles.viewFullCard}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    // Navigate to Library with chapter filter and auto-open search mode
+                    navigation.navigate('Library', {
+                      filterChapterId: chapter.id,
+                      filterChapterTitle: chapter.title,
+                      openSearchWithFilter: true, // ✅ Auto-open search mode with filter
+                    });
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.viewFullContent}>
+                    <View style={styles.viewFullIconContainer}>
+                      <Icon name="plus" size={32} color={theme.colors.text.primary} />
+                    </View>
+                    <Text style={styles.viewFullText}>View Full{'\n'}Video</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
           </View>
         )}
 
@@ -1325,13 +1126,7 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
                     key={index}
                     style={[
                       styles.quoteDot,
-                      quotesCurrentPage === index && [
-                        styles.quoteActiveDot,
-                        {
-                          backgroundColor: chapter.color || brandColor || theme.colors.brand.primary,
-                          shadowColor: chapter.color || brandColor || theme.colors.brand.primary,
-                        },
-                      ],
+                      quotesCurrentPage === index && styles.quoteActiveDot,
                     ]}
                   />
                 ))}
@@ -1340,15 +1135,102 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
           </View>
         )}
 
-        {/* Edit Chapter Link */}
-        <TouchableOpacity
-          style={styles.editChapterButton}
-          onPress={handleEditChapter}
-          activeOpacity={0.7}
-        >
-          <Icon name="edit" size={16} color={theme.colors.brand.primary} />
-          <Text style={styles.editChapterText}>Edit Chapter</Text>
-        </TouchableOpacity>
+        {/* Before/After - Première vs Dernière vidéo du chapitre */}
+        {videos.length > 1 && (
+          <View style={styles.beforeAfterSection}>
+            <Text style={styles.beforeAfterTitle}>Journey</Text>
+            <View style={styles.beforeAfterCards}>
+              {/* First Day */}
+              <TouchableOpacity
+                style={styles.beforeAfterCard}
+                onPress={() => handleVideoThumbnailPress(0)}
+                activeOpacity={0.8}
+              >
+                {getThumbnailUri(videos[0]) ? (
+                  <Image
+                    source={{ uri: getThumbnailUri(videos[0]) }}
+                    style={styles.beforeAfterImage}
+                  />
+                ) : (
+                  <View style={styles.beforeAfterImagePlaceholder}>
+                    <Icon name="video" size={32} color={theme.colors.gray400} />
+                  </View>
+                )}
+                <View style={styles.beforeAfterOverlay}>
+                  <Text style={styles.beforeAfterLabel}>First Day</Text>
+                  <Text style={styles.beforeAfterDate}>
+                    {videos[0].created_at
+                      ? new Date(videos[0].created_at).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })
+                      : 'Unknown date'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Last Day */}
+              <TouchableOpacity
+                style={styles.beforeAfterCard}
+                onPress={() => handleVideoThumbnailPress(videos.length - 1)}
+                activeOpacity={0.8}
+              >
+                {getThumbnailUri(videos[videos.length - 1]) ? (
+                  <Image
+                    source={{ uri: getThumbnailUri(videos[videos.length - 1]) }}
+                    style={styles.beforeAfterImage}
+                  />
+                ) : (
+                  <View style={styles.beforeAfterImagePlaceholder}>
+                    <Icon name="video" size={32} color={theme.colors.gray400} />
+                  </View>
+                )}
+                <View style={styles.beforeAfterOverlay}>
+                  <Text style={styles.beforeAfterLabel}>Last Day</Text>
+                  <Text style={styles.beforeAfterDate}>
+                    {videos[videos.length - 1].created_at
+                      ? new Date(videos[videos.length - 1].created_at).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })
+                      : 'Unknown date'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Relive Chapter Button - Opens vertical feed with all chapter videos */}
+        {videos.length > 0 && (
+          <TouchableOpacity
+            style={styles.reliveChapterButtonWrapper}
+            onPress={handleReliveChapter}
+            activeOpacity={0.9}
+          >
+            <LiquidGlassView
+              style={[
+                styles.reliveChapterButton,
+                {
+                  backgroundColor: chapter.color
+                    ? `${chapter.color}30`  // 30 in hex = ~18% opacity
+                    : `${theme.colors.brand.primary}30`,
+                },
+                !isLiquidGlassSupported && {
+                  backgroundColor: chapter.color
+                    ? `${chapter.color}20`  // 20 in hex = ~12% opacity for fallback
+                    : `${theme.colors.brand.primary}20`,
+                },
+              ]}
+              interactive={true}
+            >
+              <Text style={styles.reliveChapterText}>Relive Chapter</Text>
+              <Icon name="play" size={18} color={theme.colors.text.primary} />
+            </LiquidGlassView>
+          </TouchableOpacity>
+        )}
 
         <View style={{ height: 80 }} />
       </ScrollView>
@@ -1372,13 +1254,13 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0)', // Transparent like MomentumDashboard
+    // backgroundColor will be set dynamically based on chapter.color
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0)', // Transparent like MomentumDashboard
+    // backgroundColor will be set dynamically based on chapter.color
   },
   scrollView: {
     flex: 1,
@@ -1394,7 +1276,7 @@ const styles = StyleSheet.create({
   },
   headerLeft: {
     flex: 1,
-    gap: 0,
+    gap: 8,
   },
   title: {
     fontFamily: 'Poppins-SemiBoldItalic',
@@ -1408,6 +1290,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
     color: theme.colors.text.secondary,
+    marginTop: 4,
   },
   headerActions: {
     flexDirection: 'row',
@@ -1415,9 +1298,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   colorIconGlass: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
@@ -1433,6 +1316,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 2,
+  },
+  editIconGlass: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
   },
   // Color Picker Modal
   colorModalOverlay: {
@@ -1500,202 +1391,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 2,
   },
-  // 🆕 Divider - Visual separator between sections
-  divider: {
-    height: 1,
-    backgroundColor: theme.colors.gray300,
-    marginVertical: theme.spacing['4'], // 16px
-    marginHorizontal: MARGIN,
-  },
-  // 🆕 Chapter Summary Card Section
-  chapterSummarySection: {
-    marginHorizontal: MARGIN,
-    marginTop: 24,
-  },
-  chapterSummaryGlass: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    paddingVertical: 20,
-    paddingHorizontal: 0,
-  },
-  summaryCardScrollView: {
-    flexGrow: 0,
-  },
-  summaryCardPage: {
-    paddingHorizontal: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: 180,
-  },
-  // Page 1: Stats Grid
-  summaryStatsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    width: '100%',
-  },
-  summaryStatItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  summaryStatValue: {
-    fontFamily: 'Georgia', // Romanesque serif font (same as ChapterCard)
-    fontSize: 32, // ✅ Slightly smaller to prevent line wrapping on duration
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-    marginBottom: 4,
-  },
-  summaryStatLabel: {
-    fontSize: 12, // ✅ Same as ChapterCard.tsx (was 11)
-    fontWeight: '500',
-    color: theme.colors.text.secondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    textAlign: 'center',
-  },
-  // Page titles
-  summaryPageTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  // Pages 3+: Life Areas "All About"
-  lifeAreasStatsThree: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    width: '100%',
-    paddingHorizontal: 8,
-  },
-  lifeAreaStatItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  lifeAreaStatValue: {
-    fontFamily: 'Georgia',
-    fontSize: 32, // Same as stats page
-    fontWeight: '700',
-    color: theme.colors.text.primary,
-    marginBottom: 4,
-  },
-  lifeAreaStatLabel: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: theme.colors.text.secondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    textAlign: 'center',
-  },
-  // Insights (Challenge, Growth, Lessons)
-  insightContentContainer: {
-    width: '100%',
-    paddingHorizontal: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  insightText: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: theme.colors.text.secondary,
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  insightPlaceholder: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: theme.colors.text.secondary,
-    textAlign: 'center',
-    fontStyle: 'italic',
-    marginTop: 12,
-  },
-  // Page 4: Quote
-  summaryQuoteMarkBackground: {
-    position: 'absolute',
-    left: -20,
-    top: '30%',
-    fontSize: 120,
-    fontWeight: '700',
-    color: theme.colors.gray300,
-    opacity: 0.3,
-    fontFamily: 'Georgia',
-    zIndex: 0,
-  },
-  summaryQuoteText: {
-    fontSize: 15,
-    fontWeight: '400',
-    color: theme.colors.text.primary,
-    textAlign: 'center',
-    fontStyle: 'italic',
-    lineHeight: 22,
-    zIndex: 1,
-  },
-  // Page 2: Journey with wavy path
-  summaryJourneyContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    width: '100%',
-  },
-  summaryJourneyEndpoint: {
-    alignItems: 'center',
-    gap: 6,
-  },
-  journeyDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: theme.colors.brand.primary,
-  },
-  summaryJourneyLabel: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: theme.colors.text.secondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  summaryJourneyDate: {
-    fontFamily: 'Georgia',
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-  },
-  wavyPathContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  // Pagination dots for summary card
-  summaryCardPaginationDots: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: theme.spacing['1'],
-    marginTop: 16,
-  },
-  summaryCardDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: theme.colors.gray400,
-    opacity: 0.2,
-  },
-  summaryCardActiveDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    opacity: 0.6,
-    // backgroundColor set dynamically with chapter.color
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
-  },
   // Stats Section
   statsSection: {
     marginHorizontal: MARGIN,
-    marginTop: 24, // ✅ Consistent spacing
+    marginTop: 16,
   },
   statsGlass: {
     borderRadius: 12,
@@ -1728,22 +1427,7 @@ const styles = StyleSheet.create({
   },
   // Story Section
   storySection: {
-    marginTop: 24, // ✅ Consistent spacing
-  },
-  // 🆕 AI Generated badge
-  aiGeneratedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 6,
-    alignSelf: 'center',
-  },
-  aiGeneratedText: {
-    fontSize: 9,
-    fontWeight: '500',
-    color: theme.colors.text.tertiary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    marginTop: 16,
   },
   storyLiteraryTitle: {
     fontSize: 18,
@@ -1754,28 +1438,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   readFullStoryButton: {
-    marginTop: 16,
-    marginHorizontal: 0,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+    marginTop: 12,
+    marginHorizontal: MARGIN,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: theme.colors.gray100,
   },
   readFullStoryText: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '500',
     color: theme.colors.text.secondary,
   },
   storySummaryContainer: {
     marginHorizontal: MARGIN,
+    backgroundColor: theme.colors.gray100,
     borderRadius: 12,
     padding: 20,
     alignItems: 'center',
-    overflow: 'hidden',
   },
   storySummaryText: {
     fontSize: 14,
@@ -1783,13 +1467,14 @@ const styles = StyleSheet.create({
     color: theme.colors.text.secondary,
     textAlign: 'center',
   },
-  // Keywords Section (below Chapter Summary Card)
+  // Keywords Section (sur le fond, en dehors de la card)
   keywordsSection: {
-    marginTop: 24, // ✅ Same spacing as other sections
-    marginBottom: 0,
+    marginTop: 16,
+    marginBottom: 8,
   },
   keywordsScrollView: {
-    paddingLeft: MARGIN,
+    maxHeight: 50,
+    paddingHorizontal: MARGIN,
   },
   keywordsContainer: {
     flexDirection: 'row',
@@ -1799,98 +1484,216 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   keywordPill: {
-    height: 32,
-    paddingHorizontal: 14,
-    borderRadius: 16,
+    height: 36,
+    paddingHorizontal: 16,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
   },
   keywordText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '500',
     color: theme.colors.text.secondary,
   },
-  // 🆕 Chapter Timeline - Scrollable list of videos
-  timelineSection: {
-    marginHorizontal: MARGIN,
+  keywordCount: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: theme.colors.text.tertiary,
+  },
+  // Memories Section (Horizontal Scrollable)
+  memoriesSection: {
     marginTop: 24,
     marginBottom: 16,
   },
-  timelineSectionTitle: {
+  memoriesHeader: {
+    paddingHorizontal: MARGIN,
+    marginBottom: 12,
+  },
+  memoriesTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: theme.colors.text.primary,
-    textAlign: 'center', // Centered like "all about..."
-    paddingTop: 16,
-    paddingBottom: 8,
   },
-  timelineCount: {
-    fontFamily: 'Georgia',
-    fontWeight: '700',
+  memoriesScrollView: {
+    paddingLeft: MARGIN,
   },
-  timelineCard: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    paddingBottom: 12,
-  },
-  timelineScrollView: {
-    maxHeight: 320, // Fixed height for scrollable area
-    paddingTop: 8,
-  },
-  timelineItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+  memoriesScrollContent: {
+    paddingRight: MARGIN,
     gap: 12,
   },
-  timelineDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    opacity: 0.6,
-    // backgroundColor set dynamically with chapter.color
+  memoriesVideoItem: {
+    width: 140,
+    height: 200,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: theme.colors.gray100,
   },
-  timelineContent: {
-    flex: 1,
-    gap: 4,
+  memoriesVideoThumbnail: {
+    width: '100%',
+    height: '100%',
   },
-  timelineDate: {
-    fontFamily: 'Georgia',
-    fontSize: 12,
+  memoriesVideoPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.gray100,
+  },
+  memoriesVideoOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 8,
+    // ✅ No background - title stands out with text shadow only
+  },
+  memoriesVideoTitle: {
+    fontSize: 11,
+    fontWeight: '600', // ✅ Slightly bolder for better visibility
+    color: theme.colors.white,
+    // ✅ Text shadow for elevation and visibility on any background
+    textShadowColor: 'rgba(0, 0, 0, 0.9)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  viewFullCard: {
+    width: 140,
+    height: 200,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: theme.colors.gray100,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  viewFullContent: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  viewFullIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: theme.colors.white,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: theme.colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  viewFullText: {
+    fontSize: 13,
     fontWeight: '600',
-    color: theme.colors.text.secondary,
-    letterSpacing: 0.3,
-  },
-  timelineTitle: {
-    fontSize: 14,
-    fontWeight: '500',
     color: theme.colors.text.primary,
+    textAlign: 'center',
     lineHeight: 18,
   },
-  timelineDuration: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: theme.colors.text.tertiary,
-    letterSpacing: 0.2,
+  // Insights & Lessons Section (Accordion)
+  insightsSection: {
+    marginHorizontal: MARGIN,
+    marginTop: 24,
+    marginBottom: 16,
+    gap: 12,
   },
-  timelineViewAllButton: {
-    marginTop: 8,
-    marginHorizontal: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+  accordionItem: {
     borderRadius: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
+    backgroundColor: theme.colors.white,
+    overflow: 'hidden',
+  },
+  accordionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
   },
-  timelineViewAllText: {
-    fontSize: 14,
+  accordionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  accordionEmoji: {
+    fontSize: 20,
+  },
+  accordionTitle: {
+    fontSize: 15,
     fontWeight: '600',
+    color: theme.colors.text.primary,
+  },
+  accordionContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingTop: 0,
+  },
+  accordionText: {
+    fontSize: 13,
+    lineHeight: 19,
     color: theme.colors.text.secondary,
+    marginBottom: 8, // Spacing between multiple items
+  },
+  accordionPlaceholder: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: theme.colors.text.tertiary,
+    fontStyle: 'italic',
+  },
+  // Before/After Section
+  beforeAfterSection: {
+    marginTop: 24,
+    marginBottom: 16,
+  },
+  beforeAfterTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.text.primary,
+    marginHorizontal: MARGIN,
+    marginBottom: 12,
+  },
+  beforeAfterCards: {
+    flexDirection: 'row',
+    gap: 12,
+    marginHorizontal: MARGIN,
+  },
+  beforeAfterCard: {
+    flex: 1,
+    height: 220,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: theme.colors.gray100,
+  },
+  beforeAfterImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  beforeAfterImagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: theme.colors.gray100,
+  },
+  beforeAfterOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  beforeAfterLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.white,
+    marginBottom: 4,
+  },
+  beforeAfterDate: {
+    fontSize: 12,
+    fontWeight: '400',
+    color: theme.colors.white,
+    opacity: 0.9,
   },
   // Chapters Modal (iOS-style like Momentum)
   modalOverlay: {
@@ -2049,133 +1852,36 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: 2.5,
     opacity: 0.6,
-    // backgroundColor set dynamically with chapter.color
+    backgroundColor: theme.colors.brand.primary,
+    shadowColor: theme.colors.brand.primary,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 2,
   },
-  // Edit buttons and rows
-  titleRow: {
-    flexDirection: 'row',
+  // Relive Chapter Button
+  reliveChapterButtonWrapper: {
     alignItems: 'center',
-    gap: 8,
-  },
-  periodRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  smallEditButton: {
-    padding: 4,
-    opacity: 0.5,
-  },
-  aiGeneratedHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    position: 'relative',
-    marginBottom: 6,
-  },
-  summaryEditButton: {
-    position: 'absolute',
-    right: 0,
-    padding: 6,
-    opacity: 0.5,
-  },
-  // Edit modals
-  editModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  editModalContainer: {
-    width: '90%',
-    maxWidth: 400,
-    borderRadius: 16,
-    padding: 24,
-    overflow: 'hidden',
-  },
-  editModalContainerLarge: {
-    maxHeight: '70%',
-  },
-  editModalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  editModalInput: {
-    fontSize: 16,
-    color: theme.colors.text.primary,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 20,
-  },
-  editModalInputMultiline: {
-    minHeight: 120,
-    maxHeight: 200,
-  },
-  editModalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  editModalButton: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  editModalButtonCancel: {
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-  },
-  editModalButtonSave: {
-    backgroundColor: theme.colors.brand.primary,
-  },
-  editModalButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-  },
-  editModalButtonTextSave: {
-    color: theme.colors.white,
-  },
-  datePickerSection: {
-    marginBottom: 16,
-  },
-  dateLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: theme.colors.text.secondary,
-    marginBottom: 8,
-  },
-  datePicker: {
-    width: '100%',
-  },
-  // Edit Chapter Button
-  editChapterButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    marginHorizontal: MARGIN,
     marginTop: 32,
     marginBottom: 16,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
   },
-  editChapterText: {
+  reliveChapterButton: {
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  reliveChapterText: {
     fontSize: 16,
     fontWeight: '600',
-    color: theme.colors.brand.primary,
+    color: theme.colors.text.primary,
+    letterSpacing: 0.2,
   },
 });
