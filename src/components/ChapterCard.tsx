@@ -255,10 +255,12 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
       }
 
       // Get all videos from current chapter
+      // 🔒 SECURITY: Filter videos by user_id
       const { data: chapterVideos } = await supabase
         .from('videos')
         .select('id')
-        .eq('chapter_id', currentChapter.id);
+        .eq('chapter_id', currentChapter.id)
+        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
 
       if (!chapterVideos || chapterVideos.length === 0) {
         console.log('⚠️ No videos in current chapter');
@@ -268,11 +270,22 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
       const videoIds = chapterVideos.map(v => v.id);
 
       // Get all transcription jobs with quotes for these videos
-      const { data: jobs, error: jobsError } = await supabase
+      // 🔒 SECURITY: JOIN with videos to verify ownership
+      const { data: jobsData, error: jobsError } = await supabase
         .from('transcription_jobs')
-        .select('transcript_highlight, video_id')
+        .select(`
+          transcript_highlight,
+          video_id,
+          videos!inner (
+            user_id
+          )
+        `)
         .in('video_id', videoIds)
+        .eq('videos.user_id', user.id) // ← PROTECTION CRITIQUE
         .not('transcript_highlight', 'is', null);
+
+      // Remove nested videos data
+      const jobs = jobsData?.map(({ videos, ...job }) => job);
 
       if (jobsError || !jobs) {
         console.error('❌ Error loading transcription jobs for quotes:', jobsError);
@@ -322,7 +335,7 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
     }
   };
 
-  const loadLifeAreaMentions = async () => {
+  const loadLifeAreaMentions = async (): Promise<{ top: any[], least: any[] }> => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return [];
@@ -338,21 +351,34 @@ export const ChapterCard: React.FC<ChapterCardProps> = ({
       if (!currentChapter) return [];
 
       // Get videos for current chapter
+      // 🔒 SECURITY: Filter videos by user_id
       const { data: videos } = await supabase
         .from('videos')
         .select('id')
-        .eq('chapter_id', currentChapter.id);
+        .eq('chapter_id', currentChapter.id)
+        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
 
       if (!videos || videos.length === 0) return [];
 
       const videoIds = videos.map(v => v.id);
 
       // Get transcription jobs with highlights for current chapter videos only
-      const { data: jobs, error: jobsError } = await supabase
+      // 🔒 SECURITY: JOIN with videos to verify ownership
+      const { data: jobsData, error: jobsError } = await supabase
         .from('transcription_jobs')
-        .select('transcript_highlight, video_id')
+        .select(`
+          transcript_highlight,
+          video_id,
+          videos!inner (
+            user_id
+          )
+        `)
         .in('video_id', videoIds)
+        .eq('videos.user_id', user.id) // ← PROTECTION CRITIQUE
         .not('transcript_highlight', 'is', null);
+
+      // Remove nested videos data
+      const jobs = jobsData?.map(({ videos, ...job }) => job);
 
       if (jobsError || !jobs || jobs.length === 0) return [];
 

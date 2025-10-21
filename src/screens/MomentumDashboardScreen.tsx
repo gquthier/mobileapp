@@ -242,13 +242,22 @@ export default function MomentumDashboardScreen({ navigation }: MomentumDashboar
 
   const handleColorChange = async (chapterId: string, color: string) => {
     try {
+      // 🔒 Get current user for security check
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ No authenticated user for updating chapter color');
+        return;
+      }
+
       // Check if this is the current chapter
       const isCurrentChapter = chapters.find(ch => ch.id === chapterId)?.is_current;
 
+      // 🔒 SECURITY: Update with user_id verification
       const { error } = await supabase
         .from('chapters')
         .update({ color })
-        .eq('id', chapterId);
+        .eq('id', chapterId)
+        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
 
       if (error) {
         console.error('❌ Error updating chapter color:', error);

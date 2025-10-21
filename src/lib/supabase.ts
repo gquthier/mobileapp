@@ -38,6 +38,7 @@ export interface Profile {
   bio?: string;
   timezone?: string;
   language?: string;
+  role?: 'user' | 'admin'; // User role for admin features
   notification_settings?: {
     push_enabled: boolean;
     email_enabled: boolean;

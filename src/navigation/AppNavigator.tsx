@@ -8,6 +8,8 @@ import { Session } from '@supabase/supabase-js';
 import { useFirstTimeUser } from '../hooks/useFirstTimeUser';
 import { useTheme } from '../contexts/ThemeContext';
 import { WelcomeFlow } from '../components/WelcomeFlow';
+import { ChapterCreationFlow } from '../components/ChapterCreationFlow';
+import { VideoImportFlow } from '../components/VideoImportFlow';
 import { OnboardingScreens } from '../components/OnboardingScreens';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import LibraryScreen from '../screens/LibraryScreen';
@@ -24,6 +26,7 @@ import EditChapterScreen from '../screens/EditChapterScreen';
 import { VerticalFeedScreen } from '../features/vertical-feed/screens/VerticalFeedScreen';
 import { VerticalFeedTabScreen } from '../screens/VerticalFeedTabScreen';
 import { setupNotificationClickListener, requestNotificationPermissions } from '../services/notificationService';
+import { CHAPTER_COLORS } from '../constants/chapterColors';
 
 const Tab = createNativeBottomTabNavigator();
 const LibraryStack = createStackNavigator();
@@ -166,12 +169,27 @@ export const AppNavigator = () => {
   const { isFirstTime, isLoading: firstTimeLoading, markWelcomeComplete } = useFirstTimeUser();
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showLifeAreasSelection, setShowLifeAreasSelection] = useState(false);
+  const [showVideoImport, setShowVideoImport] = useState(false);
+  const [createdChapterId, setCreatedChapterId] = useState<string | null>(null);
+  const [chapterColor, setChapterColor] = useState<string>(CHAPTER_COLORS[0]);
   const [hideTabBar, setHideTabBar] = useState(false);
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
 
+  // ✅ Reset onboarding states when isFirstTime becomes true (after reset or new account)
+  useEffect(() => {
+    if (isFirstTime && session) {
+      console.log('🔄 Resetting onboarding states for first-time user');
+      setShowOnboarding(false);
+      setShowVideoImport(false);
+      setShowLifeAreasSelection(false);
+      setCreatedChapterId(null);
+      setChapterColor(CHAPTER_COLORS[0]);
+    }
+  }, [isFirstTime, session]);
+
   // 🔔 Demander les permissions de notification après l'onboarding
   useEffect(() => {
-    if (session && !isFirstTime && !showOnboarding && !showLifeAreasSelection) {
+    if (session && !isFirstTime && !showOnboarding && !showVideoImport && !showLifeAreasSelection) {
       // Attendre 2 secondes après l'onboarding pour demander les permissions
       const timer = setTimeout(async () => {
         await requestNotificationPermissions();
@@ -179,7 +197,7 @@ export const AppNavigator = () => {
 
       return () => clearTimeout(timer);
     }
-  }, [session, isFirstTime, showOnboarding, showLifeAreasSelection]);
+  }, [session, isFirstTime, showOnboarding, showVideoImport, showLifeAreasSelection]);
 
   // 🔔 Setup listener pour navigation quand on clique sur une notification
   useEffect(() => {
@@ -258,11 +276,31 @@ export const AppNavigator = () => {
       }}
     />;
   } else if (showOnboarding) {
-    content = <OnboardingScreens
-      onComplete={() => setShowLifeAreasSelection(true)}
-      onSkipDemo={() => {
+    content = <ChapterCreationFlow
+      onComplete={(chapterId, color) => {
+        console.log('✅ Chapter created:', chapterId, 'with color:', color);
+        setCreatedChapterId(chapterId);
+        setChapterColor(color);
+        setShowOnboarding(false);
+        setShowVideoImport(true);
+      }}
+      onSkip={() => {
         setShowOnboarding(false);
         setShowLifeAreasSelection(false);
+        markWelcomeComplete();
+      }}
+    />;
+  } else if (showVideoImport && createdChapterId) {
+    content = <VideoImportFlow
+      chapterId={createdChapterId}
+      chapterColor={chapterColor}
+      onComplete={(importedCount) => {
+        console.log(`✅ Imported ${importedCount} videos`);
+        setShowVideoImport(false);
+        markWelcomeComplete();
+      }}
+      onSkip={() => {
+        setShowVideoImport(false);
         markWelcomeComplete();
       }}
     />;

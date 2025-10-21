@@ -9,12 +9,15 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { theme } from '../styles';
 import { Icon } from '../components/Icon';
 import { LanguageSelector } from '../components/LanguageSelector';
 import { AuthService } from '../services/authService';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 interface AuthScreenProps {
   onAuthSuccess: () => void;
@@ -100,6 +103,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
 
     setLoading(true);
     try {
+      // Create account
       await AuthService.signUp({
         email,
         password,
@@ -110,27 +114,13 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
         preferredLanguage,
       });
       console.log('✅ Sign up successful');
-      Alert.alert(
-        'Account Created',
-        'Your account has been created successfully! Please check your email to verify your account.',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              setIsSignUp(false);
-              // Clear form
-              setEmail('');
-              setPassword('');
-              setConfirmPassword('');
-              setFirstName('');
-              setLastName('');
-              setUsername('');
-              setDateOfBirth('');
-              setPreferredLanguage('auto');
-            },
-          },
-        ]
-      );
+
+      // ✅ Auto-sign in after successful sign up to trigger onboarding
+      await AuthService.signIn({ email, password });
+      console.log('✅ Auto-signin successful after signup');
+
+      // Trigger onboarding flow
+      onAuthSuccess();
     } catch (error: any) {
       console.error('❌ Sign up failed:', error);
       Alert.alert('Sign Up Failed', error.message || 'An error occurred during sign up');
@@ -166,40 +156,68 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-          <View style={styles.header}>
-            <Icon name="bookOpen" size={48} color={theme.colors.black} />
-            <Text style={styles.title}>Chapters</Text>
-            <Text style={styles.subtitle}>
-              {isSignUp ? 'Create your account' : 'Welcome back'}
-            </Text>
-          </View>
+    <View style={styles.container}>
+      {/* ✅ Top Section (60%) - Logo + Slogan */}
+      <View style={styles.topSection}>
+        <View style={styles.logoContainer}>
+          <Text style={styles.logoText}>Chapter</Text>
+          <Text style={styles.tagline}>Your life, your chapters</Text>
+        </View>
+      </View>
 
-          <View style={styles.form}>
-            {/* Email Input */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="Enter your email"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="off"
-                textContentType="none"
-              />
+      {/* ✅ Bottom Section (40%) - Black panel with rounded corners */}
+      <View style={styles.bottomSection}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardView}
+        >
+          <ScrollView
+            style={styles.scrollView}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Toggle Sign In / Sign Up */}
+            <View style={styles.toggleContainer}>
+              <TouchableOpacity
+                style={[styles.toggleButton, !isSignUp && styles.toggleButtonActive]}
+                onPress={() => setIsSignUp(false)}
+              >
+                <Text style={[styles.toggleText, !isSignUp && styles.toggleTextActive]}>
+                  Sign In
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.toggleButton, isSignUp && styles.toggleButtonActive]}
+                onPress={() => setIsSignUp(true)}
+              >
+                <Text style={[styles.toggleText, isSignUp && styles.toggleTextActive]}>
+                  Sign Up
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            {/* Sign Up Fields */}
-            {isSignUp && (
-              <>
+            {/* Form Fields */}
+            <View style={styles.form}>
+              {/* Email */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Email</Text>
+                <TextInput
+                  style={styles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="your@email.com"
+                  placeholderTextColor={theme.colors.gray500}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  textContentType="none"
+                />
+              </View>
+
+              {/* Sign Up: First Name + Last Name */}
+              {isSignUp && (
                 <View style={styles.inputRow}>
                   <View style={[styles.inputGroup, styles.inputHalf]}>
                     <Text style={styles.label}>First Name</Text>
@@ -208,6 +226,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
                       value={firstName}
                       onChangeText={setFirstName}
                       placeholder="First name"
+                      placeholderTextColor={theme.colors.gray500}
                       autoCapitalize="words"
                     />
                   </View>
@@ -218,68 +237,22 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
                       value={lastName}
                       onChangeText={setLastName}
                       placeholder="Last name"
+                      placeholderTextColor={theme.colors.gray500}
                       autoCapitalize="words"
                     />
                   </View>
                 </View>
+              )}
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Username (Optional)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={username}
-                    onChangeText={setUsername}
-                    placeholder="Choose a username"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                </View>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Date of Birth (Optional)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={dateOfBirth}
-                    onChangeText={setDateOfBirth}
-                    placeholder="YYYY-MM-DD"
-                    keyboardType="numbers-and-punctuation"
-                  />
-                </View>
-
-                {/* Language Selector */}
-                <LanguageSelector
-                  selectedLanguage={preferredLanguage}
-                  onLanguageSelect={setPreferredLanguage}
-                  style={styles.languageSelector}
-                />
-              </>
-            )}
-
-            {/* Password Input */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Password</Text>
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Enter your password"
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="off"
-                textContentType="none"
-              />
-            </View>
-
-            {/* Confirm Password for Sign Up */}
-            {isSignUp && (
+              {/* Password */}
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Confirm Password</Text>
+                <Text style={styles.label}>Password</Text>
                 <TextInput
                   style={styles.input}
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  placeholder="Confirm your password"
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="••••••••"
+                  placeholderTextColor={theme.colors.gray500}
                   secureTextEntry
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -287,44 +260,48 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
                   textContentType="none"
                 />
               </View>
-            )}
 
-            {/* Main Action Button */}
-            <TouchableOpacity
-              style={[styles.primaryButton, loading && styles.buttonDisabled]}
-              onPress={isSignUp ? handleSignUp : handleSignIn}
-              disabled={loading}
-            >
-              <Text style={styles.primaryButtonText}>
-                {loading ? 'Loading...' : isSignUp ? 'Create Account' : 'Sign In'}
-              </Text>
-            </TouchableOpacity>
+              {/* Confirm Password (Sign Up only) */}
+              {isSignUp && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Confirm Password</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    placeholder="••••••••"
+                    placeholderTextColor={theme.colors.gray500}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="off"
+                    textContentType="none"
+                  />
+                </View>
+              )}
 
-            {/* Forgot Password */}
-            {!isSignUp && (
-              <TouchableOpacity style={styles.forgotButton} onPress={handleForgotPassword}>
-                <Text style={styles.forgotButtonText}>Forgot Password?</Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Switch Mode Button */}
-            <View style={styles.switchContainer}>
-              <Text style={styles.switchText}>
-                {isSignUp ? 'Already have an account?' : "Don't have an account?"}
-              </Text>
+              {/* Main Action Button */}
               <TouchableOpacity
-                onPress={() => setIsSignUp(!isSignUp)}
+                style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                onPress={isSignUp ? handleSignUp : handleSignIn}
                 disabled={loading}
               >
-                <Text style={styles.switchButton}>
-                  {isSignUp ? 'Sign In' : 'Sign Up'}
+                <Text style={styles.primaryButtonText}>
+                  {loading ? 'Loading...' : isSignUp ? 'Create Account' : 'Sign In'}
                 </Text>
               </TouchableOpacity>
+
+              {/* Forgot Password (Sign In only) */}
+              {!isSignUp && (
+                <TouchableOpacity style={styles.forgotButton} onPress={handleForgotPassword}>
+                  <Text style={styles.forgotButtonText}>Forgot Password?</Text>
+                </TouchableOpacity>
+              )}
             </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
+    </View>
   );
 };
 
@@ -333,32 +310,77 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.white,
   },
+  topSection: {
+    flex: 0.6, // 60% of screen
+    backgroundColor: theme.colors.white,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  logoContainer: {
+    alignItems: 'center',
+  },
+  logoText: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: theme.colors.black,
+    letterSpacing: -1,
+    marginBottom: 8,
+  },
+  tagline: {
+    fontSize: 16,
+    fontWeight: '400',
+    color: theme.colors.gray600,
+    textAlign: 'center',
+    letterSpacing: 0.5,
+  },
+  bottomSection: {
+    flex: 0.4, // 40% of screen
+    backgroundColor: theme.colors.black,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    overflow: 'hidden',
+  },
+  keyboardView: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
   },
-  header: {
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 32,
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 24,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: 12,
     alignItems: 'center',
-    paddingTop: theme.spacing['12'],
-    paddingBottom: theme.spacing['6'],
-    paddingHorizontal: 16,
+    borderRadius: 8,
   },
-  title: {
-    ...theme.typography.h1,
+  toggleButtonActive: {
+    backgroundColor: theme.colors.white,
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.6)',
+  },
+  toggleTextActive: {
     color: theme.colors.black,
-    marginTop: 16,
-    marginBottom: theme.spacing['2'],
-  },
-  subtitle: {
-    ...theme.typography.body,
-    color: theme.colors.gray600,
-    textAlign: 'center',
   },
   form: {
-    paddingHorizontal: 16,
-    paddingBottom: theme.spacing['12'],
+    gap: 16,
   },
   inputGroup: {
-    marginBottom: 16,
+    marginBottom: 0,
   },
   inputRow: {
     flexDirection: 'row',
@@ -368,61 +390,43 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   label: {
-    ...theme.typography.caption,
-    color: theme.colors.black,
+    fontSize: 13,
     fontWeight: '500',
-    marginBottom: theme.spacing['1'],
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginBottom: 8,
   },
   input: {
-    ...theme.typography.body,
-    color: theme.colors.black,
+    fontSize: 16,
+    color: theme.colors.white,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderWidth: 1,
-    borderColor: theme.colors.gray300,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: theme.colors.white,
+    paddingVertical: 14,
   },
   primaryButton: {
-    backgroundColor: theme.colors.black,
+    backgroundColor: theme.colors.white,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: 12,
+    marginTop: 8,
   },
   primaryButtonText: {
-    ...theme.typography.bodyBold,
-    color: theme.colors.white,
+    fontSize: 16,
+    fontWeight: '600',
+    color: theme.colors.black,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   forgotButton: {
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: 4,
   },
   forgotButtonText: {
-    ...theme.typography.caption,
-    color: theme.colors.gray600,
-  },
-  switchContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: theme.spacing['6'],
-    gap: theme.spacing['1'],
-  },
-  switchText: {
-    ...theme.typography.caption,
-    color: theme.colors.gray600,
-  },
-  switchButton: {
-    ...theme.typography.caption,
-    color: theme.colors.black,
-    fontWeight: '600',
-  },
-  languageSelector: {
-    marginBottom: 16,
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.6)',
   },
 });
 

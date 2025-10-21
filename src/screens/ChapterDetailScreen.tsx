@@ -123,7 +123,7 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
   const longPressProgress = useRef(new Animated.Value(0)).current;
   const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const selectedVideo = videos[selectedVideoIndex];
+  const selectedVideo = videos[selectedVideoIndex] ?? null;
   const selectedTranscription = selectedVideo ? transcriptionJobs[selectedVideo.id] : null;
 
   // ============================================================================
@@ -195,11 +195,19 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
   const handleColorSelect = useCallback(async (color: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      // Update chapter color in database
+      // 🔒 Get current user for security check
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ No authenticated user for updating chapter color');
+        return;
+      }
+
+      // 🔒 SECURITY: Update chapter color with user_id verification
       const { error } = await supabase
         .from('chapters')
         .update({ color })
-        .eq('id', chapter.id);
+        .eq('id', chapter.id)
+        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
 
       if (error) {
         console.error('❌ Error updating chapter color:', error);
@@ -331,9 +339,18 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
 
   const loadAllChapters = async () => {
     try {
+      // 🔒 Get current user for security check
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ No authenticated user for loading chapters');
+        return;
+      }
+
+      // 🔒 SECURITY: Only load chapters that belong to the current user
       const { data: chaptersData, error } = await supabase
         .from('chapters')
         .select('*')
+        .eq('user_id', user.id) // ← PROTECTION CRITIQUE
         .order('created_at', { ascending: false });
 
       if (!error && chaptersData) {

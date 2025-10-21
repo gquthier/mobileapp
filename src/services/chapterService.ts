@@ -3,7 +3,10 @@
 // Description: Service pour la gestion des chapitres de vie de l'utilisateur
 // ============================================================================
 
-import { supabase, Chapter } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
+import type { Chapter } from '../lib/supabase';
+
+export type { Chapter };
 
 /**
  * Récupère le chapitre actuel de l'utilisateur
@@ -29,7 +32,7 @@ export async function getCurrentChapter(userId: string): Promise<Chapter | null>
     }
 
     // Calculer les statistiques
-    const stats = await getChapterStats(data.id!);
+    const stats = await getChapterStats(data.id!, userId);
 
     return {
       ...data,
@@ -102,22 +105,43 @@ export async function createChapter(
 
 /**
  * Met à jour un chapitre
+ * 🔒 SÉCURISÉ: Vérifie que le chapitre appartient à l'utilisateur
  */
 export async function updateChapter(
   chapterId: string,
-  updates: Partial<Chapter>
+  updates: Partial<Chapter>,
+  userId?: string
 ): Promise<Chapter | null> {
   try {
+    // 🔒 Get current user if not provided
+    let currentUserId = userId;
+    if (!currentUserId) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ No authenticated user for updateChapter');
+        return null;
+      }
+      currentUserId = user.id;
+    }
+
+    // 🔒 SECURITY: Only update if chapter belongs to user
     const { data, error } = await supabase
       .from('chapters')
       .update(updates)
       .eq('id', chapterId)
+      .eq('user_id', currentUserId) // ← PROTECTION CRITIQUE
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      if (error.code === 'PGRST116') {
+        console.error('❌ Chapter not found or user does not own this chapter');
+        return null;
+      }
+      throw error;
+    }
 
-    console.log('✅ Chapter updated:', data.title);
+    console.log('✅ Chapter updated securely:', data.title);
     return data;
   } catch (error) {
     console.error('❌ Error updating chapter:', error);
@@ -127,12 +151,26 @@ export async function updateChapter(
 
 /**
  * Termine un chapitre (is_current = false, ended_at = now)
+ * 🔒 SÉCURISÉ: Vérifie que le chapitre appartient à l'utilisateur
  */
 export async function endChapter(
   chapterId: string,
-  recapVideoId?: string
+  recapVideoId?: string,
+  userId?: string
 ): Promise<boolean> {
   try {
+    // 🔒 Get current user if not provided
+    let currentUserId = userId;
+    if (!currentUserId) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ No authenticated user for endChapter');
+        return false;
+      }
+      currentUserId = user.id;
+    }
+
+    // 🔒 SECURITY: Only end chapter if it belongs to user
     const { error } = await supabase
       .from('chapters')
       .update({
@@ -140,11 +178,15 @@ export async function endChapter(
         ended_at: new Date().toISOString(),
         recap_video_id: recapVideoId || null,
       })
-      .eq('id', chapterId);
+      .eq('id', chapterId)
+      .eq('user_id', currentUserId); // ← PROTECTION CRITIQUE
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Error ending chapter:', error);
+      return false;
+    }
 
-    console.log('✅ Chapter ended:', chapterId);
+    console.log('✅ Chapter ended securely:', chapterId);
     return true;
   } catch (error) {
     console.error('❌ Error ending chapter:', error);
@@ -168,7 +210,7 @@ export async function getUserChapters(userId: string): Promise<Chapter[]> {
     // Ajouter les stats à chaque chapitre
     const chaptersWithStats = await Promise.all(
       (data || []).map(async (chapter) => {
-        const stats = await getChapterStats(chapter.id!);
+        const stats = await getChapterStats(chapter.id!, userId);
         return {
           ...chapter,
           video_count: stats.video_count,
@@ -186,20 +228,49 @@ export async function getUserChapters(userId: string): Promise<Chapter[]> {
 
 /**
  * Assigne des vidéos à un chapitre
+ * 🔒 SÉCURISÉ: Vérifie que les vidéos ET le chapitre appartiennent à l'utilisateur
  */
 export async function assignVideosToChapter(
   videoIds: string[],
-  chapterId: string
+  chapterId: string,
+  userId?: string
 ): Promise<boolean> {
   try {
+    // 🔒 Get current user if not provided
+    let currentUserId = userId;
+    if (!currentUserId) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ No authenticated user for assignVideosToChapter');
+        return false;
+      }
+      currentUserId = user.id;
+    }
+
+    // 🔒 SECURITY 1: Verify chapter belongs to user
+    const { data: chapterData, error: chapterError } = await supabase
+      .from('chapters')
+      .select('id')
+      .eq('id', chapterId)
+      .eq('user_id', currentUserId)
+      .single();
+
+    if (chapterError || !chapterData) {
+      console.error('❌ Chapter not found or user does not own this chapter');
+      return false;
+    }
+
+    // 🔒 SECURITY 2: Only update videos that belong to the user
+    // RLS will automatically filter, but we add explicit check
     const { error } = await supabase
       .from('videos')
       .update({ chapter_id: chapterId })
-      .in('id', videoIds);
+      .in('id', videoIds)
+      .eq('user_id', currentUserId); // ← PROTECTION CRITIQUE
 
     if (error) throw error;
 
-    console.log(`✅ ${videoIds.length} videos assigned to chapter:`, chapterId);
+    console.log(`✅ ${videoIds.length} videos assigned securely to chapter:`, chapterId);
     return true;
   } catch (error) {
     console.error('❌ Error assigning videos to chapter:', error);
@@ -209,15 +280,43 @@ export async function assignVideosToChapter(
 
 /**
  * Récupère les statistiques d'un chapitre
+ * 🔒 SÉCURISÉ: Vérifie que le chapitre appartient à l'utilisateur
  */
 export async function getChapterStats(
-  chapterId: string
+  chapterId: string,
+  userId?: string
 ): Promise<{ video_count: number; total_duration: number }> {
   try {
+    // 🔒 Get current user if not provided
+    let currentUserId = userId;
+    if (!currentUserId) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.warn('⚠️ No authenticated user for getChapterStats');
+        return { video_count: 0, total_duration: 0 };
+      }
+      currentUserId = user.id;
+    }
+
+    // 🔒 SECURITY 1: Verify chapter belongs to user first
+    const { data: chapterData, error: chapterError } = await supabase
+      .from('chapters')
+      .select('id')
+      .eq('id', chapterId)
+      .eq('user_id', currentUserId)
+      .single();
+
+    if (chapterError || !chapterData) {
+      console.warn('⚠️ Chapter not found or user does not own this chapter');
+      return { video_count: 0, total_duration: 0 };
+    }
+
+    // 🔒 SECURITY 2: Only count videos that belong to the user
     const { data, error } = await supabase
       .from('videos')
       .select('duration')
-      .eq('chapter_id', chapterId);
+      .eq('chapter_id', chapterId)
+      .eq('user_id', currentUserId); // ← PROTECTION CRITIQUE
 
     if (error) throw error;
 
@@ -253,24 +352,51 @@ export async function getVideosWithoutChapter(userId: string): Promise<any[]> {
 
 /**
  * Supprime un chapitre (seulement s'il n'a pas de vidéos)
+ * 🔒 SÉCURISÉ: Vérifie que le chapitre appartient à l'utilisateur
  */
-export async function deleteChapter(chapterId: string): Promise<boolean> {
+export async function deleteChapter(chapterId: string, userId?: string): Promise<boolean> {
   try {
+    // 🔒 Get current user if not provided
+    let currentUserId = userId;
+    if (!currentUserId) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ No authenticated user for deleteChapter');
+        return false;
+      }
+      currentUserId = user.id;
+    }
+
+    // 🔒 SECURITY: Verify chapter belongs to user before checking stats
+    const { data: chapterData, error: chapterError } = await supabase
+      .from('chapters')
+      .select('id')
+      .eq('id', chapterId)
+      .eq('user_id', currentUserId)
+      .single();
+
+    if (chapterError || !chapterData) {
+      console.error('❌ Chapter not found or user does not own this chapter');
+      return false;
+    }
+
     // Vérifier qu'il n'y a pas de vidéos
-    const stats = await getChapterStats(chapterId);
+    const stats = await getChapterStats(chapterId, currentUserId);
     if (stats.video_count > 0) {
       console.warn('⚠️ Cannot delete chapter with videos');
       return false;
     }
 
+    // 🔒 SECURITY: Delete only if belongs to user
     const { error } = await supabase
       .from('chapters')
       .delete()
-      .eq('id', chapterId);
+      .eq('id', chapterId)
+      .eq('user_id', currentUserId); // ← PROTECTION CRITIQUE
 
     if (error) throw error;
 
-    console.log('✅ Chapter deleted:', chapterId);
+    console.log('✅ Chapter deleted securely:', chapterId);
     return true;
   } catch (error) {
     console.error('❌ Error deleting chapter:', error);

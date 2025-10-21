@@ -119,6 +119,9 @@ const LibraryScreen: React.FC = () => {
   // ✅ FIX: Stable date ref to avoid recalculations every minute
   const currentDateRef = useRef(new Date());
 
+  // ✅ OPTIMIZATION: Cancel flag to prevent setState after unmount
+  const cancelledRef = useRef(false);
+
   // Create infinite scroll array (3x duplication for smooth looping)
   const infiniteLifeAreas = useMemo(() => {
     return [...LIFE_AREAS, ...LIFE_AREAS, ...LIFE_AREAS];
@@ -270,6 +273,7 @@ const LibraryScreen: React.FC = () => {
   const fetchVideos = useCallback(async (pageToLoad: number = 0, append: boolean = false) => {
     try {
       if (!append) {
+        if (cancelledRef.current) return; // ✅ Check cancelled before dispatch
         dispatch({ type: 'FETCH_START' });
 
         // 🚀 PHASE 1: Try cache first (fast, synchronous)
@@ -278,7 +282,7 @@ const LibraryScreen: React.FC = () => {
         const { videos: cachedVideos } = await VideoCacheService.loadFromCache();
         console.log(`⏱️ Cache loaded in ${Date.now() - cacheStartTime}ms`);
 
-        if (cachedVideos.length > 0) {
+        if (cachedVideos.length > 0 && !cancelledRef.current) {
           console.log(`✅ Showing ${cachedVideos.length} cached videos immediately`);
           // Sort cached videos
           const sortedCached = cachedVideos.sort((a, b) =>
@@ -288,6 +292,7 @@ const LibraryScreen: React.FC = () => {
           setLoadingPhase('cache');
         }
       } else {
+        if (cancelledRef.current) return; // ✅ Check cancelled before dispatch
         dispatch({ type: 'LOAD_MORE_START' });
       }
 
@@ -298,6 +303,12 @@ const LibraryScreen: React.FC = () => {
       const fetchStartTime = Date.now();
       const videosData = await VideoService.getAllVideos(undefined, VIDEOS_PER_PAGE, offset);
       console.log(`⏱️ Network fetch completed in ${Date.now() - fetchStartTime}ms (${videosData.length} videos)`);
+
+      // ✅ Check cancelled after async operation
+      if (cancelledRef.current) {
+        console.log('⚠️ Fetch cancelled, skipping dispatch');
+        return;
+      }
 
       // Check if we have more pages
       const hasMoreVideos = videosData.length === VIDEOS_PER_PAGE;
@@ -381,6 +392,9 @@ const LibraryScreen: React.FC = () => {
 
   // 🚀 OPTIMIZATION: Load videos after interactions complete (non-blocking)
   useEffect(() => {
+    // Reset cancelled flag on mount
+    cancelledRef.current = false;
+
     // Skeleton UI is already visible immediately
     // Now defer heavy operations until after navigation animation
     const handle = InteractionManager.runAfterInteractions(() => {
@@ -388,7 +402,11 @@ const LibraryScreen: React.FC = () => {
       fetchVideos(0, false);
     });
 
-    return () => handle.cancel();
+    return () => {
+      // ✅ Set cancelled flag to prevent setState after unmount
+      cancelledRef.current = true;
+      handle.cancel();
+    };
   }, [fetchVideos]);
 
   // Load more videos handler
@@ -668,38 +686,27 @@ const LibraryScreen: React.FC = () => {
   // Gesture handler for chapter button swipe
   const chapterSwipeGesture = useMemo(() => {
     return Gesture.Pan()
-      .activeOffsetY([-15, 15]) // Require 15px vertical movement to activate (prevents accidental triggers)
-      .failOffsetX([-30, 30]) // Fail if horizontal movement is too large (30px tolerance)
+      .activeOffsetY([-15, 15])
+      .failOffsetX([-30, 30])
+      .runOnJS(true) // 🔑 Run all callbacks on JS thread - no need for individual runOnJS() calls
       .onEnd((event) => {
-        try {
-          // Safety check: ensure event exists
-          if (!event) {
-            console.warn('⚠️ Swipe event is null');
-            return;
+        if (!event) return;
+
+        const velocityY = event.velocityY ?? 0;
+        const translationY = event.translationY ?? 0;
+        const translationX = event.translationX ?? 0;
+
+        const isVerticalMovement = Math.abs(translationY) > Math.abs(translationX) * 1.5;
+
+        if (isVerticalMovement && (Math.abs(translationY) > 25 || Math.abs(velocityY) > 600)) {
+          if (translationY < 0) {
+            navigateToChapter('up');
+          } else {
+            navigateToChapter('down');
           }
-
-          const velocityY = event.velocityY ?? 0;
-          const translationY = event.translationY ?? 0;
-          const translationX = event.translationX ?? 0;
-
-          // Ensure movement is primarily vertical (not horizontal)
-          const isVerticalMovement = Math.abs(translationY) > Math.abs(translationX) * 1.5;
-
-          // Require minimum swipe distance or velocity AND vertical movement
-          if (isVerticalMovement && (Math.abs(translationY) > 25 || Math.abs(velocityY) > 600)) {
-            if (translationY < 0) {
-              // Swiped up
-              navigateToChapter('up');
-            } else {
-              // Swiped down
-              navigateToChapter('down');
-            }
-          }
-        } catch (error) {
-          console.error('❌ Error in chapter swipe gesture:', error instanceof Error ? error.message : JSON.stringify(error));
         }
       })
-      .enabled(sortedChapters.length > 1); // Only enable if there are multiple chapters
+      .enabled(sortedChapters.length > 1);
   }, [navigateToChapter, sortedChapters.length]);
 
   // 🚀 OPTIMIZATION: Memoize month days calculation - only recalculate when needed

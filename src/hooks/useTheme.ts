@@ -1,13 +1,13 @@
 import { useMemo } from 'react';
-import { useDarkMode } from '../contexts/DarkModeContext';
 import { getTheme } from '../styles/theme';
 import { useTheme as useThemeContext } from '../contexts/ThemeContext';
 
 export const useTheme = () => {
-  const { isDarkMode } = useDarkMode();
   const themeContext = useThemeContext();
   const brandColor = themeContext?.brandColor || '#9B66FF';
-  const baseTheme = getTheme(isDarkMode);
+
+  // ✅ ALWAYS return light theme (dark mode removed)
+  const baseTheme = getTheme(false);
 
   // Return theme with dynamic brand.primary
   return useMemo(() => ({
@@ -19,5 +19,5 @@ export const useTheme = () => {
         primary: brandColor, // Dynamic brand color from ThemeContext
       },
     },
-  }), [isDarkMode, brandColor]);
+  }), [brandColor]);
 };

@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { StyleSheet, Image } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { Image } from 'expo-image'; // ✅ Migrated from react-native Image (2025-10-22)
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -78,7 +79,7 @@ export const SharedElementPortal: React.FC<SharedElementPortalProps> = ({
         <Image
           source={{ uri: imageUri }}
           style={styles.image}
-          resizeMode="cover"
+          contentFit="cover"
         />
       </Animated.View>
     </Animated.View>

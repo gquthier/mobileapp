@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Icon } from './Icon';
-import { useTheme } from '../hooks/useTheme';
+import { theme } from '../styles';
 
 interface TopBarProps {
   title: string;
@@ -9,13 +9,11 @@ interface TopBarProps {
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ title, right }) => {
-  const theme = useTheme();
-
   return (
     <View style={styles.container}>
       <View style={styles.left}>
         <Icon name="bookOpen" size={20} color={theme.colors.text.primary} />
-        <Text style={[styles.title, { color: theme.colors.text.primary }]}>{title}</Text>
+        <Text style={styles.title}>{title}</Text>
       </View>
       <View style={styles.right}>
         {right}
@@ -30,23 +28,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: theme.spacing['4'],
     backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
   },
   left: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: theme.spacing['2'],
     backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
   },
   title: {
-    fontSize: 16,
+    ...theme.typography.body,
     fontWeight: '500',
+    color: theme.colors.text.primary,
   },
   right: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: theme.spacing['3'],
     backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
   },
 });

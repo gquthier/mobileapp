@@ -17,16 +17,13 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
 import { useTheme as useHookTheme } from '../hooks/useTheme';
 import { useTheme as useThemeContext } from '../contexts/ThemeContext';
-import { useDarkMode } from '../contexts/DarkModeContext';
+import { useUserRole } from '../hooks/useUserRole';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { LoadingDots } from '../components/LoadingDots';
 import { AuthService, Profile } from '../services/authService';
+import { OnboardingService } from '../services/onboardingService';
 import { supabase, Chapter } from '../lib/supabase';
-import {
-  generateMissingChapterStories,
-  countChaptersWithoutStories
-} from '../services/chapterStoryService';
 import { getCurrentChapter } from '../services/chapterService';
 import { CHAPTER_COLORS } from '../constants/chapterColors';
 import ProfileScreen from './ProfileScreen';
@@ -207,7 +204,8 @@ interface SettingsScreenProps {
 const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const theme = useHookTheme();
   const { brandColor, colorMode, customColor, setColorMode, setCustomColor, loadCurrentChapterColor } = useThemeContext();
-  const { isDarkMode, toggleDarkMode } = useDarkMode();
+  const { isAdmin, role, loading: roleLoading } = useUserRole();
+  // ✅ Dark mode removed - Light mode only
 
   const [currentView, setCurrentView] = useState<'settings' | 'profile' | 'notifications' | 'auth'>('settings');
   const [user, setUser] = useState<any>(null);
@@ -228,20 +226,9 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   // App color theme state
   const [showColorPickerModal, setShowColorPickerModal] = useState(false);
 
-  // AI Story generation state
-  const [isGeneratingStories, setIsGeneratingStories] = useState(false);
-  const [chaptersWithoutStories, setChaptersWithoutStories] = useState(0);
-  const [generationProgress, setGenerationProgress] = useState('');
-
   useEffect(() => {
     loadUserData();
-    loadChapterStoriesCount();
   }, []);
-
-  const loadChapterStoriesCount = async () => {
-    const count = await countChaptersWithoutStories();
-    setChaptersWithoutStories(count);
-  };
 
   const loadUserData = async () => {
     setLoading(true);
@@ -335,11 +322,58 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   };
 
   const handleHelpPress = () => {
-    Alert.alert('Help & Support', 'Help center coming soon');
+    Alert.alert(
+      'Help & Support',
+      'Contact this email for support or to share anything:\n\ncontact@saasexpand.io'
+    );
   };
 
   const handleAboutPress = () => {
     Alert.alert('About', 'Chapters App v1.0.0\nBuilt for personal reflection and growth');
+  };
+
+  // ADMIN ONLY: Reset onboarding flow
+  const handleResetOnboarding = () => {
+    Alert.alert(
+      '🔄 Reset Onboarding',
+      'This will restart the entire onboarding flow as if you just installed the app.\n\nAre you sure you want to continue?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
+              // Reset all onboarding flags
+              await OnboardingService.resetOnboarding();
+
+              // Show success message
+              Alert.alert(
+                '✅ Onboarding Reset',
+                'The app will now restart to begin the onboarding flow.',
+                [
+                  {
+                    text: 'OK',
+                    onPress: async () => {
+                      // Sign out to restart the flow
+                      await AuthService.signOut();
+                    },
+                  },
+                ]
+              );
+            } catch (error) {
+              console.error('❌ Error resetting onboarding:', error);
+              Alert.alert('Error', 'Failed to reset onboarding. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const updateNotificationSettings = async (key: string, value: boolean) => {
@@ -555,233 +589,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
     }
   };
 
-  /**
-   * Create transcription jobs for videos that don't have them
-   */
-  const handleBackfillTranscriptions = async () => {
-    if (!user) {
-      Alert.alert('Error', 'Please sign in first');
-      return;
-    }
-
-    Alert.alert(
-      'Create Transcription Jobs',
-      'This will create transcription jobs for all your videos that don\'t have them yet.\n\nThis will enable AI features like chapter stories and highlights.\n\nContinue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Create Jobs',
-          onPress: async () => {
-            try {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-              console.log('🚀 Calling backfill-transcription-jobs...');
-
-              const { data, error } = await supabase.functions.invoke('backfill-transcription-jobs', {
-                body: {
-                  limit: 100, // Process up to 100 videos
-                  userId: user.id
-                }
-              });
-
-              if (error) {
-                throw new Error(error.message);
-              }
-
-              if (!data.success) {
-                throw new Error(data.error || 'Failed to create transcription jobs');
-              }
-
-              console.log('✅ Backfill result:', data);
-
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              Alert.alert(
-                'Success! 🎉',
-                `Created ${data.created} transcription jobs.\n\nProcessing will start automatically. Check back in a few minutes!`
-              );
-
-            } catch (error: any) {
-              console.error('❌ Error backfilling transcriptions:', error);
-              Alert.alert('Error', error.message || 'Failed to create transcription jobs. Please try again.');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  /**
-   * 🧪 DEV ONLY: Test Life Areas calculation (simplified - reads from highlights JSON)
-   */
-  const handleTestLifeAreas = async () => {
-    if (!user) {
-      Alert.alert('Error', 'Please sign in first');
-      return;
-    }
-
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-      console.log('🧪 TEST: Starting Life Areas analysis...');
-
-      // Get all transcription jobs with highlights
-      const { data: jobs, error: jobsError } = await supabase
-        .from('transcription_jobs')
-        .select('transcript_highlight, video_id')
-        .not('transcript_highlight', 'is', null);
-
-      if (jobsError) {
-        console.error('❌ Error loading transcription jobs:', jobsError);
-        Alert.alert('Error', 'Failed to load transcription jobs');
-        return;
-      }
-
-      console.log(`📊 Found ${jobs?.length || 0} transcription jobs with highlights`);
-
-      if (!jobs || jobs.length === 0) {
-        Alert.alert('No Data', 'No transcription jobs with highlights found.\n\nMake sure your videos are transcribed.');
-        return;
-      }
-
-      // Count mentions per life area (simple string counting from JSON)
-      const mentionCounts = new Map<string, number>();
-      let totalHighlights = 0;
-      let highlightsWithArea = 0;
-
-      jobs.forEach((job, jobIndex) => {
-        if (!job.transcript_highlight) return;
-
-        const highlights = job.transcript_highlight.highlights || [];
-        console.log(`📝 Job ${jobIndex}: ${highlights.length} highlights`);
-
-        highlights.forEach((highlight: any, highlightIndex: number) => {
-          totalHighlights++;
-
-          // Get the area field from the highlight (simple string)
-          const highlightArea = highlight.area;
-          console.log(`  - Highlight ${highlightIndex}: area="${highlightArea}"`);
-
-          if (highlightArea && typeof highlightArea === 'string') {
-            highlightsWithArea++;
-
-            // Normalize to capitalized form (e.g., "health" → "Health")
-            const normalizedArea = highlightArea.charAt(0).toUpperCase() + highlightArea.slice(1).toLowerCase();
-
-            // Check if it exists in our static config
-            if (LIFE_AREAS_CONFIG[normalizedArea]) {
-              const currentCount = mentionCounts.get(normalizedArea) || 0;
-              mentionCounts.set(normalizedArea, currentCount + 1);
-              console.log(`    ✅ Matched to "${normalizedArea}"`);
-            } else {
-              console.log(`    ⚠️ No match found for "${highlightArea}" (normalized: "${normalizedArea}")`);
-            }
-          }
-        });
-      });
-
-      console.log(`\n📊 RESULTS:`);
-      console.log(`   Total highlights: ${totalHighlights}`);
-      console.log(`   Highlights with area: ${highlightsWithArea}`);
-      console.log(`   Mentions per area:`, Object.fromEntries(mentionCounts));
-
-      // Calculate percentages for areas with mentions
-      const areaPercentages = Array.from(mentionCounts.entries())
-        .map(([areaKey, count]) => ({
-          display_name: LIFE_AREAS_CONFIG[areaKey].name,
-          count,
-          percentage: Math.round((count / totalHighlights) * 100)
-        }))
-        .filter(item => item.count > 0) // Only areas with at least one mention
-        .sort((a, b) => b.count - a.count); // Sort by count descending
-
-      const resultsText = areaPercentages
-        .map(item => `${item.display_name}: ${item.percentage}% (${item.count} mentions)`)
-        .join('\n');
-
-      Alert.alert(
-        'Life Areas Analysis',
-        `Total highlights: ${totalHighlights}\nHighlights with area: ${highlightsWithArea}\n\n${resultsText || 'No life areas found in highlights'}`,
-        [{ text: 'OK' }]
-      );
-
-    } catch (error: any) {
-      console.error('❌ Error testing life areas:', error);
-      Alert.alert('Error', error.message || 'An unexpected error occurred');
-    }
-  };
-
-  /**
-   * Generate AI stories for all old chapters without them
-   */
-  const handleGenerateChapterStories = async () => {
-    if (!user) {
-      Alert.alert('Error', 'Please sign in first');
-      return;
-    }
-
-    if (chaptersWithoutStories === 0) {
-      Alert.alert('All Done!', 'All your chapters already have AI-generated stories! 🎉');
-      return;
-    }
-
-    Alert.alert(
-      'Generate Chapter Stories',
-      `This will generate AI-powered stories for ${chaptersWithoutStories} old chapters.\n\nThis may take a few minutes. Continue?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Generate',
-          onPress: async () => {
-            setIsGeneratingStories(true);
-            setGenerationProgress('Starting generation...');
-
-            try {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-              // Generate stories in batches of 5
-              const batchSize = 5;
-              let totalProcessed = 0;
-              let totalSuccess = 0;
-
-              while (totalProcessed < chaptersWithoutStories) {
-                setGenerationProgress(`Generating... ${totalProcessed}/${chaptersWithoutStories}`);
-
-                const result = await generateMissingChapterStories({ limit: batchSize });
-
-                if (!result.success) {
-                  throw new Error(result.error || 'Generation failed');
-                }
-
-                totalProcessed += result.processed;
-                totalSuccess += result.successCount || 0;
-
-                // If no more chapters to process, break
-                if (result.processed === 0) {
-                  break;
-                }
-              }
-
-              setGenerationProgress('');
-              await loadChapterStoriesCount(); // Refresh count
-
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              Alert.alert(
-                'Success! 🎉',
-                `Generated AI stories for ${totalSuccess} chapters!`
-              );
-
-            } catch (error: any) {
-              console.error('❌ Error generating chapter stories:', error);
-              setGenerationProgress('');
-              Alert.alert('Error', error.message || 'Failed to generate stories. Please try again.');
-            } finally {
-              setIsGeneratingStories(false);
-            }
-          }
-        }
-      ]
-    );
-  };
 
   // Show appropriate screen based on current view
   if (currentView === 'auth') {
@@ -844,14 +651,15 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
 
           {/* Appearance Section */}
           <SettingsSection title="Appearance">
-            <SettingsItem
+            {/* 🌙 Night Mode - Temporarily disabled (see NIGHT_MODE_RESTORATION_GUIDE.md) */}
+            {/* <SettingsItem
               icon="moon"
               title="Night Mode"
               subtitle="Switch to dark theme"
               showSwitch
               switchValue={isDarkMode}
               onSwitchChange={toggleDarkMode}
-            />
+            /> */}
             <SettingsItem
               icon="droplet"
               title="App Color Theme"
@@ -866,45 +674,10 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           <SettingsSection title="Notifications">
             <SettingsItem
               icon="bell"
-              title="Push Notifications"
-              subtitle="Receive reminders and updates"
-              showSwitch
-              switchValue={notificationsEnabled}
-              onSwitchChange={onNotificationsChange}
-            />
-            <SettingsItem
-              icon="clock"
-              title="Recording Reminders"
-              subtitle="Daily prompts to record your reflections"
-              showSwitch
-              switchValue={reminderEnabled}
-              onSwitchChange={onRemindersChange}
-            />
-            <SettingsItem
-              icon="settings"
               title="Notification Settings"
               subtitle="Customize notification preferences"
               showChevron
               onPress={handleNotificationSettings}
-            />
-          </SettingsSection>
-
-          {/* Backup & Storage Section */}
-          <SettingsSection title="Backup & Storage">
-            <SettingsItem
-              icon="cloud"
-              title="Cloud Backup"
-              subtitle="Automatically backup your videos"
-              showSwitch
-              switchValue={cloudBackup}
-              onSwitchChange={onCloudBackupChange}
-            />
-            <SettingsItem
-              icon="folder"
-              title="Storage Settings"
-              subtitle="Manage local and cloud storage"
-              showChevron
-              onPress={handleBackupSettings}
             />
           </SettingsSection>
 
@@ -937,6 +710,19 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
             />
           </SettingsSection>
 
+          {/* Admin Section - Only visible for admin users */}
+          {isAdmin && (
+            <SettingsSection title="🔧 Developer">
+              <SettingsItem
+                icon="rotateCcw"
+                title="Reset Onboarding"
+                subtitle="Restart the entire onboarding flow"
+                showChevron
+                onPress={handleResetOnboarding}
+              />
+            </SettingsSection>
+          )}
+
           {/* Support Section */}
           <SettingsSection title="Support">
             <SettingsItem
@@ -954,115 +740,6 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
               onPress={handleAboutPress}
             />
           </SettingsSection>
-
-          {/* AI Features Section - Only show if user is signed in */}
-          {user && (
-            <SettingsSection title="AI Features">
-              {/* Generate Chapter Stories */}
-              <TouchableOpacity
-                style={[styles.aiFeatureCard, {
-                  backgroundColor: theme.colors.ui.surface,
-                  borderColor: isGeneratingStories ? theme.colors.brand.primary : theme.colors.ui.border,
-                }]}
-                onPress={handleGenerateChapterStories}
-                disabled={isGeneratingStories}
-                activeOpacity={0.7}
-              >
-                <View style={styles.aiFeatureContent}>
-                  <View style={styles.aiFeatureHeader}>
-                    <View style={[styles.aiIconContainer, {
-                      backgroundColor: isGeneratingStories
-                        ? theme.colors.brand.primary + '20'
-                        : theme.colors.ui.surfaceHover
-                    }]}>
-                      {isGeneratingStories ? (
-                        <LoadingDots color={brandColor} size={6} />
-                      ) : (
-                        <Icon name="sparkles" size={24} color={theme.colors.brand.primary} />
-                      )}
-                    </View>
-                    <View style={styles.aiFeatureText}>
-                      <Text style={[styles.aiFeatureTitle, { color: theme.colors.text.primary }]}>
-                        Generate Chapter Stories
-                      </Text>
-                      <Text style={[styles.aiFeatureSubtitle, { color: theme.colors.text.secondary }]}>
-                        {isGeneratingStories
-                          ? generationProgress
-                          : chaptersWithoutStories > 0
-                            ? `${chaptersWithoutStories} chapters need AI stories`
-                            : 'All chapters have AI stories ✓'
-                        }
-                      </Text>
-                    </View>
-                  </View>
-
-                  {!isGeneratingStories && chaptersWithoutStories > 0 && (
-                    <View style={[styles.aiFeatureBadge, { backgroundColor: theme.colors.brand.primary }]}>
-                      <Text style={styles.aiFeatureBadgeText}>{chaptersWithoutStories}</Text>
-                    </View>
-                  )}
-                </View>
-              </TouchableOpacity>
-
-              {/* Create Missing Transcription Jobs */}
-              <TouchableOpacity
-                style={[styles.aiFeatureCard, {
-                  backgroundColor: theme.colors.ui.surface,
-                  borderColor: theme.colors.ui.border,
-                  marginTop: theme.spacing['3'],
-                }]}
-                onPress={handleBackfillTranscriptions}
-                activeOpacity={0.7}
-              >
-                <View style={styles.aiFeatureContent}>
-                  <View style={styles.aiFeatureHeader}>
-                    <View style={[styles.aiIconContainer, {
-                      backgroundColor: theme.colors.ui.surfaceHover
-                    }]}>
-                      <Icon name="fileText" size={24} color={theme.colors.brand.primary} />
-                    </View>
-                    <View style={styles.aiFeatureText}>
-                      <Text style={[styles.aiFeatureTitle, { color: theme.colors.text.primary }]}>
-                        Create Transcription Jobs
-                      </Text>
-                      <Text style={[styles.aiFeatureSubtitle, { color: theme.colors.text.secondary }]}>
-                        For videos without transcriptions
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </TouchableOpacity>
-
-              {/* 🧪 DEV: Test Life Areas */}
-              <TouchableOpacity
-                style={[styles.aiFeatureCard, {
-                  backgroundColor: theme.colors.ui.surface,
-                  borderColor: theme.colors.ui.border,
-                  marginTop: theme.spacing['3'],
-                }]}
-                onPress={handleTestLifeAreas}
-                activeOpacity={0.7}
-              >
-                <View style={styles.aiFeatureContent}>
-                  <View style={styles.aiFeatureHeader}>
-                    <View style={[styles.aiIconContainer, {
-                      backgroundColor: theme.colors.ui.surfaceHover
-                    }]}>
-                      <Icon name="target" size={24} color={theme.colors.brand.primary} />
-                    </View>
-                    <View style={styles.aiFeatureText}>
-                      <Text style={[styles.aiFeatureTitle, { color: theme.colors.text.primary }]}>
-                        🧪 Test Life Areas
-                      </Text>
-                      <Text style={[styles.aiFeatureSubtitle, { color: theme.colors.text.secondary }]}>
-                        Analyze Life Areas in highlights (DEV)
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            </SettingsSection>
-          )}
 
           {/* Bottom spacing for navigation */}
           <View style={{ height: 100 }} />
@@ -1373,53 +1050,6 @@ const styles = StyleSheet.create({
   modalButtonText: {
     fontSize: 16,
     fontWeight: '600',
-  },
-  // AI Features Section
-  aiFeatureCard: {
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 2,
-  },
-  aiFeatureContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  aiFeatureHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  aiIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  aiFeatureText: {
-    flex: 1,
-  },
-  aiFeatureTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  aiFeatureSubtitle: {
-    fontSize: 14,
-  },
-  aiFeatureBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  aiFeatureBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
   },
   // App Color Theme Picker Modal
   colorPickerModalContent: {

@@ -180,12 +180,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       });
 
       try {
+        // 🔒 Get current user for security check
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.error('[VideoPlayer] ❌ No authenticated user for fetching transcription');
+          setTranscriptionHighlights([]);
+          return;
+        }
+
         // 1. D'abord, chercher TOUS les jobs pour cette vidéo (sans filtre status)
-        const { data: allJobs, error: allJobsError } = await supabase
+        // 🔒 SECURITY: JOIN with videos to verify ownership
+        const { data: allJobsData, error: allJobsError } = await supabase
           .from('transcription_jobs')
-          .select('*')
+          .select(`
+            *,
+            videos!inner (
+              user_id
+            )
+          `)
           .eq('video_id', currentVideo.id)
+          .eq('videos.user_id', user.id) // ← PROTECTION CRITIQUE
           .order('created_at', { ascending: false });
+
+        // Remove nested videos data
+        const allJobs = allJobsData?.map(({ videos, ...job }) => job);
 
         console.log('[VideoPlayer] 📊 ALL transcription jobs for this video:', {
           count: allJobs?.length || 0,
@@ -198,13 +216,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         });
 
         // 2. Chercher les jobs complétés avec highlights
-        const { data: jobs, error } = await supabase
+        // 🔒 SECURITY: JOIN with videos to verify ownership
+        const { data: jobsData, error } = await supabase
           .from('transcription_jobs')
-          .select('*')
+          .select(`
+            *,
+            videos!inner (
+              user_id
+            )
+          `)
           .eq('video_id', currentVideo.id)
+          .eq('videos.user_id', user.id) // ← PROTECTION CRITIQUE
           .eq('status', 'completed')
           .order('completed_at', { ascending: false })
           .limit(1);
+
+        // Remove nested videos data
+        const jobs = jobsData?.map(({ videos, ...job }) => job);
 
         if (error) {
           console.error('[VideoPlayer] ❌ Error fetching transcription:', error);

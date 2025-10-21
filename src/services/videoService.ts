@@ -664,15 +664,27 @@ export class VideoService {
     try {
       console.log('🗑️ Deleting video:', id);
 
-      // First get the video to find the file path
+      // 🔒 Get current user for security check
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ No authenticated user for deleting video');
+        return false;
+      }
+
+      // 🔒 SECURITY 1: Fetch video WITH user_id verification
       const { data: video, error: fetchError } = await supabase
         .from('videos')
         .select('file_path')
         .eq('id', id)
+        .eq('user_id', user.id) // ← PROTECTION CRITIQUE
         .single();
 
       if (fetchError) {
-        console.error('❌ Error fetching video for deletion:', fetchError);
+        if (fetchError.code === 'PGRST116') {
+          console.error('❌ Video not found or user does not own this video');
+        } else {
+          console.error('❌ Error fetching video for deletion:', fetchError);
+        }
         return false;
       }
 
@@ -688,18 +700,19 @@ export class VideoService {
         }
       }
 
-      // Delete from database
+      // 🔒 SECURITY 2: Delete from database WITH user_id verification
       const { error: dbError } = await supabase
         .from('videos')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
 
       if (dbError) {
         console.error('❌ Database deletion error:', dbError);
         return false;
       }
 
-      console.log('✅ Video deleted successfully');
+      console.log('✅ Video deleted securely');
       return true;
     } catch (error) {
       console.error('❌ Error deleting video:', error);

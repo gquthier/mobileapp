@@ -17,7 +17,6 @@ import * as Haptics from 'expo-haptics';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { useTheme } from '../hooks/useTheme';
-import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { LoadingDots } from '../components/LoadingDots';
 import { AuthService, Profile } from '../services/authService';
@@ -638,7 +637,6 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack }) => {
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.ui.background }]}>
-        <TopBar title="Profile" />
         <View style={styles.centerContainer}>
           <LoadingDots color={theme.colors.brand.primary} />
         </View>
@@ -648,17 +646,6 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack }) => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.ui.background }]}>
-      <TopBar
-        title="Profile"
-        right={
-          <TouchableOpacity onPress={onBack}>
-            <Text style={[styles.doneButton, { color: theme.colors.text.primary }]}>
-              Done
-            </Text>
-          </TouchableOpacity>
-        }
-      />
-
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Profile Header */}
         <ProfileHeader profile={profile} />
@@ -779,10 +766,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  doneButton: {
-    fontSize: 16,
-    fontWeight: '600',
   },
   scrollView: {
     flex: 1,

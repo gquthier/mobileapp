@@ -1,5 +1,6 @@
 import React, { useRef, useState, useCallback } from 'react';
-import { View, StyleSheet, Dimensions, Image } from 'react-native';
+import { View, StyleSheet, Dimensions } from 'react-native';
+import { Image } from 'expo-image'; // ✅ Migrated from react-native Image (2025-10-22)
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -107,7 +108,7 @@ export const ZoomableMediaViewer: React.FC<ZoomableMediaViewerProps> = ({
                 <Image
                   source={{ uri: asset.thumbnailUri }}
                   style={styles.media}
-                  resizeMode="contain"
+                  contentFit="contain"
                 />
               )}
               <Video
@@ -124,7 +125,7 @@ export const ZoomableMediaViewer: React.FC<ZoomableMediaViewerProps> = ({
             <Image
               source={{ uri: asset.uri }}
               style={styles.media}
-              resizeMode="contain"
+              contentFit="contain"
             />
           )}
         </Animated.View>

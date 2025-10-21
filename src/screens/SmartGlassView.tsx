@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, useColorScheme, Image } from 'react-native';
+import { View, Text, useColorScheme } from 'react-native';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 
 // ✅ Hook pour détecter la luminosité du fond en temps réel

@@ -39,9 +39,10 @@ export default function EditChapterScreen({ route, navigation }: EditChapterScre
 
   // Editable fields
   const [editedTitle, setEditedTitle] = useState(chapter.title);
-  const [editedKeywords, setEditedKeywords] = useState(
-    chapter.keywords?.join(', ') || ''
+  const [editedKeywords, setEditedKeywords] = useState<string[]>(
+    chapter.keywords || []
   );
+  const [newKeywordInput, setNewKeywordInput] = useState('');
   const [editedShortSummary, setEditedShortSummary] = useState(
     chapter.ai_short_summary || ''
   );
@@ -59,6 +60,24 @@ export default function EditChapterScreen({ route, navigation }: EditChapterScre
   const backgroundColor = chapter.color || staticTheme.colors.brand.primary;
 
   // ============================================================================
+  // KEYWORD HANDLERS
+  // ============================================================================
+
+  const handleAddKeyword = useCallback(() => {
+    const trimmed = newKeywordInput.trim();
+    if (trimmed && editedKeywords.length < 10 && !editedKeywords.includes(trimmed)) {
+      setEditedKeywords([...editedKeywords, trimmed]);
+      setNewKeywordInput('');
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, [newKeywordInput, editedKeywords]);
+
+  const handleRemoveKeyword = useCallback((index: number) => {
+    setEditedKeywords(editedKeywords.filter((_, i) => i !== index));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [editedKeywords]);
+
+  // ============================================================================
   // SAVE FUNCTIONS (inspired by ChapterDetailScreen)
   // ============================================================================
 
@@ -70,10 +89,20 @@ export default function EditChapterScreen({ route, navigation }: EditChapterScre
 
     setIsSavingTitle(true);
     try {
+      // 🔒 Get current user for security check
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        Alert.alert('Error', 'Authentication required');
+        setIsSavingTitle(false);
+        return;
+      }
+
+      // 🔒 SECURITY: Update with user_id verification
       const { error } = await supabase
         .from('chapters')
         .update({ title: editedTitle.trim() })
-        .eq('id', chapter.id);
+        .eq('id', chapter.id)
+        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
 
       if (error) throw error;
 
@@ -90,17 +119,20 @@ export default function EditChapterScreen({ route, navigation }: EditChapterScre
   const handleSaveKeywords = useCallback(async () => {
     setIsSavingKeywords(true);
     try {
-      // Parse keywords from comma-separated string
-      const keywordsArray = editedKeywords
-        .split(',')
-        .map(k => k.trim())
-        .filter(k => k.length > 0)
-        .slice(0, 10); // Max 10 keywords
+      // 🔒 Get current user for security check
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        Alert.alert('Error', 'Authentication required');
+        setIsSavingKeywords(false);
+        return;
+      }
 
+      // 🔒 SECURITY: Update with user_id verification
       const { error } = await supabase
         .from('chapters')
-        .update({ keywords: keywordsArray.length > 0 ? keywordsArray : null })
-        .eq('id', chapter.id);
+        .update({ keywords: editedKeywords.length > 0 ? editedKeywords : null })
+        .eq('id', chapter.id)
+        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
 
       if (error) throw error;
 
@@ -117,10 +149,20 @@ export default function EditChapterScreen({ route, navigation }: EditChapterScre
   const handleSaveShortSummary = useCallback(async () => {
     setIsSavingShortSummary(true);
     try {
+      // 🔒 Get current user for security check
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        Alert.alert('Error', 'Authentication required');
+        setIsSavingShortSummary(false);
+        return;
+      }
+
+      // 🔒 SECURITY: Update with user_id verification
       const { error } = await supabase
         .from('chapters')
         .update({ ai_short_summary: editedShortSummary.trim() || null })
-        .eq('id', chapter.id);
+        .eq('id', chapter.id)
+        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
 
       if (error) throw error;
 
@@ -137,10 +179,20 @@ export default function EditChapterScreen({ route, navigation }: EditChapterScre
   const handleSaveSummary = useCallback(async () => {
     setIsSavingSummary(true);
     try {
+      // 🔒 Get current user for security check
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        Alert.alert('Error', 'Authentication required');
+        setIsSavingSummary(false);
+        return;
+      }
+
+      // 🔒 SECURITY: Update with user_id verification
       const { error } = await supabase
         .from('chapters')
         .update({ ai_detailed_description: editedSummary.trim() || null })
-        .eq('id', chapter.id);
+        .eq('id', chapter.id)
+        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
 
       if (error) throw error;
 
@@ -157,21 +209,24 @@ export default function EditChapterScreen({ route, navigation }: EditChapterScre
   const handleSaveAll = useCallback(async () => {
     // Save all fields at once
     try {
-      const keywordsArray = editedKeywords
-        .split(',')
-        .map(k => k.trim())
-        .filter(k => k.length > 0)
-        .slice(0, 10);
+      // 🔒 Get current user for security check
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        Alert.alert('Error', 'Authentication required');
+        return;
+      }
 
+      // 🔒 SECURITY: Update with user_id verification
       const { error } = await supabase
         .from('chapters')
         .update({
           title: editedTitle.trim(),
-          keywords: keywordsArray.length > 0 ? keywordsArray : null,
+          keywords: editedKeywords.length > 0 ? editedKeywords : null,
           ai_short_summary: editedShortSummary.trim() || null,
           ai_detailed_description: editedSummary.trim() || null,
         })
-        .eq('id', chapter.id);
+        .eq('id', chapter.id)
+        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
 
       if (error) throw error;
 
@@ -298,20 +353,63 @@ export default function EditChapterScreen({ route, navigation }: EditChapterScre
               <View style={styles.editCardHeader}>
                 <Icon name="tag" size={20} color={staticTheme.colors.text.secondary} />
                 <Text style={styles.editCardTitle}>Keywords</Text>
+                <Text style={styles.keywordCount}>{editedKeywords.length}/10</Text>
               </View>
-              <Text style={styles.helperText}>
-                Separate keywords with commas (max 10)
-              </Text>
-              <TextInput
-                style={styles.keywordsInput}
-                value={editedKeywords}
-                onChangeText={setEditedKeywords}
-                placeholder="e.g. Growth, Career, Travel, Health"
-                placeholderTextColor={staticTheme.colors.text.tertiary}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-              />
+
+              {/* Display existing keywords as pills */}
+              {editedKeywords.length > 0 && (
+                <View style={styles.keywordPillsContainer}>
+                  {editedKeywords.map((keyword, index) => (
+                    <TouchableOpacity
+                      key={`${keyword}-${index}`}
+                      onPress={() => handleRemoveKeyword(index)}
+                      activeOpacity={0.7}
+                      style={styles.keywordPillWrapper}
+                    >
+                      <LiquidGlassView
+                        style={[
+                          styles.keywordPill,
+                          !isLiquidGlassSupported && {
+                            backgroundColor: staticTheme.colors.gray100,
+                          }
+                        ]}
+                        interactive={false}
+                      >
+                        <Text style={styles.keywordPillText}>{keyword}</Text>
+                        <Icon name="x" size={14} color={staticTheme.colors.text.secondary} />
+                      </LiquidGlassView>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* Input for new keyword */}
+              {editedKeywords.length < 10 && (
+                <>
+                  <Text style={styles.helperText}>
+                    {editedKeywords.length === 0
+                      ? 'Type a keyword and press Enter to add (max 10)'
+                      : 'Tap a keyword to delete, or add more below'}
+                  </Text>
+                  <TextInput
+                    style={styles.keywordInput}
+                    value={newKeywordInput}
+                    onChangeText={setNewKeywordInput}
+                    placeholder="Add keyword..."
+                    placeholderTextColor={staticTheme.colors.text.tertiary}
+                    onSubmitEditing={handleAddKeyword}
+                    blurOnSubmit={false}
+                    returnKeyType="done"
+                  />
+                </>
+              )}
+
+              {editedKeywords.length >= 10 && (
+                <Text style={styles.helperText}>
+                  Maximum 10 keywords reached. Tap a keyword to delete it.
+                </Text>
+              )}
+
               <LiquidGlassView
                 style={[
                   styles.saveFieldButtonGlass,
@@ -559,6 +657,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: staticTheme.colors.text.primary,
   },
+  keywordCount: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: staticTheme.colors.text.tertiary,
+    marginLeft: 'auto',
+  },
   helperText: {
     fontSize: 13,
     color: staticTheme.colors.text.tertiary,
@@ -573,14 +677,37 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 16,
   },
-  keywordsInput: {
+  // Keyword Pills (matching ChapterCard style)
+  keywordPillsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 16,
+    gap: 8,
+  },
+  keywordPillWrapper: {
+    // No additional margins - gap handles spacing
+  },
+  keywordPill: {
+    height: 36,
+    paddingHorizontal: 16,
+    borderRadius: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    overflow: 'hidden',
+  },
+  keywordPillText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: staticTheme.colors.text.secondary,
+  },
+  keywordInput: {
     fontSize: 16,
     color: staticTheme.colors.text.primary,
     backgroundColor: 'rgba(0, 0, 0, 0.03)',
     borderRadius: 12,
     padding: 14,
     marginBottom: 16,
-    minHeight: 80,
   },
   descriptionInput: {
     fontSize: 16,

@@ -4,209 +4,352 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
   Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { theme } from '../styles/theme';
-
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+import { Icon } from './Icon';
 
 interface WelcomeFlowProps {
   onComplete: () => void;
   onSkipDemo?: () => void;
 }
 
-const Logo = () => (
-  <View style={styles.logoContainer}>
-    <View style={styles.logoCircle}>
-      <View style={styles.logoInner}>
-        <Ionicons name="play" size={32} color={theme.colors.white} />
-      </View>
-    </View>
-  </View>
-);
-
-const AnimatedWord = ({ word, delay, children }: { word: string; delay: number; children?: React.ReactNode }) => {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(20)).current;
+// Animated Book Icon Component
+const AnimatedBook = ({ isActive }: { isActive: boolean }) => {
+  const leftPageRotate = useRef(new Animated.Value(0)).current;
+  const rightPageRotate = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-        }),
+    if (isActive) {
+      // Book opening animation
+      Animated.sequence([
+        Animated.delay(400),
+        Animated.parallel([
+          Animated.spring(leftPageRotate, {
+            toValue: -30,
+            useNativeDriver: true,
+            tension: 50,
+            friction: 7,
+          }),
+          Animated.spring(rightPageRotate, {
+            toValue: 30,
+            useNativeDriver: true,
+            tension: 50,
+            friction: 7,
+          }),
+        ]),
       ]).start();
-    }, delay);
-
-    return () => clearTimeout(timer);
-  }, []);
+    }
+  }, [isActive]);
 
   return (
-    <Animated.Text
-      style={[
-        styles.heroWord,
-        {
-          opacity,
-          transform: [{ translateY }],
-        },
-        children && styles.heroWordSpecial
-      ]}
-    >
-      {word}
-      {children}
-    </Animated.Text>
+    <View style={styles.iconContainer}>
+      <View style={styles.bookContainer}>
+        {/* Left page */}
+        <Animated.View
+          style={[
+            styles.bookPage,
+            styles.bookPageLeft,
+            {
+              transform: [{ rotateY: leftPageRotate.interpolate({
+                inputRange: [-30, 0],
+                outputRange: ['-30deg', '0deg'],
+              })}],
+            },
+          ]}
+        >
+          <View style={styles.bookPageInner} />
+        </Animated.View>
+
+        {/* Right page */}
+        <Animated.View
+          style={[
+            styles.bookPage,
+            styles.bookPageRight,
+            {
+              transform: [{ rotateY: rightPageRotate.interpolate({
+                inputRange: [0, 30],
+                outputRange: ['0deg', '30deg'],
+              })}],
+            },
+          ]}
+        >
+          <View style={styles.bookPageInner} />
+        </Animated.View>
+
+        {/* Center spine */}
+        <View style={styles.bookSpine} />
+      </View>
+    </View>
+  );
+};
+
+// Animated Timeline Component
+const AnimatedTimeline = ({ isActive }: { isActive: boolean }) => {
+  const progress1 = useRef(new Animated.Value(0)).current;
+  const progress2 = useRef(new Animated.Value(0)).current;
+  const progress3 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isActive) {
+      Animated.stagger(200, [
+        Animated.spring(progress1, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 50,
+          friction: 7,
+        }),
+        Animated.spring(progress2, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 50,
+          friction: 7,
+        }),
+        Animated.spring(progress3, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 50,
+          friction: 7,
+        }),
+      ]).start();
+    }
+  }, [isActive]);
+
+  return (
+    <View style={styles.iconContainer}>
+      <View style={styles.timelineContainer}>
+        {/* Timeline line */}
+        <View style={styles.timelineLine} />
+
+        {/* Timeline points */}
+        <Animated.View
+          style={[
+            styles.timelinePoint,
+            { left: '20%', opacity: progress1, transform: [{ scale: progress1 }] },
+          ]}
+        />
+        <Animated.View
+          style={[
+            styles.timelinePoint,
+            { left: '50%', opacity: progress2, transform: [{ scale: progress2 }] },
+          ]}
+        />
+        <Animated.View
+          style={[
+            styles.timelinePoint,
+            { left: '80%', opacity: progress3, transform: [{ scale: progress3 }] },
+          ]}
+        />
+      </View>
+    </View>
+  );
+};
+
+// Animated Gallery Component
+const AnimatedGallery = ({ isActive }: { isActive: boolean }) => {
+  const tile1 = useRef(new Animated.Value(0)).current;
+  const tile2 = useRef(new Animated.Value(0)).current;
+  const tile3 = useRef(new Animated.Value(0)).current;
+  const tile4 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isActive) {
+      Animated.stagger(100, [
+        Animated.spring(tile1, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 50,
+          friction: 7,
+        }),
+        Animated.spring(tile2, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 50,
+          friction: 7,
+        }),
+        Animated.spring(tile3, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 50,
+          friction: 7,
+        }),
+        Animated.spring(tile4, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 50,
+          friction: 7,
+        }),
+      ]).start();
+    }
+  }, [isActive]);
+
+  const tiles = [tile1, tile2, tile3, tile4];
+
+  return (
+    <View style={styles.iconContainer}>
+      <View style={styles.galleryContainer}>
+        {tiles.map((anim, index) => (
+          <Animated.View
+            key={index}
+            style={[
+              styles.galleryTile,
+              {
+                opacity: anim,
+                transform: [
+                  { scale: anim },
+                  {
+                    translateY: anim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [20, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          />
+        ))}
+      </View>
+    </View>
   );
 };
 
 export const WelcomeFlow: React.FC<WelcomeFlowProps> = ({ onComplete, onSkipDemo }) => {
-  const [step, setStep] = useState<'hero' | 'features'>('hero');
+  const [currentSlide, setCurrentSlide] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
-  const words = ['Build', 'a', 'life', 'you', 'want', 'to'];
-
-  const features = [
+  const slides = [
     {
-      icon: 'videocam-outline',
-      title: 'Record a life-long video journal',
-      subtitle: 'A timeline that follows you for decades.',
+      title: 'Your Life in Chapters',
+      description: 'Build and track the chapters of your life. Each phase, each goal, each moment matters.',
+      icon: (isActive: boolean) => <AnimatedBook isActive={isActive} />,
     },
     {
-      icon: 'target-outline',
-      title: 'Reach your goals faster with an AI that understands you',
-      subtitle: 'Personalized nudges and plans.',
+      title: 'Reflect & Evolve',
+      description: 'Take time to think about your growth, set your goals, and shape your future perspectives.',
+      icon: (isActive: boolean) => <AnimatedTimeline isActive={isActive} />,
     },
     {
-      icon: 'shield-checkmark-outline',
-      title: 'Keep your videos safe and completely private',
-      subtitle: 'You control what\'s shared.',
-    },
-    {
-      icon: 'book-outline',
-      title: 'Write your story and start new chapters',
-      subtitle: 'Organize by life phases and themes.',
+      title: 'Celebrate Your Journey',
+      description: 'Look back at your accomplishments. Every video is a memory, every chapter tells your story.',
+      icon: (isActive: boolean) => <AnimatedGallery isActive={isActive} />,
     },
   ];
 
-  const nextStep = () => {
-    Animated.timing(fadeAnim, {
-      toValue: 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => {
-      setStep('features');
+  const goToNextSlide = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    if (currentSlide < slides.length - 1) {
+      // Fade out animation
       Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
+        toValue: 0,
+        duration: 200,
         useNativeDriver: true,
-      }).start();
-    });
+      }).start(() => {
+        setCurrentSlide(currentSlide + 1);
+
+        // Fade in animation
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
+      });
+    } else {
+      // Complete onboarding
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onComplete();
+    }
   };
 
-  const handleGetStarted = () => {
-    onComplete();
+  const skipToEnd = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (onSkipDemo) {
+      onSkipDemo();
+    }
   };
+
+  const progressPercentage = ((currentSlide + 1) / slides.length) * 100;
 
   return (
     <View style={styles.container}>
-      <View style={styles.gradient}>
-        <SafeAreaView style={styles.safeArea}>
-          {/* Debug: Skip button pour les démos */}
-          {onSkipDemo && (
-            <TouchableOpacity
-              onPress={() => {
-                console.log('DEMO SKIP button pressed - skipping welcome flow');
-                onSkipDemo();
-              }}
-              style={styles.skipButton}
-            >
-              <Text style={styles.skipButtonText}>Skip for Demo</Text>
-            </TouchableOpacity>
-          )}
-
-          <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
-            {step === 'hero' ? (
-              <>
-                <View style={styles.heroContent}>
-                  <Logo />
-
-                  <View style={styles.heroTextContainer}>
-                    <View style={styles.heroTitle}>
-                      {words.map((word, index) => (
-                        <AnimatedWord key={word} word={`${word} `} delay={200 + index * 120} />
-                      ))}
-                      <AnimatedWord word="rewatch" delay={200 + words.length * 120} />
-                    </View>
-
-                    <Text style={styles.heroSubtitle}>
-                      2–3 minutes to set up • Private by default
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.bottomSection}>
-                  <TouchableOpacity onPress={nextStep} style={styles.button}>
-                    <Text style={styles.buttonText}>Next</Text>
-                  </TouchableOpacity>
-
-                  <View style={styles.progressContainer}>
-                    <View style={styles.progressBg}>
-                      <View style={[styles.progressFill, { width: '50%' }]} />
-                    </View>
-                  </View>
-                </View>
-              </>
-            ) : (
-              <>
-                <View style={styles.featuresContent}>
-                  <Text style={styles.featuresTitle}>
-                    Meet your new favorite coach
-                  </Text>
-
-                  <View style={styles.featuresList}>
-                    {features.map((feature, index) => (
-                      <View key={index} style={styles.featureCard}>
-                        <View style={styles.featureCardInner}>
-                          <Ionicons
-                            name={feature.icon as any}
-                            size={20}
-                            color={theme.colors.white}
-                            style={styles.featureIcon}
-                          />
-                          <View style={styles.featureText}>
-                            <Text style={styles.featureTitle}>{feature.title}</Text>
-                            <Text style={styles.featureSubtitle}>{feature.subtitle}</Text>
-                          </View>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-
-                <View style={styles.bottomSection}>
-                  <TouchableOpacity onPress={handleGetStarted} style={styles.primaryButton}>
-                    <Text style={styles.primaryButtonText}>Get started</Text>
-                  </TouchableOpacity>
-
-                  <View style={styles.progressContainer}>
-                    <View style={styles.progressBg}>
-                      <View style={[styles.progressFill, { width: '100%' }]} />
-                    </View>
-                  </View>
-                </View>
-              </>
+      {/* Gradient Background */}
+      <View style={styles.gradientBackground}>
+        {/* Liquid Glass Blur Overlay */}
+        <View style={styles.blurOverlay}>
+          <SafeAreaView style={styles.safeArea}>
+            {/* Skip button for demo */}
+            {onSkipDemo && (
+              <TouchableOpacity
+                onPress={skipToEnd}
+                style={styles.skipButton}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.skipButtonText}>Skip</Text>
+              </TouchableOpacity>
             )}
-          </Animated.View>
-        </SafeAreaView>
+
+            {/* Main Content */}
+            <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
+              {/* Icon Animation */}
+              <View style={styles.topSection}>
+                {slides[currentSlide].icon(true)}
+              </View>
+
+              {/* Text Content */}
+              <View style={styles.middleSection}>
+                <Text style={styles.slideTitle}>{slides[currentSlide].title}</Text>
+                <Text style={styles.slideDescription}>{slides[currentSlide].description}</Text>
+              </View>
+
+              {/* Bottom Section with CTA and Progress */}
+              <View style={styles.bottomSection}>
+                {/* Progress Dots */}
+                <View style={styles.dotsContainer}>
+                  {slides.map((_, index) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.dot,
+                        index === currentSlide && styles.dotActive,
+                      ]}
+                    />
+                  ))}
+                </View>
+
+                {/* Progress Bar */}
+                <View style={styles.progressBarContainer}>
+                  <View style={styles.progressBarBg}>
+                    <Animated.View
+                      style={[
+                        styles.progressBarFill,
+                        { width: `${progressPercentage}%` },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.progressText}>{Math.round(progressPercentage)}%</Text>
+                </View>
+
+                {/* CTA Button */}
+                <TouchableOpacity
+                  onPress={goToNextSlide}
+                  style={styles.ctaButton}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.ctaButtonText}>
+                    {currentSlide < slides.length - 1 ? 'Next' : "Let's Begin"}
+                  </Text>
+                  <Icon
+                    name="chevronRight"
+                    size={20}
+                    color="#667eea"
+                  />
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+          </SafeAreaView>
+        </View>
       </View>
     </View>
   );
@@ -216,9 +359,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  gradient: {
+  gradientBackground: {
     flex: 1,
-    backgroundColor: theme.colors.accent,
+    backgroundColor: '#667eea', // Purple gradient base
+  },
+  blurOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(102, 126, 234, 0.3)', // Subtle overlay
   },
   safeArea: {
     flex: 1,
@@ -226,161 +373,229 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    justifyContent: 'space-between',
+    paddingVertical: theme.spacing['8'],
   },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: theme.spacing['8'],
-  },
-  logoCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    padding: 8,
-    backgroundColor: theme.colors.accent2,
-  },
-  logoInner: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    borderRadius: 36,
-    borderWidth: 8,
-    borderColor: theme.colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroContent: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  heroTextContainer: {
-    alignItems: 'center',
-  },
-  heroTitle: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  heroWord: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: theme.colors.white,
-    lineHeight: 42,
-    letterSpacing: -0.5,
-  },
-  heroWordSpecial: {
-    // For the "rewatch" word with gradient
-  },
-  heroSubtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  featuresContent: {
-    flex: 1,
-    paddingTop: theme.spacing['6'],
-  },
-  featuresTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: theme.colors.white,
-    marginBottom: theme.spacing['6'],
-    lineHeight: 34,
-  },
-  featuresList: {
-    gap: 12,
-  },
-  featureCard: {
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+  skipButton: {
+    position: 'absolute',
+    top: 60,
+    right: 24,
+    zIndex: 100,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
-  featureCardInner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: 16,
-    gap: 12,
-  },
-  featureIcon: {
-    marginTop: 2,
-  },
-  featureText: {
-    flex: 1,
-  },
-  featureTitle: {
-    fontSize: 16,
+  skipButtonText: {
+    fontSize: 14,
     fontWeight: '600',
     color: theme.colors.white,
-    lineHeight: 22,
-    marginBottom: 4,
   },
-  featureSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
-    lineHeight: 20,
+
+  // Layout Sections
+  topSection: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: theme.spacing['12'],
+  },
+  middleSection: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing['4'],
   },
   bottomSection: {
     paddingBottom: theme.spacing['6'],
   },
-  button: {
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-    marginBottom: 16,
-    paddingVertical: 16,
+
+  // Icon Animations
+  iconContainer: {
+    width: 200,
+    height: 200,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.white,
+
+  // Book Animation
+  bookContainer: {
+    width: 140,
+    height: 100,
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  primaryButton: {
+  bookPage: {
+    position: 'absolute',
+    width: 60,
+    height: 80,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  bookPageLeft: {
+    left: 10,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  bookPageRight: {
+    right: 10,
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
+  },
+  bookPageInner: {
+    flex: 1,
+    margin: 8,
+    borderRadius: 2,
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+  },
+  bookSpine: {
+    width: 8,
+    height: 80,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+
+  // Timeline Animation
+  timelineContainer: {
+    width: 180,
+    height: 80,
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  timelineLine: {
+    position: 'absolute',
+    left: '10%',
+    right: '10%',
+    height: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    borderRadius: 2,
+  },
+  timelinePoint: {
+    position: 'absolute',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: theme.colors.white,
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginBottom: 12,
+    marginLeft: -10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
   },
-  primaryButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.accent2,
-  },
-  progressContainer: {
-    alignItems: 'center',
-  },
-  progressBg: {
+
+  // Gallery Animation
+  galleryContainer: {
     width: 160,
+    height: 160,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  galleryTile: {
+    width: 72,
+    height: 72,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+
+  // Text Content
+  slideTitle: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: theme.colors.white,
+    textAlign: 'center',
+    marginBottom: theme.spacing['4'],
+    lineHeight: 40,
+    letterSpacing: -0.5,
+  },
+  slideDescription: {
+    fontSize: 18,
+    color: 'rgba(255, 255, 255, 0.9)',
+    textAlign: 'center',
+    lineHeight: 26,
+    paddingHorizontal: theme.spacing['2'],
+  },
+
+  // Progress Indicators
+  dotsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: theme.spacing['4'],
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  dotActive: {
+    backgroundColor: theme.colors.white,
+    width: 24,
+  },
+
+  progressBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: theme.spacing['6'],
+  },
+  progressBarBg: {
+    flex: 1,
     height: 6,
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
     borderRadius: 3,
     overflow: 'hidden',
   },
-  progressFill: {
+  progressBarFill: {
     height: '100%',
     backgroundColor: theme.colors.white,
     borderRadius: 3,
   },
-  skipButton: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    backgroundColor: theme.colors.black,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    zIndex: 1000,
-    shadowColor: theme.colors.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-  },
-  skipButtonText: {
+  progressText: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     color: theme.colors.white,
+    minWidth: 40,
+    textAlign: 'right',
+  },
+
+  // CTA Button
+  ctaButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: theme.colors.white,
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  ctaButtonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#667eea',
   },
 });

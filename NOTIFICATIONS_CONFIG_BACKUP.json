@@ -1,0 +1,24 @@
+{
+  "note": "Configuration des Push Notifications - À réactiver quand vous aurez un compte Apple Developer payant",
+  "ios_infoPlist": {
+    "UIBackgroundModes": ["remote-notification"]
+  },
+  "plugins": [
+    [
+      "expo-notifications",
+      {
+        "icon": "./assets/icon.png",
+        "color": "#000000",
+        "defaultChannel": "default"
+      }
+    ]
+  ],
+  "instructions": {
+    "pour_reactiver": [
+      "1. Dans app.json, ajouter 'UIBackgroundModes': ['remote-notification'] dans ios.infoPlist",
+      "2. Dans app.json, ajouter le plugin expo-notifications dans la section plugins",
+      "3. Relancer: npx expo prebuild --clean",
+      "4. Dans Xcode, activer Push Notifications dans Signing & Capabilities"
+    ]
+  }
+}

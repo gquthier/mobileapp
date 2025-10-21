@@ -63,8 +63,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
   // Camera state
   const [cameraKey, setCameraKey] = useState(0);
   const [isCameraReady, setIsCameraReady] = useState(false);
-  const [shouldMountCamera, setShouldMountCamera] = useState(true); // ✅ Control camera mounting
-  const tabCameraUnmountedRef = useRef(false); // ✅ Track if TAB camera is unmounted
+  // ✅ PHASE 2: shouldMountCamera and tabCameraUnmountedRef removed (no TAB camera)
 
   // Recording UI state
   const [showControls, setShowControls] = useState(true);
@@ -364,39 +363,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     };
   }, []);
 
-  // ✅ FIX: Démonter caméra TAB quand modal s'ouvre (éviter double instance iOS)
-  useFocusEffect(
-    useCallback(() => {
-      const isModal = route.params?.isModal;
-
-      // TAB instance: Monter la caméra quand on a le focus
-      if (!isModal) {
-        console.log('📷 [TAB] Got focus - mounting camera');
-        setShouldMountCamera(true);
-        setIsCameraReady(false); // Reset ready state
-        tabCameraUnmountedRef.current = false; // ✅ Reset unmount flag
-      }
-
-      // Cleanup function (called when focus is lost)
-      return () => {
-        if (!isModal) {
-          // TAB lost focus (modal opened)
-          console.log('📷 [TAB] Lost focus - UNMOUNTING camera to avoid iOS conflict');
-          setShouldMountCamera(false);
-          setIsCameraReady(false);
-
-          // ✅ OPTION B: Set flag immediately, then wait for actual unmount
-          setTimeout(() => {
-            tabCameraUnmountedRef.current = true;
-            console.log('✅ [TAB] Camera unmount confirmed after delay');
-          }, 300); // Give 300ms for React to unmount component
-        } else {
-          // MODAL lost focus (modal closing)
-          console.log('📷 [MODAL] Lost focus (modal closing)');
-        }
-      };
-    }, [route.params?.isModal])
-  );
+  // ✅ PHASE 2: useFocusEffect removed - no TAB camera to mount/unmount
 
   const initializeQuestions = async () => {
     try {
@@ -575,14 +542,12 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
   // Track if we're in autoStart mode to ignore touch events
   const isAutoStarting = useRef(false);
 
-  // ✅ AUTO-START - Wait for TAB camera to fully unmount before starting MODAL camera
+  // ✅ PHASE 2: Simplified AUTO-START - No TAB camera polling needed
   // Timeline:
-  // 1. Modal opens → TAB loses focus → useFocusEffect cleanup runs
-  // 2. TAB camera unmounts (shouldMountCamera = false)
-  // 3. iOS needs time to release TAB camera session (~300-500ms)
-  // 4. MODAL camera mounts and triggers onCameraReady
-  // 5. Wait additional time for MODAL camera to stabilize (~800ms)
-  // 6. Start recording
+  // 1. Modal opens with autoStart: true
+  // 2. MODAL camera mounts and triggers onCameraReady
+  // 3. Wait 500ms for camera stabilization (reduced from 1500ms)
+  // 4. Start recording
   useEffect(() => {
     const autoStart = route.params?.autoStart;
 
@@ -609,58 +574,22 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       // Clear the parameter to avoid repeated triggers
       navigation.setParams({ autoStart: undefined });
 
-      // ✅ OPTION B: Smart detection - wait for TAB unmount confirmation + stabilization
-      // Instead of fixed delay, we poll until TAB is confirmed unmounted
-      const MAX_WAIT_TIME = 5000; // Maximum 5 seconds
-      const CHECK_INTERVAL = 100; // Check every 100ms
       const startTime = Date.now();
+      console.log('⏰ [PHASE 2] Waiting 500ms for camera stabilization...');
 
-      console.log('🔍 [OPTION B] Waiting for TAB camera unmount confirmation...');
-
-      const checkAndStart = () => {
+      // ✅ PHASE 2: Simple delay (no polling) - reduced from 1500ms to 500ms
+      setTimeout(() => {
         const elapsed = Date.now() - startTime;
+        console.log(`✅ [PHASE 2] Camera stabilized after ${elapsed}ms`);
+        console.log('🚀 [AUTOSTART] Starting recording NOW!');
+        startRecording();
 
-        // Check if TAB camera is unmounted
-        if (tabCameraUnmountedRef.current) {
-          console.log(`✅ [OPTION B] TAB camera unmounted confirmed after ${elapsed}ms`);
-          console.log('⏰ [OPTION B] Waiting additional 1500ms for MODAL stabilization...');
-
-          // Wait additional time for MODAL camera to stabilize
-          setTimeout(() => {
-            const totalElapsed = Date.now() - startTime;
-            console.log(`✅ [OPTION B] Total wait time: ${totalElapsed}ms`);
-            console.log('🔍 [AUTOSTART] Checking camera state before recording...');
-            console.log('   - shouldMountCamera (TAB):', shouldMountCamera);
-            console.log('   - isCameraReady (MODAL):', isCameraReady);
-            console.log('   - cameraRef exists:', !!cameraRef.current);
-            console.log('   - tabCameraUnmounted:', tabCameraUnmountedRef.current);
-            console.log('🚀 [AUTOSTART] Starting recording NOW!');
-            startRecording();
-
-            // ⚠️ Wait 1 more second after recording starts, then allow touch events
-            setTimeout(() => {
-              isAutoStarting.current = false;
-              console.log('🔓 [AUTOSTART] Set isAutoStarting = false (touch events now allowed)');
-            }, 1000);
-          }, 1500);
-        } else if (elapsed >= MAX_WAIT_TIME) {
-          // Timeout - proceed anyway with warning
-          console.log(`⚠️ [OPTION B] Timeout after ${elapsed}ms - proceeding anyway`);
-          console.log('🚀 [AUTOSTART] Starting recording (timeout fallback)');
-          startRecording();
-
-          setTimeout(() => {
-            isAutoStarting.current = false;
-            console.log('🔓 [AUTOSTART] Set isAutoStarting = false (touch events now allowed)');
-          }, 1000);
-        } else {
-          // Not ready yet, check again
-          setTimeout(checkAndStart, CHECK_INTERVAL);
-        }
-      };
-
-      // Start checking
-      checkAndStart();
+        // ⚠️ Wait 1 second after recording starts, then allow touch events
+        setTimeout(() => {
+          isAutoStarting.current = false;
+          console.log('🔓 [AUTOSTART] Set isAutoStarting = false (touch events now allowed)');
+        }, 1000);
+      }, 500); // ✅ Reduced from 1500ms to 500ms (PHASE 2 optimization)
     }
   }, [route.params?.autoStart, isRecording, isCameraReady]);
 
@@ -775,6 +704,15 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     } catch (error) {
       console.error('❌ Permission error:', error);
       Alert.alert('Permission Error', 'Failed to request permissions. Please try again.');
+
+      // ✅ Close modal if permission error occurred in modal
+      const isModal = route.params?.isModal;
+      if (isModal && navigation.canGoBack()) {
+        console.log('🔙 Closing modal after permission error...');
+        setTimeout(() => {
+          navigation.goBack();
+        }, 1000); // Wait 1 second for user to read error message
+      }
     }
   };
 
@@ -906,6 +844,15 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     if (!pendingVideoUri) {
       console.error('❌ No video URI available');
       Alert.alert('Error', 'Failed to save video. Please try again.');
+
+      // ✅ Close modal if save error occurred in modal
+      const isModal = route.params?.isModal;
+      if (isModal && navigation.canGoBack()) {
+        console.log('🔙 Closing modal after save error...');
+        setTimeout(() => {
+          navigation.goBack();
+        }, 1000); // Wait 1 second for user to read error message
+      }
       return;
     }
 
@@ -1293,6 +1240,15 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         setShowControls(true);
         setRecordingTime(0);
         navigation.setParams({ isRecording: false, showControls: true, isPaused: false });
+
+        // ✅ Close modal if error occurred in modal
+        const isModal = route.params?.isModal;
+        if (isModal && navigation.canGoBack()) {
+          console.log('🔙 Closing modal after recording error (null video)...');
+          setTimeout(() => {
+            navigation.goBack();
+          }, 1000); // Wait 1 second for user to read error message
+        }
         return;
       }
 
@@ -1304,6 +1260,15 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         setShowControls(true);
         setRecordingTime(0);
         navigation.setParams({ isRecording: false, showControls: true, isPaused: false });
+
+        // ✅ Close modal if error occurred in modal
+        const isModal = route.params?.isModal;
+        if (isModal && navigation.canGoBack()) {
+          console.log('🔙 Closing modal after recording error (no URI)...');
+          setTimeout(() => {
+            navigation.goBack();
+          }, 1000); // Wait 1 second for user to read error message
+        }
         return;
       }
 
@@ -1380,6 +1345,15 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       setShowControls(true);
       setRecordingTime(0);
       navigation.setParams({ isRecording: false, showControls: true, isPaused: false });
+
+      // ✅ Close modal if error occurred in modal
+      const isModal = route.params?.isModal;
+      if (isModal && navigation.canGoBack()) {
+        console.log('🔙 Closing modal after recording error...');
+        setTimeout(() => {
+          navigation.goBack();
+        }, 1000); // Wait 1 second for user to read error message
+      }
     }
   };
 
@@ -1745,7 +1719,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
   const isModal = route.params?.isModal;
 
-  // ✅ TAB: Camera preview fullscreen (no recording - opens modal on long press)
+  // ✅ TAB: Placeholder (no camera) - opens modal on long press
   if (!isModal) {
     return (
       <View style={styles.container}>
@@ -1756,33 +1730,14 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
         >
-          {/* Camera preview fullscreen - ✅ Only mount if shouldMountCamera is true */}
-          {shouldMountCamera && cameraPermission?.granted && microphonePermission?.granted ? (
-            <CameraView
-              key={`camera-tab-${cameraKey}`}
-              ref={cameraRef}
-              style={styles.camera}
-              facing="front"
-              mode="video"
-              onCameraReady={() => {
-                console.log('📷 [TAB] Camera is ready!');
-                setIsCameraReady(true);
-              }}
-              onMountError={(error) => {
-                console.error('❌ [TAB] Camera mount error:', error);
-                setIsCameraReady(false);
-              }}
-            />
-          ) : (
-            <View style={styles.camera}>
-              <Text style={styles.cameraPlaceholderText}>
-                {!shouldMountCamera ? (() => {
-                  console.log('📷 [TAB] Camera component unmounted (placeholder shown)');
-                  return 'Camera paused (modal open)';
-                })() : 'Camera loading...'}
-              </Text>
+          {/* ✅ PHASE 2: Placeholder instead of camera (performance optimization) */}
+          <View style={styles.placeholderContainer}>
+            <View style={styles.placeholderIconContainer}>
+              <Icon name="camera" size={80} color="rgba(255, 255, 255, 0.3)" />
             </View>
-          )}
+            <Text style={styles.placeholderTitle}>Ready to Record</Text>
+            <Text style={styles.placeholderSubtitle}>Hold anywhere to start</Text>
+          </View>
 
           {/* Long Press Indicator */}
           <LongPressIndicator
@@ -2112,6 +2067,34 @@ const styles = StyleSheet.create({
   cameraPlaceholderText: {
     color: theme.colors.white,
     fontSize: 16,
+    textAlign: 'center',
+  },
+  // ✅ PHASE 2: Placeholder styles (replaces TAB camera)
+  placeholderContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 24,
+  },
+  placeholderIconContainer: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderTitle: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.9)',
+    textAlign: 'center',
+  },
+  placeholderSubtitle: {
+    fontSize: 16,
+    fontWeight: '400',
+    color: 'rgba(255, 255, 255, 0.5)',
     textAlign: 'center',
   },
   timerContainer: {

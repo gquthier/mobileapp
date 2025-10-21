@@ -86,23 +86,46 @@ export class TranscriptionJobService {
 
   /**
    * Récupère un job de transcription par ID
+   * 🔒 SÉCURISÉ: Vérifie que le job appartient à l'utilisateur via video_id
    */
-  static async getTranscriptionJob(jobId: string): Promise<TranscriptionJob | null> {
+  static async getTranscriptionJob(jobId: string, userId?: string): Promise<TranscriptionJob | null> {
     try {
+      // 🔒 Get current user if not provided
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.error('❌ No authenticated user for getTranscriptionJob');
+          return null;
+        }
+        currentUserId = user.id;
+      }
+
+      // 🔒 SECURITY: JOIN with videos to verify ownership
       const { data, error } = await supabase
         .from('transcription_jobs')
-        .select('*')
+        .select(`
+          *,
+          videos!inner (
+            id,
+            user_id
+          )
+        `)
         .eq('id', jobId)
+        .eq('videos.user_id', currentUserId) // ← PROTECTION CRITIQUE
         .single();
 
       if (error) {
         if (error.code === 'PGRST116') {
-          return null; // Job not found
+          console.warn('⚠️ Transcription job not found or user does not own this job');
+          return null; // Job not found or not owned by user
         }
         throw error;
       }
 
-      return data;
+      // Remove nested videos data before returning
+      const { videos, ...jobData } = data;
+      return jobData as TranscriptionJob;
 
     } catch (error) {
       console.error('❌ Failed to get transcription job:', error);
@@ -112,12 +135,31 @@ export class TranscriptionJobService {
 
   /**
    * Récupère tous les jobs d'un utilisateur
+   * 🔒 SÉCURISÉ: Filtre par user_id via JOIN avec videos
    */
-  static async getUserTranscriptionJobs(limit: number = 20): Promise<TranscriptionJob[]> {
+  static async getUserTranscriptionJobs(userId?: string, limit: number = 20): Promise<TranscriptionJob[]> {
     try {
+      // 🔒 Get current user if not provided
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.error('❌ No authenticated user for getUserTranscriptionJobs');
+          return [];
+        }
+        currentUserId = user.id;
+      }
+
+      // 🔒 SECURITY: JOIN with videos to filter by user_id
       const { data, error } = await supabase
         .from('transcription_jobs')
-        .select('*')
+        .select(`
+          *,
+          videos!inner (
+            user_id
+          )
+        `)
+        .eq('videos.user_id', currentUserId) // ← PROTECTION CRITIQUE
         .order('created_at', { ascending: false })
         .limit(limit);
 
@@ -125,7 +167,9 @@ export class TranscriptionJobService {
         throw error;
       }
 
-      return data || [];
+      // Remove nested videos data
+      const cleanedData = (data || []).map(({ videos, ...job }) => job as TranscriptionJob);
+      return cleanedData;
 
     } catch (error) {
       console.error('❌ Failed to get user transcription jobs:', error);
@@ -237,12 +281,31 @@ export class TranscriptionJobService {
 
   /**
    * Relance un job échoué
+   * 🔒 SÉCURISÉ: Vérifie que le job appartient à l'utilisateur via video_id
    */
-  static async retryJob(jobId: string): Promise<void> {
+  static async retryJob(jobId: string, userId?: string): Promise<void> {
     try {
       console.log('🔄 Retrying failed job:', jobId);
 
-      // Réinitialiser le statut du job
+      // 🔒 Get current user if not provided
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.error('❌ No authenticated user for retryJob');
+          throw new Error('Authentication required');
+        }
+        currentUserId = user.id;
+      }
+
+      // 🔒 SECURITY: Verify job ownership before retrying
+      const job = await this.getTranscriptionJob(jobId, currentUserId);
+      if (!job) {
+        console.error('❌ Job not found or user does not own this job');
+        throw new Error('Job not found or access denied');
+      }
+
+      // Réinitialiser le statut du job (RLS will protect this too)
       const { error: updateError } = await supabase
         .from('transcription_jobs')
         .update({
@@ -274,17 +337,37 @@ export class TranscriptionJobService {
 
   /**
    * Recherche dans les transcriptions terminées
+   * 🔒 SÉCURISÉ: Filtre par user_id via JOIN avec videos
    */
   static async searchTranscriptions(
     query: string,
+    userId?: string,
     limit: number = 20
   ): Promise<TranscriptionJob[]> {
     try {
       console.log('🔍 Searching transcriptions:', { query, limit });
 
+      // 🔒 Get current user if not provided
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.error('❌ No authenticated user for searchTranscriptions');
+          return [];
+        }
+        currentUserId = user.id;
+      }
+
+      // 🔒 SECURITY: JOIN with videos to filter by user_id
       const { data, error } = await supabase
         .from('transcription_jobs')
-        .select('*')
+        .select(`
+          *,
+          videos!inner (
+            user_id
+          )
+        `)
+        .eq('videos.user_id', currentUserId) // ← PROTECTION CRITIQUE
         .eq('status', 'completed')
         .ilike('transcription_text', `%${query}%`)
         .order('completed_at', { ascending: false })
@@ -294,8 +377,11 @@ export class TranscriptionJobService {
         throw error;
       }
 
-      console.log('✅ Found transcriptions:', data?.length || 0);
-      return data || [];
+      // Remove nested videos data
+      const cleanedData = (data || []).map(({ videos, ...job }) => job as TranscriptionJob);
+
+      console.log('✅ Found transcriptions:', cleanedData.length);
+      return cleanedData;
 
     } catch (error) {
       console.error('❌ Search failed:', error);
@@ -305,25 +391,61 @@ export class TranscriptionJobService {
 
   /**
    * Nettoie les anciens jobs échoués
+   * 🔒 SÉCURISÉ: Filtre par user_id via JOIN avec videos
    */
-  static async cleanupOldJobs(olderThanDays: number = 7): Promise<void> {
+  static async cleanupOldJobs(olderThanDays: number = 7, userId?: string): Promise<void> {
     try {
       console.log('🧹 Cleaning up old failed jobs older than', olderThanDays, 'days');
+
+      // 🔒 Get current user if not provided
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.error('❌ No authenticated user for cleanupOldJobs');
+          return;
+        }
+        currentUserId = user.id;
+      }
 
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
 
+      // 🔒 SECURITY: Get job IDs that belong to user via videos
+      const { data: jobs, error: selectError } = await supabase
+        .from('transcription_jobs')
+        .select(`
+          id,
+          videos!inner (
+            user_id
+          )
+        `)
+        .eq('videos.user_id', currentUserId)
+        .eq('status', 'failed')
+        .lt('created_at', cutoffDate.toISOString());
+
+      if (selectError) {
+        throw selectError;
+      }
+
+      if (!jobs || jobs.length === 0) {
+        console.log('ℹ️ No old failed jobs to clean up');
+        return;
+      }
+
+      const jobIds = jobs.map(j => j.id);
+
+      // Delete only those jobs (RLS will provide additional protection)
       const { error } = await supabase
         .from('transcription_jobs')
         .delete()
-        .eq('status', 'failed')
-        .lt('created_at', cutoffDate.toISOString());
+        .in('id', jobIds);
 
       if (error) {
         throw error;
       }
 
-      console.log('✅ Cleanup completed');
+      console.log(`✅ Cleanup completed - removed ${jobIds.length} old failed jobs`);
 
     } catch (error) {
       console.error('❌ Cleanup failed:', error);
@@ -333,14 +455,33 @@ export class TranscriptionJobService {
 
   /**
    * Récupère les jobs avec highlights pour l'affichage
+   * 🔒 SÉCURISÉ: Filtre par user_id via JOIN avec videos
    */
-  static async getJobsWithHighlights(limit: number = 20): Promise<TranscriptionJob[]> {
+  static async getJobsWithHighlights(userId?: string, limit: number = 20): Promise<TranscriptionJob[]> {
     try {
       console.log('🎯 Fetching transcription jobs with highlights...');
 
+      // 🔒 Get current user if not provided
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.error('❌ No authenticated user for getJobsWithHighlights');
+          return [];
+        }
+        currentUserId = user.id;
+      }
+
+      // 🔒 SECURITY: JOIN with videos to filter by user_id
       const { data, error } = await supabase
         .from('transcription_jobs')
-        .select('*')
+        .select(`
+          *,
+          videos!inner (
+            user_id
+          )
+        `)
+        .eq('videos.user_id', currentUserId) // ← PROTECTION CRITIQUE
         .eq('status', 'completed')
         .not('transcript_highlight', 'is', null)
         .order('completed_at', { ascending: false })
@@ -350,8 +491,11 @@ export class TranscriptionJobService {
         throw error;
       }
 
-      console.log('✅ Found jobs with highlights:', data?.length || 0);
-      return data || [];
+      // Remove nested videos data
+      const cleanedData = (data || []).map(({ videos, ...job }) => job as TranscriptionJob);
+
+      console.log('✅ Found jobs with highlights:', cleanedData.length);
+      return cleanedData;
 
     } catch (error) {
       console.error('❌ Failed to get jobs with highlights:', error);
@@ -361,19 +505,39 @@ export class TranscriptionJobService {
 
   /**
    * Récupère les highlights d'un job spécifique
+   * 🔒 SÉCURISÉ: Vérifie que le job appartient à l'utilisateur via video_id
    */
-  static async getJobHighlights(jobId: string): Promise<any> {
+  static async getJobHighlights(jobId: string, userId?: string): Promise<any> {
     try {
+      // 🔒 Get current user if not provided
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.error('❌ No authenticated user for getJobHighlights');
+          return null;
+        }
+        currentUserId = user.id;
+      }
+
+      // 🔒 SECURITY: JOIN with videos to verify ownership
       const { data, error } = await supabase
         .from('transcription_jobs')
-        .select('transcript_highlight')
+        .select(`
+          transcript_highlight,
+          videos!inner (
+            user_id
+          )
+        `)
         .eq('id', jobId)
+        .eq('videos.user_id', currentUserId) // ← PROTECTION CRITIQUE
         .eq('status', 'completed')
         .single();
 
       if (error) {
         if (error.code === 'PGRST116') {
-          return null; // Job not found or no highlights
+          console.warn('⚠️ Job not found, no highlights, or user does not own this job');
+          return null; // Job not found or no highlights or not owned
         }
         throw error;
       }
@@ -388,17 +552,36 @@ export class TranscriptionJobService {
 
   /**
    * Statistiques des jobs utilisateur
+   * 🔒 SÉCURISÉ: Filtre par user_id via JOIN avec videos
    */
-  static async getJobStats(): Promise<{
+  static async getJobStats(userId?: string): Promise<{
     total: number;
     completed: number;
     failed: number;
     pending: number;
   }> {
     try {
+      // 🔒 Get current user if not provided
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          console.error('❌ No authenticated user for getJobStats');
+          return { total: 0, completed: 0, failed: 0, pending: 0 };
+        }
+        currentUserId = user.id;
+      }
+
+      // 🔒 SECURITY: JOIN with videos to filter by user_id
       const { data, error } = await supabase
         .from('transcription_jobs')
-        .select('status');
+        .select(`
+          status,
+          videos!inner (
+            user_id
+          )
+        `)
+        .eq('videos.user_id', currentUserId); // ← PROTECTION CRITIQUE
 
       if (error) {
         throw error;

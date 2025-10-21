@@ -15,7 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Video, ResizeMode } from 'expo-av';
 import Svg, { Circle } from 'react-native-svg';
 import { VideoRecord, supabase } from '../lib/supabase';
-// import { AnimatedThumbnail } from './AnimatedThumbnail'; // ⚠️ DELETED 2025-10-22 - No longer used
+import { AnimatedThumbnail } from './AnimatedThumbnail';
 import { VideoPlayer } from './VideoPlayer';
 import { LoadingDots } from './LoadingDots';
 import { Icon } from './Icon';

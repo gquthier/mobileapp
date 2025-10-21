@@ -18,8 +18,7 @@
         "NSCameraUsageDescription": "This app uses the camera to record personal video reflections for your chapters and life journey.",
         "NSMicrophoneUsageDescription": "This app uses the microphone to record audio with your video reflections.",
         "NSPhotoLibraryAddUsageDescription": "This app saves your recorded video reflections to your photo library for backup and sharing.",
-        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to import existing videos for your life chapters.",
-        "UIBackgroundModes": ["remote-notification"]
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to import existing videos for your life chapters."
       },
       "bundleIdentifier": "com.gquthier.mobileapp"
     },
@@ -37,15 +36,7 @@
     },
     "plugins": [
       "expo-font",
-      "expo-video",
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/icon.png",
-          "color": "#000000",
-          "defaultChannel": "default"
-        }
-      ]
+      "expo-video"
     ]
   }
 }

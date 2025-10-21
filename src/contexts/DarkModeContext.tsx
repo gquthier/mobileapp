@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface DarkModeContextType {
@@ -11,33 +11,26 @@ const DarkModeContext = createContext<DarkModeContextType | undefined>(undefined
 const DARK_MODE_KEY = '@app_dark_mode';
 
 export const DarkModeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  // ✅ FORCE Light Mode - Always false (dark mode disabled)
+  const isDarkMode = false;
 
-  // Load dark mode preference on mount
+  // Clear any stored dark mode preference on mount
   useEffect(() => {
-    const loadDarkModePreference = async () => {
+    const clearDarkModePreference = async () => {
       try {
-        const value = await AsyncStorage.getItem(DARK_MODE_KEY);
-        if (value !== null) {
-          setIsDarkMode(value === 'true');
-        }
+        await AsyncStorage.removeItem(DARK_MODE_KEY);
+        console.log('✅ Dark mode preference cleared - Light mode forced');
       } catch (error) {
-        console.error('Error loading dark mode preference:', error);
+        console.error('Error clearing dark mode preference:', error);
       }
     };
 
-    loadDarkModePreference();
+    clearDarkModePreference();
   }, []);
 
-  const toggleDarkMode = async () => {
-    const newValue = !isDarkMode;
-    setIsDarkMode(newValue);
-
-    try {
-      await AsyncStorage.setItem(DARK_MODE_KEY, newValue.toString());
-    } catch (error) {
-      console.error('Error saving dark mode preference:', error);
-    }
+  const toggleDarkMode = () => {
+    // ✅ No-op - Dark mode is disabled
+    console.log('⚠️ Dark mode is disabled. See NIGHT_MODE_RESTORATION_GUIDE.md to re-enable.');
   };
 
   return (

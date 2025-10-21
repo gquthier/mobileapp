@@ -1,0 +1,1045 @@
+diff --git a/src/screens/ChapterDetailScreen.tsx b/src/screens/ChapterDetailScreen.tsx
+index 4b7e0da..53bd22b 100644
+--- a/src/screens/ChapterDetailScreen.tsx
++++ b/src/screens/ChapterDetailScreen.tsx
+@@ -24,7 +24,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
+ import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+ import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
+ import Svg, { Circle, Path } from 'react-native-svg';
+-import { theme } from '../styles';
++import { theme as staticTheme } from '../styles'; // For StyleSheet.create() only
++import { useTheme } from '../hooks/useTheme';
+ import { Chapter, VideoRecord, supabase } from '../lib/supabase';
+ import { formatChapterPeriod } from '../services/chapterService';
+ import { TranscriptionJob } from '../services/transcriptionJobService';
+@@ -78,6 +79,7 @@ interface ChapterDetailScreenProps {
+ export default function ChapterDetailScreen({ navigation, route }: ChapterDetailScreenProps) {
+   const { chapter: initialChapter } = route.params;
+   const insets = useSafeAreaInsets();
++  const theme = useTheme();
+   const { brandColor } = useThemeContext(); // ✅ Get user's selected color (auto or custom)
+   const [loading, setLoading] = useState(true);
+   const [chapter, setChapter] = useState<Chapter>(initialChapter); // State for chapter with AI data
+@@ -680,14 +682,14 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
+ 
+   if (loading) {
+     return (
+-      <View style={styles.loadingContainer}>
++      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.ui.background }]}>
+         <LoadingDots color={brandColor} />
+       </View>
+     );
+   }
+ 
+   return (
+-    <SafeAreaView style={styles.container} edges={['top']}>
++    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.ui.background }]} edges={['top']}>
+       {/* Chapter Selector Modal (iOS-style with Liquid Glass) */}
+       <Modal
+         visible={showChaptersModal}
+@@ -1402,12 +1404,12 @@ const styles = StyleSheet.create({
+     fontWeight: '600',
+     fontStyle: 'italic',
+     letterSpacing: -0.66,
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+   },
+   periodText: {
+     fontSize: 13,
+     fontWeight: '400',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+   },
+   headerActions: {
+     flexDirection: 'row',
+@@ -1461,7 +1463,7 @@ const styles = StyleSheet.create({
+   colorPickerTitle: {
+     fontSize: 20,
+     fontWeight: '700',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     marginBottom: 20,
+     textAlign: 'center',
+   },
+@@ -1487,14 +1489,14 @@ const styles = StyleSheet.create({
+     elevation: 4,
+   },
+   colorOptionSelected: {
+-    borderColor: theme.colors.black,
++    borderColor: staticTheme.colors.black,
+     transform: [{ scale: 1.1 }],
+   },
+   selectedIndicator: {
+     width: 16,
+     height: 16,
+     borderRadius: 8,
+-    backgroundColor: theme.colors.white,
++    backgroundColor: staticTheme.colors.white,
+     shadowColor: '#000',
+     shadowOffset: { width: 0, height: 1 },
+     shadowOpacity: 0.3,
+@@ -1503,8 +1505,8 @@ const styles = StyleSheet.create({
+   // 🆕 Divider - Visual separator between sections
+   divider: {
+     height: 1,
+-    backgroundColor: theme.colors.gray300,
+-    marginVertical: theme.spacing['4'], // 16px
++    backgroundColor: staticTheme.colors.gray300,
++    marginVertical: staticTheme.spacing['4'], // 16px
+     marginHorizontal: MARGIN,
+   },
+   // 🆕 Chapter Summary Card Section
+@@ -1542,13 +1544,13 @@ const styles = StyleSheet.create({
+     fontFamily: 'Georgia', // Romanesque serif font (same as ChapterCard)
+     fontSize: 32, // ✅ Slightly smaller to prevent line wrapping on duration
+     fontWeight: '700',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     marginBottom: 4,
+   },
+   summaryStatLabel: {
+     fontSize: 12, // ✅ Same as ChapterCard.tsx (was 11)
+     fontWeight: '500',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     textTransform: 'uppercase',
+     letterSpacing: 0.5,
+     textAlign: 'center',
+@@ -1557,7 +1559,7 @@ const styles = StyleSheet.create({
+   summaryPageTitle: {
+     fontSize: 16,
+     fontWeight: '600',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     marginBottom: 16,
+     textAlign: 'center',
+   },
+@@ -1577,13 +1579,13 @@ const styles = StyleSheet.create({
+     fontFamily: 'Georgia',
+     fontSize: 32, // Same as stats page
+     fontWeight: '700',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     marginBottom: 4,
+   },
+   lifeAreaStatLabel: {
+     fontSize: 12,
+     fontWeight: '500',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     textTransform: 'uppercase',
+     letterSpacing: 0.5,
+     textAlign: 'center',
+@@ -1598,14 +1600,14 @@ const styles = StyleSheet.create({
+   insightText: {
+     fontSize: 13,
+     lineHeight: 19,
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     textAlign: 'center',
+     marginBottom: 8,
+   },
+   insightPlaceholder: {
+     fontSize: 13,
+     lineHeight: 20,
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     textAlign: 'center',
+     fontStyle: 'italic',
+     marginTop: 12,
+@@ -1617,7 +1619,7 @@ const styles = StyleSheet.create({
+     top: '30%',
+     fontSize: 120,
+     fontWeight: '700',
+-    color: theme.colors.gray300,
++    color: staticTheme.colors.gray300,
+     opacity: 0.3,
+     fontFamily: 'Georgia',
+     zIndex: 0,
+@@ -1625,7 +1627,7 @@ const styles = StyleSheet.create({
+   summaryQuoteText: {
+     fontSize: 15,
+     fontWeight: '400',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     textAlign: 'center',
+     fontStyle: 'italic',
+     lineHeight: 22,
+@@ -1647,12 +1649,12 @@ const styles = StyleSheet.create({
+     width: 8,
+     height: 8,
+     borderRadius: 4,
+-    backgroundColor: theme.colors.brand.primary,
++    backgroundColor: staticTheme.colors.brand.primary,
+   },
+   summaryJourneyLabel: {
+     fontSize: 11,
+     fontWeight: '500',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     textTransform: 'uppercase',
+     letterSpacing: 0.5,
+   },
+@@ -1660,7 +1662,7 @@ const styles = StyleSheet.create({
+     fontFamily: 'Georgia',
+     fontSize: 16,
+     fontWeight: '600',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+   },
+   wavyPathContainer: {
+     alignItems: 'center',
+@@ -1671,14 +1673,14 @@ const styles = StyleSheet.create({
+     flexDirection: 'row',
+     justifyContent: 'center',
+     alignItems: 'center',
+-    gap: theme.spacing['1'],
++    gap: staticTheme.spacing['1'],
+     marginTop: 16,
+   },
+   summaryCardDot: {
+     width: 4,
+     height: 4,
+     borderRadius: 2,
+-    backgroundColor: theme.colors.gray400,
++    backgroundColor: staticTheme.colors.gray400,
+     opacity: 0.2,
+   },
+   summaryCardActiveDot: {
+@@ -1716,13 +1718,13 @@ const styles = StyleSheet.create({
+     fontFamily: 'Georgia', // ✅ Romanesque serif font (same as momentum score)
+     fontSize: 20,
+     fontWeight: '700',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     marginBottom: 4,
+   },
+   statLabel: {
+     fontSize: 11,
+     fontWeight: '500',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     textTransform: 'uppercase',
+     letterSpacing: 0.5,
+   },
+@@ -1741,7 +1743,7 @@ const styles = StyleSheet.create({
+   aiGeneratedText: {
+     fontSize: 9,
+     fontWeight: '500',
+-    color: theme.colors.text.tertiary,
++    color: staticTheme.colors.text.tertiary,
+     textTransform: 'uppercase',
+     letterSpacing: 0.5,
+   },
+@@ -1749,7 +1751,7 @@ const styles = StyleSheet.create({
+     fontSize: 18,
+     fontWeight: '600',
+     fontStyle: 'italic',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     marginBottom: 12, // ✅ Spacing between title and summary text
+     textAlign: 'center',
+   },
+@@ -1768,7 +1770,7 @@ const styles = StyleSheet.create({
+   readFullStoryText: {
+     fontSize: 14,
+     fontWeight: '600',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+   },
+   storySummaryContainer: {
+     marginHorizontal: MARGIN,
+@@ -1780,7 +1782,7 @@ const styles = StyleSheet.create({
+   storySummaryText: {
+     fontSize: 14,
+     lineHeight: 20,
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     textAlign: 'center',
+   },
+   // Keywords Section (below Chapter Summary Card)
+@@ -1809,7 +1811,7 @@ const styles = StyleSheet.create({
+   keywordText: {
+     fontSize: 13,
+     fontWeight: '500',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+   },
+   // 🆕 Chapter Timeline - Scrollable list of videos
+   timelineSection: {
+@@ -1820,7 +1822,7 @@ const styles = StyleSheet.create({
+   timelineSectionTitle: {
+     fontSize: 16,
+     fontWeight: '600',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     textAlign: 'center', // Centered like "all about..."
+     paddingTop: 16,
+     paddingBottom: 8,
+@@ -1860,19 +1862,19 @@ const styles = StyleSheet.create({
+     fontFamily: 'Georgia',
+     fontSize: 12,
+     fontWeight: '600',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     letterSpacing: 0.3,
+   },
+   timelineTitle: {
+     fontSize: 14,
+     fontWeight: '500',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     lineHeight: 18,
+   },
+   timelineDuration: {
+     fontSize: 11,
+     fontWeight: '600',
+-    color: theme.colors.text.tertiary,
++    color: staticTheme.colors.text.tertiary,
+     letterSpacing: 0.2,
+   },
+   timelineViewAllButton: {
+@@ -1890,7 +1892,7 @@ const styles = StyleSheet.create({
+   timelineViewAllText: {
+     fontSize: 14,
+     fontWeight: '600',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+   },
+   // Chapters Modal (iOS-style like Momentum)
+   modalOverlay: {
+@@ -1899,7 +1901,7 @@ const styles = StyleSheet.create({
+   },
+   chaptersModalContainer: {
+     position: 'absolute',
+-    left: theme.spacing['4'],
++    left: staticTheme.spacing['4'],
+     width: 280,
+     maxHeight: 450,
+   },
+@@ -1926,15 +1928,15 @@ const styles = StyleSheet.create({
+     fontWeight: '600',
+     fontStyle: 'italic',
+     letterSpacing: -0.54,
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     overflow: 'hidden',
+   },
+   chaptersModalScroll: {
+     maxHeight: 400,
+   },
+   chapterModalItem: {
+-    paddingHorizontal: theme.spacing['4'],
+-    paddingVertical: theme.spacing['3'],
++    paddingHorizontal: staticTheme.spacing['4'],
++    paddingVertical: staticTheme.spacing['3'],
+     borderBottomWidth: 0,
+   },
+   chapterModalItemSelected: {
+@@ -1943,12 +1945,12 @@ const styles = StyleSheet.create({
+   chapterModalItemText: {
+     fontSize: 18,
+     fontWeight: '500',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+   },
+   chapterModalItemTextSelected: {
+     fontSize: 18,
+     fontWeight: '600',
+-    color: theme.colors.brand.primary,
++    color: staticTheme.colors.brand.primary,
+   },
+   // Circular Preview Modal
+   circularPreviewOverlay: {
+@@ -1968,7 +1970,7 @@ const styles = StyleSheet.create({
+     height: '100%',
+     borderRadius: (screenWidth * 0.75) / 2, // Perfect circle
+     overflow: 'hidden',
+-    backgroundColor: theme.colors.black,
++    backgroundColor: staticTheme.colors.black,
+   },
+   circularVideo: {
+     width: '100%',
+@@ -1995,7 +1997,7 @@ const styles = StyleSheet.create({
+   quotesSectionTitle: {
+     fontSize: 16,
+     fontWeight: '600',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     marginBottom: 16,
+     textAlign: 'center',
+   },
+@@ -2016,7 +2018,7 @@ const styles = StyleSheet.create({
+   quoteText: {
+     fontSize: 17,
+     fontWeight: '400',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     textAlign: 'center',
+     fontStyle: 'italic',
+     lineHeight: 24,
+@@ -2025,7 +2027,7 @@ const styles = StyleSheet.create({
+   quoteSource: {
+     fontSize: 13,
+     fontWeight: '500',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     textAlign: 'center',
+     textTransform: 'uppercase',
+     letterSpacing: 0.5,
+@@ -2034,14 +2036,14 @@ const styles = StyleSheet.create({
+     flexDirection: 'row',
+     justifyContent: 'center',
+     alignItems: 'center',
+-    gap: theme.spacing['1'],
++    gap: staticTheme.spacing['1'],
+     marginTop: 16,
+   },
+   quoteDot: {
+     width: 4,
+     height: 4,
+     borderRadius: 2,
+-    backgroundColor: theme.colors.gray400,
++    backgroundColor: staticTheme.colors.gray400,
+     opacity: 0.2,
+   },
+   quoteActiveDot: {
+@@ -2105,13 +2107,13 @@ const styles = StyleSheet.create({
+   editModalTitle: {
+     fontSize: 18,
+     fontWeight: '600',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     marginBottom: 16,
+     textAlign: 'center',
+   },
+   editModalInput: {
+     fontSize: 16,
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     backgroundColor: 'rgba(0, 0, 0, 0.05)',
+     borderRadius: 12,
+     padding: 12,
+@@ -2137,15 +2139,15 @@ const styles = StyleSheet.create({
+     backgroundColor: 'rgba(0, 0, 0, 0.05)',
+   },
+   editModalButtonSave: {
+-    backgroundColor: theme.colors.brand.primary,
++    backgroundColor: staticTheme.colors.brand.primary,
+   },
+   editModalButtonText: {
+     fontSize: 16,
+     fontWeight: '600',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+   },
+   editModalButtonTextSave: {
+-    color: theme.colors.white,
++    color: staticTheme.colors.white,
+   },
+   datePickerSection: {
+     marginBottom: 16,
+@@ -2153,7 +2155,7 @@ const styles = StyleSheet.create({
+   dateLabel: {
+     fontSize: 14,
+     fontWeight: '600',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     marginBottom: 8,
+   },
+   datePicker: {
+@@ -2176,6 +2178,6 @@ const styles = StyleSheet.create({
+   editChapterText: {
+     fontSize: 16,
+     fontWeight: '600',
+-    color: theme.colors.brand.primary,
++    color: staticTheme.colors.brand.primary,
+   },
+ });
+diff --git a/src/screens/HomeScreen.tsx b/src/screens/HomeScreen.tsx
+index 913e1a4..7dc7821 100644
+--- a/src/screens/HomeScreen.tsx
++++ b/src/screens/HomeScreen.tsx
+@@ -5,7 +5,7 @@ import {
+   ScrollView,
+ } from 'react-native';
+ import { SafeAreaView } from 'react-native-safe-area-context';
+-import { theme } from '../styles';
++import { useTheme } from '../hooks/useTheme';
+ import { TopBar } from '../components/TopBar';
+ import { Icon } from '../components/Icon';
+ import { Chip } from '../components/Chip';
+@@ -14,6 +14,7 @@ import { PromptCard } from '../components/PromptCard';
+ import { MemoriesSection } from '../components/MemoriesSection';
+ 
+ const HomeScreen: React.FC = () => {
++  const theme = useTheme();
+   const [selectedFilter, setSelectedFilter] = useState('All');
+ 
+   const filters = ['All', 'In Progress', 'Completed'];
+@@ -43,7 +44,7 @@ const HomeScreen: React.FC = () => {
+   ];
+ 
+   return (
+-    <SafeAreaView style={styles.container}>
++    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.ui.background }]}>
+       <View style={styles.content}>
+         <TopBar
+           title="Your Chapters"
+@@ -100,23 +101,23 @@ const HomeScreen: React.FC = () => {
+ const styles = StyleSheet.create({
+   container: {
+     flex: 1,
+-    backgroundColor: theme.colors.ui.background,
++    // backgroundColor set dynamically with theme.colors.ui.background (dark mode support)
+   },
+   content: {
+     flex: 1,
+-    paddingTop: theme.spacing['4'],
+-    paddingHorizontal: theme.spacing['4'],
++    paddingTop: 16, // theme.spacing['4']
++    paddingHorizontal: 16, // theme.spacing['4']
+   },
+   filters: {
+     flexDirection: 'row',
+-    gap: theme.spacing['2'],
+-    marginBottom: theme.spacing['4'],
++    gap: 8, // theme.spacing['2']
++    marginBottom: 16, // theme.spacing['4']
+   },
+   scrollView: {
+     flex: 1,
+   },
+   wordOfDaySection: {
+-    marginTop: theme.spacing['4'],
++    marginTop: 16, // theme.spacing['4']
+   },
+ });
+ 
+diff --git a/src/screens/LibraryScreen.tsx b/src/screens/LibraryScreen.tsx
+index 41f7a93..6afec13 100644
+--- a/src/screens/LibraryScreen.tsx
++++ b/src/screens/LibraryScreen.tsx
+@@ -22,7 +22,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
+ import { useNavigation, useRoute } from '@react-navigation/native';
+ import * as Haptics from 'expo-haptics';
+ import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+-import { theme } from '../styles';
++import { theme as staticTheme } from '../styles'; // For StyleSheet.create() only
+ import { useTheme } from '../hooks/useTheme';
+ import { TopBar } from '../components/TopBar';
+ import { Icon } from '../components/Icon';
+@@ -1161,7 +1161,7 @@ const LibraryScreen: React.FC = () => {
+   );
+ 
+   return (
+-    <View style={styles.container}>
++    <View style={[styles.container, { backgroundColor: theme.colors.ui.background }]}>
+       <View style={styles.content}>
+         {/* Header - Normal or Search Mode */}
+         {state.search.showSearch ? (
+@@ -1875,7 +1875,7 @@ const styles = StyleSheet.create({
+     right: 0,
+     flexDirection: 'row',
+     alignItems: 'center',
+-    paddingHorizontal: theme.spacing['4'],
++    paddingHorizontal: staticTheme.spacing['4'],
+     // paddingTop applied dynamically with insets
+     backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
+     zIndex: 100, // ✅ Ensure header stays on top
+@@ -1991,7 +1991,7 @@ const styles = StyleSheet.create({
+     justifyContent: 'center',
+   },
+   iconButton: {
+-    padding: theme.spacing['1'], // 4px - divise par 2 l'espacement original
++    padding: staticTheme.spacing['1'], // 4px - divise par 2 l'espacement original
+   },
+   title: {
+     fontFamily: 'Poppins-SemiBoldItalic',
+@@ -1999,7 +1999,7 @@ const styles = StyleSheet.create({
+     fontWeight: '600', // semi-bold (backup for systems without custom font)
+     fontStyle: 'italic', // backup for systems without custom font
+     letterSpacing: -0.54, // -3% de 18px
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     overflow: 'hidden',
+   },
+   // Chapters bubble with Liquid Glass (now interactive)
+@@ -2026,56 +2026,56 @@ const styles = StyleSheet.create({
+   },
+   errorContainer: {
+     alignItems: 'center',
+-    padding: theme.spacing['5'],
+-    backgroundColor: theme.colors.gray50,
++    padding: staticTheme.spacing['5'],
++    backgroundColor: staticTheme.colors.gray50,
+     borderRadius: 12,
+-    marginHorizontal: theme.spacing['4'],
+-    marginBottom: theme.spacing['4'],
++    marginHorizontal: staticTheme.spacing['4'],
++    marginBottom: staticTheme.spacing['4'],
+   },
+   errorText: {
+     ...theme.typography.body2,
+-    color: theme.colors.text.secondary,
+-    marginBottom: theme.spacing['3'],
++    color: staticTheme.colors.text.secondary,
++    marginBottom: staticTheme.spacing['3'],
+     textAlign: 'center',
+   },
+   retryButton: {
+-    paddingHorizontal: theme.spacing['5'],
+-    paddingVertical: theme.spacing['2.5'],
+-    backgroundColor: theme.colors.brand.primary,
++    paddingHorizontal: staticTheme.spacing['5'],
++    paddingVertical: staticTheme.spacing['2.5'],
++    backgroundColor: staticTheme.colors.brand.primary,
+     borderRadius: 8,
+   },
+   retryText: {
+     ...theme.typography.body2,
+     fontWeight: '600',
+-    color: theme.colors.white,
++    color: staticTheme.colors.white,
+   },
+   loadingContainer: {
+     alignItems: 'center',
+     justifyContent: 'center',
+-    padding: theme.spacing['15'],
++    padding: staticTheme.spacing['15'],
+   },
+   loadingText: {
+     ...theme.typography.body2,
+-    marginTop: theme.spacing['4'],
+-    color: theme.colors.text.secondary,
++    marginTop: staticTheme.spacing['4'],
++    color: staticTheme.colors.text.secondary,
+   },
+   emptyContainer: {
+     alignItems: 'center',
+     justifyContent: 'center',
+-    padding: theme.spacing['10'],
++    padding: staticTheme.spacing['10'],
+   },
+   emptyTitle: {
+     ...theme.typography.h2,
+     fontWeight: '600',
+-    color: theme.colors.text.primary,
+-    marginTop: theme.spacing['4'],
+-    marginBottom: theme.spacing['2'],
++    color: staticTheme.colors.text.primary,
++    marginTop: staticTheme.spacing['4'],
++    marginBottom: staticTheme.spacing['2'],
+   },
+   emptyText: {
+     ...theme.typography.body,
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     textAlign: 'center',
+-    marginBottom: theme.spacing['4'],
++    marginBottom: staticTheme.spacing['4'],
+   },
+   // New Search Interface Styles
+   searchHeader: {
+@@ -2083,7 +2083,7 @@ const styles = StyleSheet.create({
+     top: 0,
+     left: 0,
+     right: 0,
+-    paddingHorizontal: theme.spacing['4'],
++    paddingHorizontal: staticTheme.spacing['4'],
+     // paddingTop applied dynamically with insets
+     backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent background
+     borderBottomWidth: 0, // ✅ Remove border for cleaner look
+@@ -2092,7 +2092,7 @@ const styles = StyleSheet.create({
+   searchHeaderContent: {
+     flexDirection: 'row',
+     alignItems: 'center',
+-    gap: theme.spacing['2'], // 8px gap between search bar and filter button
++    gap: staticTheme.spacing['2'], // 8px gap between search bar and filter button
+   },
+   // Search Bar with Liquid Glass
+   searchGlassBar: {
+@@ -2104,16 +2104,16 @@ const styles = StyleSheet.create({
+   searchInputInner: {
+     flexDirection: 'row',
+     alignItems: 'center',
+-    gap: theme.spacing['2'],
+-    paddingHorizontal: theme.spacing['3'],
+-    paddingVertical: theme.spacing['2'],
++    gap: staticTheme.spacing['2'],
++    paddingHorizontal: staticTheme.spacing['3'],
++    paddingVertical: staticTheme.spacing['2'],
+     height: '100%',
+   },
+   searchInput: {
+     flex: 1,
+     ...theme.typography.body,
+     fontSize: 16,
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+   },
+   // Filter Button with Liquid Glass
+   filterButton: {
+@@ -2126,12 +2126,12 @@ const styles = StyleSheet.create({
+   },
+   searchContentContainer: {
+     flex: 1,
+-    paddingTop: theme.spacing['2'],
++    paddingTop: staticTheme.spacing['2'],
+     // No paddingHorizontal for edge-to-edge life area bubbles
+   },
+   // Grid styles for search results
+   gridContainer: {
+-    paddingBottom: theme.spacing['4'],
++    paddingBottom: staticTheme.spacing['4'],
+     paddingHorizontal: GRID_PADDING,
+   },
+   gridRow: {
+@@ -2152,7 +2152,7 @@ const styles = StyleSheet.create({
+     width: '100%',
+     height: '100%',
+     borderRadius: 2,
+-    backgroundColor: theme.colors.gray200,
++    backgroundColor: staticTheme.colors.gray200,
+     justifyContent: 'center',
+     alignItems: 'center',
+   },
+@@ -2161,27 +2161,27 @@ const styles = StyleSheet.create({
+     flexDirection: 'row',
+     alignItems: 'center',
+     justifyContent: 'center',
+-    padding: theme.spacing['6'],
+-    gap: theme.spacing['3'],
++    padding: staticTheme.spacing['6'],
++    gap: staticTheme.spacing['3'],
+   },
+   searchLoadingText: {
+     ...theme.typography.body,
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+   },
+   searchEmptyState: {
+     alignItems: 'center',
+-    paddingHorizontal: theme.spacing['6'],
+-    paddingTop: theme.spacing['8'],
++    paddingHorizontal: staticTheme.spacing['6'],
++    paddingTop: staticTheme.spacing['8'],
+   },
+   searchEmptyTitle: {
+     fontSize: 14,
+     fontWeight: '400',
+-    color: theme.colors.text.secondary,
+-    marginTop: theme.spacing['3'],
++    color: staticTheme.colors.text.secondary,
++    marginTop: staticTheme.spacing['3'],
+   },
+   searchEmptyText: {
+     ...theme.typography.body,
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+     textAlign: 'center',
+     lineHeight: 22,
+   },
+@@ -2198,9 +2198,9 @@ const styles = StyleSheet.create({
+     zIndex: 1000,
+   },
+   importProgressModal: {
+-    backgroundColor: theme.colors.white,
++    backgroundColor: staticTheme.colors.white,
+     borderRadius: 16,
+-    padding: theme.spacing['6'],
++    padding: staticTheme.spacing['6'],
+     width: screenWidth - 48,
+     maxWidth: 400,
+     ...theme.layout.shadows.lg,
+@@ -2209,61 +2209,61 @@ const styles = StyleSheet.create({
+     flexDirection: 'row',
+     justifyContent: 'space-between',
+     alignItems: 'center',
+-    marginBottom: theme.spacing['4'],
++    marginBottom: staticTheme.spacing['4'],
+   },
+   importProgressTitle: {
+     ...theme.typography.h3,
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+   },
+   importProgressStats: {
+-    marginBottom: theme.spacing['4'],
++    marginBottom: staticTheme.spacing['4'],
+   },
+   importProgressStat: {
+     ...theme.typography.body,
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     fontWeight: '600',
+-    marginBottom: theme.spacing['2'],
++    marginBottom: staticTheme.spacing['2'],
+   },
+   importProgressStatError: {
+     ...theme.typography.body,
+-    color: theme.colors.error500,
++    color: staticTheme.colors.error500,
+   },
+   importProgressBarContainer: {
+     height: 8,
+-    backgroundColor: theme.colors.gray100,
++    backgroundColor: staticTheme.colors.gray100,
+     borderRadius: 4,
+     overflow: 'hidden',
+-    marginBottom: theme.spacing['4'],
++    marginBottom: staticTheme.spacing['4'],
+   },
+   importProgressBarFill: {
+     height: '100%',
+-    backgroundColor: theme.colors.brand.primary,
++    backgroundColor: staticTheme.colors.brand.primary,
+     borderRadius: 4,
+   },
+   importCurrentItem: {
+     flexDirection: 'row',
+     alignItems: 'center',
+-    gap: theme.spacing['3'],
+-    marginBottom: theme.spacing['4'],
++    gap: staticTheme.spacing['3'],
++    marginBottom: staticTheme.spacing['4'],
+   },
+   importCurrentItemText: {
+     ...theme.typography.body,
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+   },
+   importProgressActions: {
+     flexDirection: 'row',
+     justifyContent: 'flex-end',
+-    gap: theme.spacing['3'],
++    gap: staticTheme.spacing['3'],
+   },
+   importActionButton: {
+-    paddingVertical: theme.spacing['3'],
+-    paddingHorizontal: theme.spacing['4'],
++    paddingVertical: staticTheme.spacing['3'],
++    paddingHorizontal: staticTheme.spacing['4'],
+     borderRadius: 8,
+-    backgroundColor: theme.colors.brand.primary,
++    backgroundColor: staticTheme.colors.brand.primary,
+   },
+   importActionButtonText: {
+     ...theme.typography.body,
+-    color: theme.colors.white,
++    color: staticTheme.colors.white,
+     fontWeight: '600',
+   },
+   // Expanded search bar (when open) - Glass container
+@@ -2283,7 +2283,7 @@ const styles = StyleSheet.create({
+   },
+   searchBarPlaceholder: {
+     fontSize: 16,
+-    color: theme.colors.text.tertiary,
++    color: staticTheme.colors.text.tertiary,
+     textAlign: 'left',
+   },
+   fireIcon: {
+@@ -2296,12 +2296,12 @@ const styles = StyleSheet.create({
+     backgroundColor: 'rgba(0, 0, 0, 0.5)',
+     justifyContent: 'center',
+     alignItems: 'center',
+-    padding: theme.spacing['4'],
++    padding: staticTheme.spacing['4'],
+   },
+   streakModalContent: {
+-    backgroundColor: theme.colors.white,
++    backgroundColor: staticTheme.colors.white,
+     borderRadius: 24,
+-    padding: theme.spacing['6'],
++    padding: staticTheme.spacing['6'],
+     width: '100%',
+     maxWidth: 500,
+   },
+@@ -2309,123 +2309,123 @@ const styles = StyleSheet.create({
+     flexDirection: 'row',
+     justifyContent: 'space-between',
+     alignItems: 'center',
+-    marginBottom: theme.spacing['4'],
++    marginBottom: staticTheme.spacing['4'],
+   },
+   streakModalTitle: {
+     ...theme.typography.h2,
+     fontWeight: '600',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+   },
+   streakModalCloseButton: {
+-    padding: theme.spacing['1'],
++    padding: staticTheme.spacing['1'],
+   },
+   streakMessageContainer: {
+     alignItems: 'center',
+-    marginBottom: theme.spacing['5'],
++    marginBottom: staticTheme.spacing['5'],
+   },
+   streakMessageText: {
+     ...theme.typography.h3,
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     textAlign: 'center',
+-    marginBottom: theme.spacing['2'],
++    marginBottom: staticTheme.spacing['2'],
+   },
+   streakCountText: {
+     fontSize: 48,
+     fontWeight: '700',
+-    color: theme.colors.brand.primary,
++    color: staticTheme.colors.brand.primary,
+   },
+   streakMonthLabel: {
+     ...theme.typography.body,
+     fontWeight: '600',
+-    color: theme.colors.text.secondary,
+-    marginBottom: theme.spacing['3'],
++    color: staticTheme.colors.text.secondary,
++    marginBottom: staticTheme.spacing['3'],
+     textAlign: 'center',
+   },
+   streakDaysScrollView: {
+     flexGrow: 0,
+   },
+   streakDaysContainer: {
+-    paddingHorizontal: theme.spacing['2'],
++    paddingHorizontal: staticTheme.spacing['2'],
+     flexDirection: 'row',
+   },
+   streakDayItem: {
+     alignItems: 'center',
+-    marginHorizontal: theme.spacing['1'],
++    marginHorizontal: staticTheme.spacing['1'],
+   },
+   streakDayCircle: {
+     width: 40,
+     height: 40,
+     borderRadius: 20,
+-    backgroundColor: theme.colors.gray100,
++    backgroundColor: staticTheme.colors.gray100,
+     justifyContent: 'center',
+     alignItems: 'center',
+-    marginBottom: theme.spacing['1'],
++    marginBottom: staticTheme.spacing['1'],
+   },
+   streakDayActive: {
+-    backgroundColor: theme.colors.brand.primary,
++    backgroundColor: staticTheme.colors.brand.primary,
+   },
+   streakDayToday: {
+     borderWidth: 2,
+-    borderColor: theme.colors.brand.primary,
+-    backgroundColor: theme.colors.white,
++    borderColor: staticTheme.colors.brand.primary,
++    backgroundColor: staticTheme.colors.white,
+   },
+   streakDayText: {
+     fontSize: 14,
+     fontWeight: '600',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+   },
+   streakDayTextActive: {
+-    color: theme.colors.white,
++    color: staticTheme.colors.white,
+   },
+   streakDayTextToday: {
+-    color: theme.colors.brand.primary,
++    color: staticTheme.colors.brand.primary,
+   },
+   streakDayDot: {
+     width: 6,
+     height: 6,
+     borderRadius: 3,
+-    backgroundColor: theme.colors.brand.primary,
++    backgroundColor: staticTheme.colors.brand.primary,
+   },
+   // Action Buttons
+   streakActionsContainer: {
+     flexDirection: 'row',
+-    gap: theme.spacing['3'],
+-    marginTop: theme.spacing['5'],
++    gap: staticTheme.spacing['3'],
++    marginTop: staticTheme.spacing['5'],
+   },
+   reviewButton: {
+     flex: 1,
+     paddingVertical: 16,
+-    paddingHorizontal: theme.spacing['4'],
++    paddingHorizontal: staticTheme.spacing['4'],
+     borderRadius: 24,
+-    backgroundColor: theme.colors.white,
++    backgroundColor: staticTheme.colors.white,
+     borderWidth: 1,
+-    borderColor: theme.colors.gray200,
++    borderColor: staticTheme.colors.gray200,
+     alignItems: 'center',
+     justifyContent: 'center',
+   },
+   reviewButtonText: {
+     fontSize: 15,
+     fontWeight: '500',
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+   },
+   shareButton: {
+     flex: 1,
+     paddingVertical: 16,
+-    paddingHorizontal: theme.spacing['4'],
++    paddingHorizontal: staticTheme.spacing['4'],
+     borderRadius: 24,
+-    backgroundColor: theme.colors.black,
++    backgroundColor: staticTheme.colors.black,
+     alignItems: 'center',
+     justifyContent: 'center',
+   },
+   shareButtonText: {
+     fontSize: 15,
+     fontWeight: '600',
+-    color: theme.colors.white,
++    color: staticTheme.colors.white,
+   },
+   // Life Area Bubbles - Edge-to-edge
+   lifeAreaScrollView: {
+     maxHeight: 50,
+-    marginBottom: theme.spacing['3'],
++    marginBottom: staticTheme.spacing['3'],
+   },
+   lifeAreaBubblesContainer: {
+     paddingLeft: 12, // Small padding for first item
+@@ -2446,15 +2446,15 @@ const styles = StyleSheet.create({
+   lifeAreaText: {
+     fontSize: 14,
+     fontWeight: '500',
+-    color: theme.colors.text.secondary,
++    color: staticTheme.colors.text.secondary,
+   },
+   lifeAreaTextSelected: {
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     fontWeight: '600',
+   },
+   // 4-column grid for life area results
+   lifeAreaGridContainer: {
+-    paddingBottom: theme.spacing['4'],
++    paddingBottom: staticTheme.spacing['4'],
+     // No paddingHorizontal - handled by parent View
+   },
+   lifeAreaGridRow: {
+@@ -2513,11 +2513,11 @@ const styles = StyleSheet.create({
+     fontWeight: '600',
+     fontStyle: 'italic',
+     letterSpacing: -0.48,
+-    color: theme.colors.text.primary,
++    color: staticTheme.colors.text.primary,
+     textAlign: 'center', // Center text
+   },
+   chapterBubbleTextSelected: {
+-    color: theme.colors.white,
++    color: staticTheme.colors.white,
+   },
+   currentBadgeBubble: {
+     position: 'absolute',

@@ -92,13 +92,22 @@ export default function ChapterManagementScreen({ navigation }: ChapterManagemen
     if (!editingChapter) return;
 
     try {
+      // 🔒 Get current user for security check
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        Alert.alert('Error', 'Authentication required');
+        return;
+      }
+
+      // 🔒 SECURITY: Update with user_id verification
       const { error } = await supabase
         .from('chapters')
         .update({
           started_at: editedStartDate.toISOString(),
           ended_at: editedEndDate?.toISOString() || null,
         })
-        .eq('id', editingChapter.id);
+        .eq('id', editingChapter.id)
+        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
 
       if (error) throw error;
 
