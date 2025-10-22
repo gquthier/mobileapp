@@ -117,7 +117,7 @@ export function useLibraryData(): UseLibraryDataReturn {
         // 🚀 PHASE 1: Try cache first (fast, synchronous)
         console.log('📦 Loading videos from cache...');
         const cacheStartTime = Date.now();
-        const cachedVideos = await VideoCacheService.getCachedVideos();
+        const { videos: cachedVideos } = await VideoCacheService.loadFromCache();
         const cacheElapsed = Date.now() - cacheStartTime;
 
         if (cachedVideos && cachedVideos.length > 0) {
@@ -177,12 +177,13 @@ export function useLibraryData(): UseLibraryDataReturn {
         setLoading(false);
 
         // 🚀 Update cache (non-blocking)
-        VideoCacheService.cacheVideos(data as VideoRecord[]);
+        VideoCacheService.saveToCache(data as VideoRecord[]);
       }
     } catch (err: any) {
       console.error('❌ Error fetching videos:', err);
       if (cancelledRef.current) return; // ✅ Check cancelled before dispatch
-      setError(err.message || 'Failed to load videos');
+      // ✅ Error logged to console only (no UI display)
+      // setError(err.message || 'Failed to load videos');
       setLoading(false);
       setPagination(prev => ({ ...prev, isLoadingMore: false }));
     }

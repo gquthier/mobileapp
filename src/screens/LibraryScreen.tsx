@@ -17,6 +17,7 @@ import {
   Linking,
   InteractionManager,
   Keyboard,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -27,7 +28,6 @@ import { useTheme } from '../hooks/useTheme';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { LoadingDots } from '../components/LoadingDots';
-import { EmptyState } from '../components/EmptyState';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { VideoRecord } from '../lib/supabase';
 import { VideoService } from '../services/videoService';
@@ -95,6 +95,9 @@ const LibraryScreen: React.FC = () => {
   // Modal states
   const [showChapterModal, setShowChapterModal] = useState(false);
   const [showStreakModal, setShowStreakModal] = useState(false);
+
+  // ✅ Pull-to-refresh state
+  const [refreshing, setRefreshing] = useState(false);
 
   // ✅ Calculate header height for content inset
   // Different padding for calendar vs grid view
@@ -323,6 +326,20 @@ const LibraryScreen: React.FC = () => {
   const handleCloseVideoPlayer = useCallback(() => {
     libraryData.setVideoPlayer({ isOpen: false });
   }, []);
+
+  /**
+   * ✅ Pull-to-refresh handler
+   * Reloads videos from Supabase when user swipes down
+   */
+  const handleRefresh = useCallback(async () => {
+    console.log('🔄 Pull-to-refresh triggered');
+    setRefreshing(true);
+    try {
+      await fetchVideos(0, false); // Reload from page 0
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchVideos]);
 
   /**
    * Open Vertical Feed Mode (TikTok-style)
@@ -655,36 +672,9 @@ const LibraryScreen: React.FC = () => {
 
   // ✅ handleLifeAreaPress now comes from useLibrarySearch hook
 
-  const renderEmpty = () => {
-    if (libraryData.loading && libraryData.videos.length === 0) {
-      return (
-        <View style={styles.loadingContainer}>
-          <LoadingDots color={brandColor} />
-          <Text style={styles.loadingText}>Loading your memories...</Text>
-        </View>
-      );
-    }
-
-    if (libraryData.videos.length === 0 && !libraryData.loading) {
-      return (
-        <EmptyState
-          icon="📚"
-          title="Your Library Awaits"
-          description="This is where all your videos live. Record your first video to start building your personal story library."
-          buttonText="Record a Video"
-          onButtonPress={() => {
-            navigation.navigate('Record' as never);
-          }}
-          buttonColor={brandColor}
-        />
-      );
-    }
-
-    return null;
-  };
-
   // ✅ Phase 3.3 - renderSearchGrid and renderLibraryGrid removed
   // Now using LibrarySearchResults, LibraryGridView, and LibraryCalendarView components
+  // ✅ renderEmpty removed - LibraryScreen always shows calendar/grid view, even with 0 videos
 
   return (
     <View style={styles.container}>
@@ -915,15 +905,7 @@ const LibraryScreen: React.FC = () => {
               </Animated.View>
           )}
 
-          {/* Error state */}
-          {libraryData.error && !librarySearch.showSearch && (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>{libraryData.error}</Text>
-              <TouchableOpacity onPress={() => fetchVideos()} style={styles.retryButton}>
-                <Text style={styles.retryText}>Retry</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          {/* ✅ Error state removed - errors logged to console only (no UI pop-up) */}
 
           {/* Content Area */}
           {librarySearch.showSearch ? (
@@ -1046,15 +1028,21 @@ const LibraryScreen: React.FC = () => {
             </TouchableWithoutFeedback>
           ) : (
             <View style={styles.contentContainer}>
-              {filteredVideos.length === 0 ? (
-                renderEmpty()
-              ) : libraryData.viewMode === 'grid' ? (
+              {/* ✅ Always show calendar/grid view, even with 0 videos */}
+              {libraryData.viewMode === 'grid' ? (
                 <LibraryGridView
                   videos={filteredVideos}
                   onVideoPress={handleGridVideoPress}
                   onEndReached={handleLoadMore}
                   onEndReachedThreshold={0.8}
                   contentInsetTop={headerHeightGrid} // ✅ Less padding for grid view (photos closer to top bar)
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={refreshing}
+                      onRefresh={handleRefresh}
+                      tintColor={brandColor}
+                    />
+                  }
                 />
               ) : (
                 <LibraryCalendarView
@@ -1064,6 +1052,13 @@ const LibraryScreen: React.FC = () => {
                   onEndReached={handleLoadMore}
                   onEndReachedThreshold={0.8}
                   contentInsetTop={headerHeightCalendar} // ✅ More padding for calendar view
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={refreshing}
+                      onRefresh={handleRefresh}
+                      tintColor={brandColor}
+                    />
+                  }
                 />
               )}
             </View>
@@ -1362,31 +1357,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0)', // ✅ Fully transparent content container
   },
-  errorContainer: {
-    alignItems: 'center',
-    padding: theme.spacing['5'],
-    backgroundColor: theme.colors.gray50,
-    borderRadius: 12,
-    marginHorizontal: theme.spacing['4'],
-    marginBottom: theme.spacing['4'],
-  },
-  errorText: {
-    ...theme.typography.body2,
-    color: theme.colors.text.secondary,
-    marginBottom: theme.spacing['3'],
-    textAlign: 'center',
-  },
-  retryButton: {
-    paddingHorizontal: theme.spacing['5'],
-    paddingVertical: theme.spacing['2.5'],
-    backgroundColor: theme.colors.brand.primary,
-    borderRadius: 8,
-  },
-  retryText: {
-    ...theme.typography.body2,
-    fontWeight: '600',
-    color: theme.colors.white,
-  },
+  // ✅ Error styles removed - errors logged to console only (no UI display)
   loadingContainer: {
     alignItems: 'center',
     justifyContent: 'center',
