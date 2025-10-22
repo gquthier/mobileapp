@@ -11,7 +11,6 @@ import { Icon } from '../components/Icon';
 import { Chip } from '../components/Chip';
 import { ChapterCard } from '../components/ChapterCard';
 import { PromptCard } from '../components/PromptCard';
-// import { MemoriesSection } from '../components/MemoriesSection'; // ⚠️ DISABLED 2025-10-22 - Performance optimization (backup: MemoriesSection.tsx.BACKUP-2025-10-22)
 
 const HomeScreen: React.FC = () => {
   const [selectedFilter, setSelectedFilter] = useState('All');
@@ -66,12 +65,6 @@ const HomeScreen: React.FC = () => {
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
         >
-          {/* ⚠️ DISABLED 2025-10-22: Memories Section - 3 circular video bubbles
-              Performance optimization: -80MB RAM, -40% CPU
-              Backup available: src/components/MemoriesSection.tsx.BACKUP-2025-10-22
-          */}
-          {/* <MemoriesSection /> */}
-
           {/* Chapters */}
           {chapters.map((chapter, index) => (
             <ChapterCard
