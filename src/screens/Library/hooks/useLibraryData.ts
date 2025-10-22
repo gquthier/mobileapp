@@ -84,8 +84,10 @@ export function useLibraryData(): UseLibraryDataReturn {
   // Import queue state
   const [importState, setImportState] = useState<{ queueState: ImportQueueState }>({
     queueState: {
-      queue: [],
+      items: [],
+      currentIndex: 0,
       isProcessing: false,
+      totalCount: 0,
       completedCount: 0,
       failedCount: 0,
     },
