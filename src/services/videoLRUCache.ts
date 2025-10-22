@@ -264,4 +264,63 @@ export class VideoLRUCache {
         console.error(`❌ [VideoLRUCache] Failed to preload video ${videoId}:`, error)
       })
   }
+
+  /**
+   * ✅ PHASE 3.2 - Auto-cleanup: Supprimer vidéos plus vieilles que N jours
+   *
+   * Cette fonction supprime les vidéos en cache qui n'ont pas été utilisées
+   * depuis plus de maxAgeDays jours.
+   *
+   * @param maxAgeDays Nombre de jours maximum (défaut: 30 jours)
+   * @returns Nombre de vidéos supprimées
+   *
+   * Exemple:
+   * - await VideoLRUCache.cleanup(30) → Supprime vidéos non utilisées depuis 30+ jours
+   * - await VideoLRUCache.cleanup(7)  → Supprime vidéos non utilisées depuis 7+ jours
+   */
+  static async cleanup(maxAgeDays: number = 30): Promise<number> {
+    try {
+      const metadata = await VideoLRUCache.getCacheMetadata()
+      const cutoffTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000)
+
+      // Filtrer les vidéos trop anciennes
+      const toDelete = metadata.entries.filter((e) => e.timestamp < cutoffTime)
+
+      if (toDelete.length === 0) {
+        console.log(`✅ [VideoLRUCache] Cleanup: No videos older than ${maxAgeDays} days`)
+        return 0
+      }
+
+      let deletedSize = 0
+
+      // Supprimer les fichiers
+      for (const entry of toDelete) {
+        try {
+          await FileSystem.deleteAsync(entry.filePath, { idempotent: true })
+          deletedSize += entry.sizeBytes
+          console.log(
+            `🗑️ [VideoLRUCache] Cleaned up video ${entry.videoId} (${(entry.sizeBytes / 1024 / 1024).toFixed(2)} MB, ${Math.floor((Date.now() - entry.timestamp) / (24 * 60 * 60 * 1000))} days old)`
+          )
+        } catch (error) {
+          console.error(`❌ [VideoLRUCache] Failed to delete ${entry.videoId}:`, error)
+        }
+      }
+
+      // Mettre à jour métadonnées
+      const deletedIds = new Set(toDelete.map((e) => e.videoId))
+      metadata.entries = metadata.entries.filter((e) => !deletedIds.has(e.videoId))
+      metadata.totalSize -= deletedSize
+
+      await VideoLRUCache.saveCacheMetadata(metadata)
+
+      console.log(
+        `✅ [VideoLRUCache] Cleanup complete: Removed ${toDelete.length} videos older than ${maxAgeDays} days (${(deletedSize / 1024 / 1024).toFixed(2)} MB freed)`
+      )
+
+      return toDelete.length
+    } catch (error) {
+      console.error('❌ [VideoLRUCache] Cleanup failed:', error)
+      return 0
+    }
+  }
 }

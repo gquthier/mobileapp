@@ -10,6 +10,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { WelcomeFlow } from '../components/WelcomeFlow';
 import { ChapterCreationFlow } from '../components/ChapterCreationFlow';
 import { VideoImportFlow } from '../components/VideoImportFlow';
+import { GuidedTour } from '../components/GuidedTour';
 import { OnboardingScreens } from '../components/OnboardingScreens';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import LibraryScreen from '../screens/LibraryScreen';
@@ -170,6 +171,7 @@ export const AppNavigator = () => {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showLifeAreasSelection, setShowLifeAreasSelection] = useState(false);
   const [showVideoImport, setShowVideoImport] = useState(false);
+  const [showGuidedTour, setShowGuidedTour] = useState(false);
   const [createdChapterId, setCreatedChapterId] = useState<string | null>(null);
   const [chapterColor, setChapterColor] = useState<string>(CHAPTER_COLORS[0]);
   const [hideTabBar, setHideTabBar] = useState(false);
@@ -181,6 +183,7 @@ export const AppNavigator = () => {
       console.log('🔄 Resetting onboarding states for first-time user');
       setShowOnboarding(false);
       setShowVideoImport(false);
+      setShowGuidedTour(false);
       setShowLifeAreasSelection(false);
       setCreatedChapterId(null);
       setChapterColor(CHAPTER_COLORS[0]);
@@ -189,7 +192,7 @@ export const AppNavigator = () => {
 
   // 🔔 Demander les permissions de notification après l'onboarding
   useEffect(() => {
-    if (session && !isFirstTime && !showOnboarding && !showVideoImport && !showLifeAreasSelection) {
+    if (session && !isFirstTime && !showOnboarding && !showVideoImport && !showGuidedTour && !showLifeAreasSelection) {
       // Attendre 2 secondes après l'onboarding pour demander les permissions
       const timer = setTimeout(async () => {
         await requestNotificationPermissions();
@@ -197,7 +200,7 @@ export const AppNavigator = () => {
 
       return () => clearTimeout(timer);
     }
-  }, [session, isFirstTime, showOnboarding, showVideoImport, showLifeAreasSelection]);
+  }, [session, isFirstTime, showOnboarding, showVideoImport, showGuidedTour, showLifeAreasSelection]);
 
   // 🔔 Setup listener pour navigation quand on clique sur une notification
   useEffect(() => {
@@ -297,11 +300,24 @@ export const AppNavigator = () => {
       onComplete={(importedCount) => {
         console.log(`✅ Imported ${importedCount} videos`);
         setShowVideoImport(false);
-        markWelcomeComplete();
+        setShowGuidedTour(true); // ✅ Show guided tour after video import
       }}
       onSkip={() => {
         setShowVideoImport(false);
-        markWelcomeComplete();
+        setShowGuidedTour(true); // ✅ Show guided tour even if skipped
+      }}
+    />;
+  } else if (showGuidedTour) {
+    content = <GuidedTour
+      onComplete={() => {
+        console.log('✅ Guided tour completed');
+        setShowGuidedTour(false);
+        markWelcomeComplete(); // ✅ Mark onboarding as complete
+      }}
+      onSkip={() => {
+        console.log('⏭️ Guided tour skipped');
+        setShowGuidedTour(false);
+        markWelcomeComplete(); // ✅ Mark onboarding as complete
       }}
     />;
   } else if (showLifeAreasSelection) {
