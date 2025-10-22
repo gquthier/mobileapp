@@ -144,9 +144,44 @@ export const ChapterCreationFlow: React.FC<ChapterCreationFlowProps> = ({
   const titleSuggestions = getTitleSuggestions();
 
   const goToNextStep = () => {
-    if (currentStep === 5) {
-      // Final step - create chapter
-      createChapter();
+    // ✅ Create chapter when moving from step 4 to step 5 (celebration)
+    if (currentStep === 4) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+      // Slide out current step
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: -50,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        // Move to celebration step
+        setCurrentStep(5);
+
+        // Start creating chapter in background
+        createChapter();
+
+        // Slide in celebration
+        slideAnim.setValue(50);
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(slideAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
       return;
     }
 
@@ -542,12 +577,27 @@ export const ChapterCreationFlow: React.FC<ChapterCreationFlowProps> = ({
 
               {/* ✅ Continue Button */}
               {!isCreating && createdChapterId && (
-                <TouchableOpacity
-                  style={[styles.celebrationButton, { backgroundColor: selectedColor }]}
-                  onPress={handleCelebrationContinue}
-                >
-                  <Text style={styles.celebrationButtonText}>Continue</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    style={[styles.celebrationButton, { backgroundColor: selectedColor }]}
+                    onPress={handleCelebrationContinue}
+                  >
+                    <Text style={styles.celebrationButtonText}>Continuer</Text>
+                  </TouchableOpacity>
+
+                  {/* ✅ Skip Button */}
+                  {onSkip && (
+                    <TouchableOpacity
+                      style={styles.celebrationSkipButton}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        onSkip();
+                      }}
+                    >
+                      <Text style={styles.celebrationSkipButtonText}>Skip for now</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
               )}
             </View>
           )}
@@ -945,6 +995,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: theme.colors.white,
     letterSpacing: 0.5,
+  },
+  celebrationSkipButton: {
+    marginTop: theme.spacing['3'],
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  celebrationSkipButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.text.secondary,
   },
 
   // Bottom CTA

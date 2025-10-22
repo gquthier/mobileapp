@@ -12,6 +12,7 @@ import {
   Animated,
   PanResponder,
   Pressable,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
@@ -36,6 +37,7 @@ import { supabase } from '../lib/supabase';
 import { getCurrentChapter } from '../services/chapterService';
 import { ImportQueueService } from '../services/importQueueService';
 import { useTheme } from '../contexts/ThemeContext';
+import { useCameraContext } from '../contexts/CameraContext';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -46,6 +48,18 @@ const CACHE_EXPIRY_MS = 1000 * 60 * 60; // 1 heure
 const RecordScreen: React.FC = ({ route, navigation }: any) => {
   // Theme context
   const { brandColor } = useTheme();
+
+  // ✅ SOLUTION 2: Camera Context (shared camera instance between TAB and MODAL)
+  const { cameraLocation, setCameraLocation, sharedCameraRef, isCameraReady, setIsCameraReady } = useCameraContext();
+
+  // Determine if this is TAB or MODAL instance
+  const isModal = route.params?.isModal;
+  const myLocation: 'tab' | 'modal' = isModal ? 'modal' : 'tab';
+
+  // ✅ SOLUTION 2: Conditional rendering - only show camera if location matches
+  const shouldShowCamera = cameraLocation === myLocation;
+
+  console.log(`🎥 [RECORD ${myLocation.toUpperCase()}] shouldShowCamera:`, shouldShowCamera, '| cameraLocation:', cameraLocation);
 
   // Permissions hooks
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -62,7 +76,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
   // Camera state
   const [cameraKey, setCameraKey] = useState(0);
-  const [isCameraReady, setIsCameraReady] = useState(false);
+  // ✅ SOLUTION 2: isCameraReady is now in CameraContext (shared state)
   // ✅ PHASE 2: shouldMountCamera and tabCameraUnmountedRef removed (no TAB camera)
 
   // Recording UI state
@@ -268,7 +282,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
   }, [isRecording, dragCurrentZone]); // Recreate when isRecording or dragCurrentZone changes
 
   // Refs
-  const cameraRef = useRef<CameraView>(null);
+  // ✅ SOLUTION 2: sharedCameraRef is now sharedCameraRef from CameraContext (shared between TAB and MODAL)
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isCancellingRef = useRef(false); // Flag pour indiquer qu'on annule (ne pas sauvegarder)
   const recordAsyncActiveRef = useRef(false); // ⚠️ Track if recordAsync() Promise is active
@@ -363,7 +377,20 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     };
   }, []);
 
-  // ✅ PHASE 2: useFocusEffect removed - no TAB camera to mount/unmount
+  // ✅ SOLUTION 2: Handle camera location switch when modal closes
+  useFocusEffect(
+    useCallback(() => {
+      console.log(`🎥 [SOLUTION 2] ${myLocation.toUpperCase()} gained focus, cameraLocation:`, cameraLocation);
+
+      // When MODAL loses focus (closes), switch camera back to TAB
+      return () => {
+        if (isModal && cameraLocation === 'modal') {
+          console.log('🎥 [SOLUTION 2] MODAL closing, switching camera location: modal → tab');
+          setCameraLocation('tab');
+        }
+      };
+    }, [isModal, cameraLocation, setCameraLocation, myLocation])
+  );
 
   const initializeQuestions = async () => {
     try {
@@ -556,16 +583,16 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       isRecording,
       isCameraReady,
       timestamp: Date.now(),
-      cameraRef: !!cameraRef.current
+      sharedCameraRef: !!sharedCameraRef.current
     });
 
     // Only trigger when all conditions are met
-    if (autoStart && !isRecording && isCameraReady && cameraRef.current) {
+    if (autoStart && !isRecording && isCameraReady && sharedCameraRef.current) {
       console.log('🎬 [AUTOSTART] All conditions met!');
       console.log('   - autoStart:', autoStart);
       console.log('   - isRecording:', isRecording);
       console.log('   - isCameraReady:', isCameraReady);
-      console.log('   - cameraRef.current:', !!cameraRef.current);
+      console.log('   - sharedCameraRef.current:', !!sharedCameraRef.current);
 
       // ⚠️ SET FLAG to ignore touch events during autoStart
       isAutoStarting.current = true;
@@ -781,11 +808,13 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     console.log('👆 Touch started at:', pageX, pageY, 'timestamp:', timestamp);
     console.log('🔍 isRecording:', isRecording);
 
+    // ✅ PHASE 3: INSTANT haptic feedback for immediate UX response (optimization #4)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
     // ✅ ALWAYS show long press indicator (whether recording or not)
     console.log('📍 Showing long press indicator');
     setIsLongPressing(true);
     setLongPressPosition({ x: pageX, y: pageY });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handleLongPressComplete = () => {
@@ -812,6 +841,11 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
     // ✅ TAB instance: open modal (which will auto-start recording)
     console.log('🎬 TAB long press: Opening RecordModal...');
+
+    // ✅ SOLUTION 2: Switch camera location from TAB to MODAL BEFORE opening modal
+    console.log('🎥 [SOLUTION 2] Switching camera location: tab → modal');
+    setCameraLocation('modal');
+
     try {
       const rootNavigation = navigation.getParent('RootStack');
       if (rootNavigation) {
@@ -833,6 +867,8 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       }
     } catch (error) {
       console.error('❌ Could not open modal:', error);
+      // ✅ Revert camera location if modal failed to open
+      setCameraLocation('tab');
     }
   };
 
@@ -1114,7 +1150,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
   };
 
   const pauseRecording = async () => {
-    if (!cameraRef.current || !isRecording) return;
+    if (!sharedCameraRef.current || !isRecording) return;
 
     try {
       console.log('⏸️ Toggling pause state...');
@@ -1147,9 +1183,9 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       return;
     }
 
-    if (!cameraRef.current || isRecording || !isCameraReady) {
+    if (!sharedCameraRef.current || isRecording || !isCameraReady) {
       console.log('⚠️ Cannot start recording:', {
-        hasCamera: !!cameraRef.current,
+        hasCamera: !!sharedCameraRef.current,
         isRecording,
         isCameraReady
       });
@@ -1186,16 +1222,16 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       };
 
       console.log('📹 Recording options:', recordingOptions);
-      console.log('📹 cameraRef.current exists?', !!cameraRef.current);
-      console.log('📹 cameraRef.current.recordAsync exists?', !!cameraRef.current?.recordAsync);
+      console.log('📹 sharedCameraRef.current exists?', !!sharedCameraRef.current);
+      console.log('📹 sharedCameraRef.current.recordAsync exists?', !!sharedCameraRef.current?.recordAsync);
 
       console.log('⏳ [RECORDING] Starting recordAsync...');
       console.log('🔍 [STATE] Camera state before recordAsync:', {
         isCameraReady,
-        hasCamera: !!cameraRef.current,
-        hasCameraType: typeof cameraRef.current,
-        hasRecordAsync: !!cameraRef.current?.recordAsync,
-        hasStopRecording: !!cameraRef.current?.stopRecording,
+        hasCamera: !!sharedCameraRef.current,
+        hasCameraType: typeof sharedCameraRef.current,
+        hasRecordAsync: !!sharedCameraRef.current?.recordAsync,
+        hasStopRecording: !!sharedCameraRef.current?.stopRecording,
         timestamp: Date.now()
       });
 
@@ -1205,11 +1241,11 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
       const recordStartTime = Date.now();
       console.log('⏱️ [TIMING] recordAsync starting at:', recordStartTime);
-      console.log('🔍 [DEBUG] Camera ref ID:', cameraRef.current);
+      console.log('🔍 [DEBUG] Camera ref ID:', sharedCameraRef.current);
       console.log('🔍 [DEBUG] Route params:', route.params);
 
       // ⚠️ Add timeout to detect if recordAsync is stuck
-      const recordPromise = cameraRef.current.recordAsync(recordingOptions);
+      const recordPromise = sharedCameraRef.current.recordAsync(recordingOptions);
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('recordAsync timeout after 60 seconds')), 60000);
       });
@@ -1368,15 +1404,15 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       return;
     }
 
-    if (!cameraRef.current || !isRecording) {
-      console.log('⚠️ stopRecording: Skipped - cameraRef:', !!cameraRef.current, 'isRecording:', isRecording);
+    if (!sharedCameraRef.current || !isRecording) {
+      console.log('⚠️ stopRecording: Skipped - sharedCameraRef:', !!sharedCameraRef.current, 'isRecording:', isRecording);
       return;
     }
 
     try {
       console.log('⏹️ Stopping recording...');
-      console.log('🔍 cameraRef.current.stopRecording exists?', !!cameraRef.current.stopRecording);
-      console.log('🔍 cameraRef.current type:', typeof cameraRef.current);
+      console.log('🔍 sharedCameraRef.current.stopRecording exists?', !!sharedCameraRef.current.stopRecording);
+      console.log('🔍 sharedCameraRef.current type:', typeof sharedCameraRef.current);
 
       // ⚠️ Set flag IMMEDIATELY to prevent duplicate calls
       isStoppingRef.current = true;
@@ -1385,7 +1421,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
       // Stop la caméra - recordAsync() va se résoudre dans startRecording()
       console.log('🛑 Calling stopRecording on camera...');
-      cameraRef.current.stopRecording();
+      sharedCameraRef.current.stopRecording();
       console.log('⏹️ stopRecording called successfully - recordAsync should resolve now...');
     } catch (error) {
       console.error('❌ Stop recording error:', error);
@@ -1470,7 +1506,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
   };
 
   const cancelRecording = async () => {
-    if (!cameraRef.current || !isRecording) return;
+    if (!sharedCameraRef.current || !isRecording) return;
 
     // Afficher popup de confirmation
     Alert.alert(
@@ -1496,7 +1532,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
               isCancellingRef.current = true;
 
               // Arrêter l'enregistrement sans sauvegarder
-              cameraRef.current?.stopRecording();
+              sharedCameraRef.current?.stopRecording();
 
               // Réinitialiser tous les états
               setIsRecording(false);
@@ -1717,9 +1753,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
   console.log('🎥 RecordScreen render, camera permission:', cameraPermission);
   console.log('🎙️ RecordScreen render, microphone permission:', microphonePermission);
 
-  const isModal = route.params?.isModal;
-
-  // ✅ TAB: Placeholder (no camera) - opens modal on long press
+  // ✅ SOLUTION 2: TAB instance with REAL camera (conditional rendering)
   if (!isModal) {
     return (
       <View style={styles.container}>
@@ -1730,14 +1764,41 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
           onTouchEnd={handleTouchEnd}
           onTouchCancel={handleTouchEnd}
         >
-          {/* ✅ PHASE 2: Placeholder instead of camera (performance optimization) */}
-          <View style={styles.placeholderContainer}>
-            <View style={styles.placeholderIconContainer}>
-              <Icon name="camera" size={80} color="rgba(255, 255, 255, 0.3)" />
+          {/* ✅ SOLUTION 2: Conditional camera rendering - only show if location is 'tab' */}
+          {shouldShowCamera ? (
+            <>
+              {cameraPermission?.granted && microphonePermission?.granted ? (
+                <CameraView
+                  key={`camera-${cameraKey}`}
+                  ref={sharedCameraRef}
+                  style={styles.camera}
+                  facing="front"
+                  mode="video"
+                  onCameraReady={() => {
+                    console.log('📷 [TAB] Camera is ready');
+                    setIsCameraReady(true);
+                  }}
+                  onMountError={(error) => {
+                    console.error('❌ TAB: Camera mount error:', error);
+                    setIsCameraReady(false);
+                  }}
+                />
+              ) : (
+                <View style={styles.camera}>
+                  <Text style={styles.cameraPlaceholderText}>Camera loading...</Text>
+                </View>
+              )}
+            </>
+          ) : (
+            // Camera is in MODAL, show placeholder
+            <View style={styles.placeholderContainer}>
+              <View style={styles.placeholderIconContainer}>
+                <Icon name="camera" size={80} color="rgba(255, 255, 255, 0.3)" />
+              </View>
+              <Text style={styles.placeholderTitle}>Camera Active in Recording</Text>
+              <Text style={styles.placeholderSubtitle}>Close the recording to see preview</Text>
             </View>
-            <Text style={styles.placeholderTitle}>Ready to Record</Text>
-            <Text style={styles.placeholderSubtitle}>Hold anywhere to start</Text>
-          </View>
+          )}
 
           {/* Long Press Indicator */}
           <LongPressIndicator
@@ -1793,29 +1854,59 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchEnd}
       >
-{cameraPermission?.granted && microphonePermission?.granted ? (
-          <CameraView
-            key={`camera-${cameraKey}`}
-            ref={cameraRef}
-            style={isRecording ? styles.cameraFullscreen : styles.camera}
-            facing="front"
-            mode="video"
-            onCameraReady={() => {
-              const readyTime = Date.now();
-              console.log('📷 [MODAL] Camera is ready at:', readyTime);
-              console.log('📷 [MODAL STATE] recordAsyncActiveRef:', recordAsyncActiveRef.current);
-              console.log('📷 [MODAL STATE] isRecording:', isRecording);
-              console.log('📷 [MODAL STATE] Previous isCameraReady:', isCameraReady);
-              setIsCameraReady(true);
-            }}
-            onMountError={(error) => {
-              console.error('❌ MODAL: Camera mount error:', error);
-              setIsCameraReady(false);
-            }}
-          />
+        {/* ✅ SOLUTION 2: Conditional camera rendering - only show if location is 'modal' */}
+        {shouldShowCamera ? (
+          cameraPermission?.granted && microphonePermission?.granted ? (
+            <>
+              <CameraView
+                key={`camera-${cameraKey}`}
+                ref={sharedCameraRef}
+                style={isRecording ? styles.cameraFullscreen : styles.camera}
+                facing="front"
+                mode="video"
+                onCameraReady={() => {
+                  const readyTime = Date.now();
+                  console.log('📷 [MODAL] Camera is ready at:', readyTime);
+                  console.log('📷 [MODAL STATE] recordAsyncActiveRef:', recordAsyncActiveRef.current);
+                  console.log('📷 [MODAL STATE] isRecording:', isRecording);
+                  console.log('📷 [MODAL STATE] Previous isCameraReady:', isCameraReady);
+                  setIsCameraReady(true);
+                }}
+                onMountError={(error) => {
+                  console.error('❌ MODAL: Camera mount error:', error);
+                  setIsCameraReady(false);
+                }}
+              />
+
+              {/* ✅ PHASE 3: Progressive UI Skeleton (optimization #5) - shown while camera loads */}
+              {!isCameraReady && (
+                <View style={styles.cameraSkeletonOverlay}>
+                  <View style={styles.cameraSkeletonContent}>
+                    <View style={styles.cameraSkeletonIconContainer}>
+                      <Icon name="camera" size={80} color="rgba(255, 255, 255, 0.2)" />
+                    </View>
+                    <ActivityIndicator size="large" color="rgba(255, 255, 255, 0.6)" style={styles.cameraSkeletonLoader} />
+                    <Text style={styles.cameraSkeletonText}>Preparing camera...</Text>
+                    <View style={styles.cameraSkeletonProgress}>
+                      <View style={styles.cameraSkeletonProgressBar} />
+                    </View>
+                  </View>
+                </View>
+              )}
+            </>
+          ) : (
+            <View style={isRecording ? styles.cameraFullscreen : styles.camera}>
+              <Text style={styles.cameraPlaceholderText}>Camera loading...</Text>
+            </View>
+          )
         ) : (
-          <View style={isRecording ? styles.cameraFullscreen : styles.camera}>
-            <Text style={styles.cameraPlaceholderText}>Camera loading...</Text>
+          // Camera is in TAB, show error message (this shouldn't normally happen)
+          <View style={styles.placeholderContainer}>
+            <View style={styles.placeholderIconContainer}>
+              <Icon name="camera" size={80} color="rgba(255, 255, 255, 0.3)" />
+            </View>
+            <Text style={styles.placeholderTitle}>Camera Error</Text>
+            <Text style={styles.placeholderSubtitle}>Please close and reopen</Text>
           </View>
         )}
 
@@ -2096,6 +2187,51 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     color: 'rgba(255, 255, 255, 0.5)',
     textAlign: 'center',
+  },
+  // ✅ PHASE 3: Camera skeleton styles (optimization #5 - progressive UI)
+  cameraSkeletonOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  cameraSkeletonContent: {
+    alignItems: 'center',
+    gap: 20,
+  },
+  cameraSkeletonIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  cameraSkeletonLoader: {
+    marginVertical: 8,
+  },
+  cameraSkeletonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: 'rgba(255, 255, 255, 0.6)',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  cameraSkeletonProgress: {
+    width: 200,
+    height: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginTop: 16,
+  },
+  cameraSkeletonProgressBar: {
+    height: '100%',
+    width: '60%',
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 2,
   },
   timerContainer: {
     position: 'absolute',

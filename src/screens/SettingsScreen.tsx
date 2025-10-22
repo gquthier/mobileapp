@@ -21,6 +21,7 @@ import { useUserRole } from '../hooks/useUserRole';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { LoadingDots } from '../components/LoadingDots';
+import { FirstRecordingPrompt } from '../components/FirstRecordingPrompt';
 import { AuthService, Profile } from '../services/authService';
 import { OnboardingService } from '../services/onboardingService';
 import { supabase, Chapter } from '../lib/supabase';
@@ -226,6 +227,9 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   // App color theme state
   const [showColorPickerModal, setShowColorPickerModal] = useState(false);
 
+  // Admin: Testing
+  const [showFirstRecordingPrompt, setShowFirstRecordingPrompt] = useState(false);
+
   useEffect(() => {
     loadUserData();
   }, []);
@@ -336,7 +340,7 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const handleResetOnboarding = () => {
     Alert.alert(
       '🔄 Reset Onboarding',
-      'This will restart the entire onboarding flow as if you just installed the app.\n\nAre you sure you want to continue?',
+      'This will restart the entire onboarding flow WITHOUT logging you out.\n\nYou will go through welcome, chapter creation, video import, and tour again.\n\nAre you sure?',
       [
         {
           text: 'Cancel',
@@ -355,13 +359,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
               // Show success message
               Alert.alert(
                 '✅ Onboarding Reset',
-                'The app will now restart to begin the onboarding flow.',
+                'Please restart the app manually to begin the onboarding flow again.\n\n(Close and reopen the app)',
                 [
                   {
                     text: 'OK',
-                    onPress: async () => {
-                      // Sign out to restart the flow
-                      await AuthService.signOut();
+                    onPress: () => {
+                      console.log('✅ Onboarding reset complete. User needs to restart app.');
                     },
                   },
                 ]
@@ -374,6 +377,12 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
         },
       ]
     );
+  };
+
+  // ADMIN ONLY: Launch first recording prompt for testing
+  const handleLaunchFirstRecording = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowFirstRecordingPrompt(true);
   };
 
   const updateNotificationSettings = async (key: string, value: boolean) => {
@@ -720,6 +729,13 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
                 showChevron
                 onPress={handleResetOnboarding}
               />
+              <SettingsItem
+                icon="video"
+                title="Test North Star Prompt"
+                subtitle="Launch the first recording prompt"
+                showChevron
+                onPress={handleLaunchFirstRecording}
+              />
             </SettingsSection>
           )}
 
@@ -882,6 +898,26 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      {/* Admin: First Recording Prompt Testing */}
+      {showFirstRecordingPrompt && (
+        <FirstRecordingPrompt
+          onRecord={() => {
+            console.log('🎬 User wants to record North Star statement (test mode)');
+            setShowFirstRecordingPrompt(false);
+            // In test mode, we don't navigate to RecordScreen
+            Alert.alert(
+              '✅ Test Complete',
+              'In normal flow, this would navigate to RecordScreen with mode="statement"',
+              [{ text: 'OK' }]
+            );
+          }}
+          onSkip={() => {
+            console.log('⏭️ User skipped first recording (test mode)');
+            setShowFirstRecordingPrompt(false);
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 };

@@ -7,10 +7,11 @@ import { supabase } from '../lib/supabase';
 import { Session } from '@supabase/supabase-js';
 import { useFirstTimeUser } from '../hooks/useFirstTimeUser';
 import { useTheme } from '../contexts/ThemeContext';
+import { CameraProvider } from '../contexts/CameraContext';
 import { WelcomeFlow } from '../components/WelcomeFlow';
 import { ChapterCreationFlow } from '../components/ChapterCreationFlow';
 import { VideoImportFlow } from '../components/VideoImportFlow';
-import { GuidedTour } from '../components/GuidedTour';
+import { FirstRecordingPrompt } from '../components/FirstRecordingPrompt';
 import { OnboardingScreens } from '../components/OnboardingScreens';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import LibraryScreen from '../screens/LibraryScreen';
@@ -63,6 +64,26 @@ function RecordScreenWithErrorBoundary(props: any) {
 // Main tabs component WITH RecordScreen (stays in tabs)
 function MainTabs() {
   const { brandColor } = useTheme();
+  const [videoCount, setVideoCount] = React.useState<number | null>(null);
+
+  // Load video count on mount to conditionally show Feed tab
+  React.useEffect(() => {
+    const loadVideoCount = async () => {
+      try {
+        const { VideoService } = require('../services/videoService');
+        const videos = await VideoService.getAllVideos();
+        setVideoCount(videos.length);
+      } catch (error) {
+        console.error('❌ Error loading video count:', error);
+        setVideoCount(0);
+      }
+    };
+
+    loadVideoCount();
+  }, []);
+
+  // Show Feed tab only when user has 10+ videos
+  const showFeedTab = videoCount !== null && videoCount >= 10;
 
   return (
     <Tab.Navigator
@@ -81,14 +102,17 @@ function MainTabs() {
           tabBarIcon: () => ({ sfSymbol: 'square.grid.2x2' }),
         }}
       />
-      <Tab.Screen
-        name="VerticalFeed"
-        component={VerticalFeedTabScreen}
-        options={{
-          title: 'Feed',
-          tabBarIcon: () => ({ sfSymbol: 'rectangle.stack.fill' }),
-        }}
-      />
+      {/* ✅ Only show Feed tab when user has 10+ videos */}
+      {showFeedTab && (
+        <Tab.Screen
+          name="VerticalFeed"
+          component={VerticalFeedTabScreen}
+          options={{
+            title: 'Feed',
+            tabBarIcon: () => ({ sfSymbol: 'rectangle.stack.fill' }),
+          }}
+        />
+      )}
       <Tab.Screen
         name="Momentum"
         component={MomentumStackNavigator}
@@ -124,7 +148,7 @@ function RootStackNavigator() {
         component={RecordScreenWithErrorBoundary} // ✅ Modal avec ErrorBoundary
         options={{
           presentation: 'fullScreenModal', // ✅ Modal fullscreen sans tab bar
-          animation: 'slide_from_bottom',
+          animation: 'none', // ✅ PHASE 1+: Instant modal (no animation delay ~300ms saved)
         }}
         initialParams={{ isModal: true }} // ✅ Flag to identify modal instance
       />
@@ -171,7 +195,7 @@ export const AppNavigator = () => {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showLifeAreasSelection, setShowLifeAreasSelection] = useState(false);
   const [showVideoImport, setShowVideoImport] = useState(false);
-  const [showGuidedTour, setShowGuidedTour] = useState(false);
+  const [showFirstRecordingPrompt, setShowFirstRecordingPrompt] = useState(false);
   const [createdChapterId, setCreatedChapterId] = useState<string | null>(null);
   const [chapterColor, setChapterColor] = useState<string>(CHAPTER_COLORS[0]);
   const [hideTabBar, setHideTabBar] = useState(false);
@@ -183,7 +207,7 @@ export const AppNavigator = () => {
       console.log('🔄 Resetting onboarding states for first-time user');
       setShowOnboarding(false);
       setShowVideoImport(false);
-      setShowGuidedTour(false);
+      setShowFirstRecordingPrompt(false);
       setShowLifeAreasSelection(false);
       setCreatedChapterId(null);
       setChapterColor(CHAPTER_COLORS[0]);
@@ -192,7 +216,7 @@ export const AppNavigator = () => {
 
   // 🔔 Demander les permissions de notification après l'onboarding
   useEffect(() => {
-    if (session && !isFirstTime && !showOnboarding && !showVideoImport && !showGuidedTour && !showLifeAreasSelection) {
+    if (session && !isFirstTime && !showOnboarding && !showVideoImport && !showFirstRecordingPrompt && !showLifeAreasSelection) {
       // Attendre 2 secondes après l'onboarding pour demander les permissions
       const timer = setTimeout(async () => {
         await requestNotificationPermissions();
@@ -200,7 +224,7 @@ export const AppNavigator = () => {
 
       return () => clearTimeout(timer);
     }
-  }, [session, isFirstTime, showOnboarding, showVideoImport, showGuidedTour, showLifeAreasSelection]);
+  }, [session, isFirstTime, showOnboarding, showVideoImport, showFirstRecordingPrompt, showLifeAreasSelection]);
 
   // 🔔 Setup listener pour navigation quand on clique sur une notification
   useEffect(() => {
@@ -300,30 +324,45 @@ export const AppNavigator = () => {
       onComplete={(importedCount) => {
         console.log(`✅ Imported ${importedCount} videos`);
         setShowVideoImport(false);
-        setShowGuidedTour(true); // ✅ Show guided tour after video import
+        setShowFirstRecordingPrompt(true); // ✅ Go directly to first recording prompt
       }}
       onSkip={() => {
         setShowVideoImport(false);
-        setShowGuidedTour(true); // ✅ Show guided tour even if skipped
+        setShowFirstRecordingPrompt(true); // ✅ Go directly to first recording prompt even if skipped
       }}
     />;
-  } else if (showGuidedTour) {
-    content = <GuidedTour
-      onComplete={() => {
-        console.log('✅ Guided tour completed');
-        setShowGuidedTour(false);
+  } else if (showFirstRecordingPrompt) {
+    content = <FirstRecordingPrompt
+      onRecord={() => {
+        console.log('🎬 User wants to record North Star statement');
+        setShowFirstRecordingPrompt(false);
         markWelcomeComplete(); // ✅ Mark onboarding as complete
+
+        // ✅ Navigate to RecordScreen with statement mode after a brief delay
+        setTimeout(() => {
+          if (navigationRef.current?.isReady()) {
+            navigationRef.current.navigate('MainTabs', {
+              screen: 'Record',
+              params: { mode: 'statement' }
+            });
+          }
+        }, 500);
       }}
       onSkip={() => {
-        console.log('⏭️ Guided tour skipped');
-        setShowGuidedTour(false);
+        console.log('⏭️ User skipped first recording');
+        setShowFirstRecordingPrompt(false);
         markWelcomeComplete(); // ✅ Mark onboarding as complete
       }}
     />;
   } else if (showLifeAreasSelection) {
     content = <LifeAreasSelectionScreen onComplete={markWelcomeComplete} navigation={undefined} />;
   } else {
-    content = <RootStackNavigator />; // ✅ Use Root Stack instead of Tabs directly
+    // ✅ SOLUTION 2: Wrap RootStack with CameraProvider for shared camera instance
+    content = (
+      <CameraProvider>
+        <RootStackNavigator />
+      </CameraProvider>
+    );
   }
 
   return (

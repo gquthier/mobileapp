@@ -50,6 +50,7 @@ import {
 } from '../services/chapterService';
 import { ChapterCard } from '../components/ChapterCard';
 import { LoadingDots } from '../components/LoadingDots';
+import { EmptyState } from '../components/EmptyState';
 import { Icon } from '../components/Icon';
 import { getRandomChapterColor } from '../constants/chapterColors';
 
@@ -523,15 +524,14 @@ export default function MomentumDashboardScreen({ navigation }: MomentumDashboar
         <View style={styles.chaptersSection}>
           {/* Chapter Cards */}
           {filteredChapters.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>No chapters yet. Start your first chapter!</Text>
-              <TouchableOpacity
-                style={styles.createButton}
-                onPress={() => navigation.navigate('ChapterSetup')}
-              >
-                <Text style={styles.createButtonText}>Create Chapter</Text>
-              </TouchableOpacity>
-            </View>
+            <EmptyState
+              icon="📖"
+              title="Begin Your Journey"
+              description="Chapters help you organize your life into meaningful periods. Create your first chapter to start tracking your personal evolution."
+              buttonText="Create Chapter"
+              onButtonPress={() => navigation.navigate('ChapterSetup')}
+              buttonColor={brandColor}
+            />
           ) : (
             <>
               {/* All Chapters - Current first (larger), then old chapters */}

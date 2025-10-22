@@ -81,14 +81,20 @@ const LibraryScreen: React.FC = () => {
   const librarySearch = useLibrarySearch(libraryAnimations.searchBarProgress);
   const streakData = useStreak(libraryData.videos);
 
+  // Extract functions from hooks for direct use
+  const { fetchVideos, handleLoadMore } = libraryData;
+  const { performSearch, handleSearchPress, handleCloseSearch, toggleSearchBar, handleCollapseSearchBar, handleLifeAreaPress } = librarySearch;
+  const { currentStreak, getStreakMessage, getCurrentMonthDays } = streakData;
+
   // 🚀 OPTIMIZATION: Track loading phases for progressive rendering
   const [loadingPhase, setLoadingPhase] = useState<'skeleton' | 'cache' | 'complete'>('skeleton');
 
   // Track keyboard visibility
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
-  // Chapter modal state
+  // Modal states
   const [showChapterModal, setShowChapterModal] = useState(false);
+  const [showStreakModal, setShowStreakModal] = useState(false);
 
   // ✅ Calculate header height for content inset
   // Different padding for calendar vs grid view
@@ -351,24 +357,7 @@ const LibraryScreen: React.FC = () => {
     return streak;
   }, []);
 
-  // 🚀 OPTIMIZATION: Load videos after interactions complete (non-blocking)
-  useEffect(() => {
-    // Reset cancelled flag on mount
-    cancelledRef.current = false;
-
-    // Skeleton UI is already visible immediately
-    // Now defer heavy operations until after navigation animation
-    const handle = InteractionManager.runAfterInteractions(() => {
-      console.log('🚀 Starting fetchVideos after interactions complete');
-      fetchVideos(0, false);
-    });
-
-    return () => {
-      // ✅ Set cancelled flag to prevent setState after unmount
-      cancelledRef.current = true;
-      handle.cancel();
-    };
-  }, [fetchVideos]);
+  // ✅ Video loading on mount now handled in useLibraryData hook
 
   // Load more videos handler
   const handleLoadMore = useCallback(() => {
@@ -385,59 +374,9 @@ const LibraryScreen: React.FC = () => {
     fetchVideos(nextPage, true);
   }, [libraryData.pagination, libraryData.loading, fetchVideos]);
 
-  // 🚀 OPTIMIZATION: Smart memoization - only recalculate when video count changes
-  const currentStreak = useMemo(() => {
-    const startTime = Date.now();
-    const streak = calculateStreakOptimized(libraryData.videos);
-    const elapsed = Date.now() - startTime;
-    if (elapsed > 10) {
-      console.log(`⏱️ Streak calculated in ${elapsed}ms: ${streak} days`);
-    }
-    return streak;
-  }, [libraryData.videos.length, calculateStreakOptimized]);
-
-  // Update streak in state when it changes
-  useEffect(() => {
-    dispatch({ type: 'UPDATE_STREAK', streak: currentStreak });
-  }, [currentStreak]);
-
-  // ✅ FIX: Keep fetchVideosRef updated with latest version
-  useEffect(() => {
-    fetchVideosRef.current = fetchVideos;
-  }, [fetchVideos]);
-
-  // 🚀 OPTIMIZATION: Subscribe to import queue updates (defer queue loading)
-  useEffect(() => {
-    // 🚀 Defer queue state loading to avoid blocking initial render
-    const handle = InteractionManager.runAfterInteractions(() => {
-      // Load persisted queue state after interactions complete (100ms delay)
-      setTimeout(() => {
-        console.log('🚀 Loading import queue state (deferred)');
-        ImportQueueService.loadQueueState();
-      }, 100);
-    });
-
-    // Subscribe to queue updates
-    const unsubscribe = ImportQueueService.subscribe((queueState) => {
-      dispatch({ type: 'UPDATE_IMPORT_STATE', queueState });
-
-      // Don't show progress modal - videos will show inline with spinner
-      // Just refresh when imports complete
-      if (queueState.completedCount > 0 && !queueState.isProcessing) {
-        // ✅ FIX: Defer fetchVideos to avoid blocking during interactions/animations
-        // Wait 500ms for any ongoing animations to complete before fetching
-        setTimeout(() => {
-          console.log('🔄 Import completed - refreshing videos (deferred)');
-          fetchVideosRef.current?.();
-        }, 500);
-      }
-    });
-
-    return () => {
-      handle.cancel();
-      unsubscribe();
-    };
-  }, []); // ✅ FIX: Empty deps - no re-subscriptions, use fetchVideosRef instead
+  // ✅ currentStreak now comes from useStreak hook (no need to recalculate)
+  // ✅ ImportQueue subscription now handled in useLibraryData hook
+  // ✅ Video fetching now handled in useLibraryData hook
 
   // ✅ Memoize combined videos
   const allVideos = useMemo(() => {
@@ -938,20 +877,7 @@ const LibraryScreen: React.FC = () => {
     }
   }, []);
 
-  // Debounced search (500ms to avoid excessive database queries)
-  useEffect(() => {
-    if (!librarySearch.query.trim()) {
-      dispatch({ type: 'SET_SEARCH_RESULTS', results: [] });
-      return;
-    }
-
-    // Wait 500ms after user stops typing before searching
-    const debounceTimer = setTimeout(() => {
-      performSearch(librarySearch.query);
-    }, 500);
-
-    return () => clearTimeout(debounceTimer);
-  }, [librarySearch.query, performSearch]);
+  // ✅ Debounced search now handled in useLibrarySearch hook
 
   // Handle infinite scroll repositioning
   const handleLifeAreaScroll = useCallback((event: any) => {
@@ -972,18 +898,7 @@ const LibraryScreen: React.FC = () => {
     }
   }, []);
 
-  // Initialize scroll position to middle set
-  useEffect(() => {
-    if (librarySearch.showSearch && lifeAreaScrollViewRef.current) {
-      // Wait for layout then scroll to middle
-      setTimeout(() => {
-        // Rough estimate: each bubble is ~100px wide
-        const approxBubbleWidth = 100;
-        const oneSetWidth = approxBubbleWidth * LIFE_AREAS.length;
-        lifeAreaScrollViewRef.current?.scrollTo({ x: oneSetWidth, animated: false });
-      }, 100);
-    }
-  }, [librarySearch.showSearch]);
+  // ✅ Scroll position initialization now handled in useLibrarySearch hook
 
   // Handle life area selection
   const handleLifeAreaPress = useCallback(async (lifeArea: string) => {

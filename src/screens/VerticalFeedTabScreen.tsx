@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from 'react'
 import { View,  StyleSheet, Text } from 'react-native'
 import { LoadingDots } from '../components/LoadingDots';
+import { EmptyState } from '../components/EmptyState';
 import { useTheme } from '../contexts/ThemeContext';
 import { VerticalFeedScreen } from '../features/vertical-feed/screens/VerticalFeedScreen'
 import { VideoService } from '../services/videoService'
@@ -90,13 +91,24 @@ export const VerticalFeedTabScreen: React.FC<VerticalFeedTabScreenProps> = ({ na
     )
   }
 
-  if (videos.length === 0) {
+  // ✅ Show empty state with less than 10 videos
+  if (videos.length < 10) {
     return (
       <View style={styles.emptyContainer}>
-        <Text style={styles.emptyTitle}>No videos yet</Text>
-        <Text style={styles.emptyText}>
-          Record your first video to start building your story
-        </Text>
+        <EmptyState
+          icon="📱"
+          title="Feed Your Story"
+          description={
+            videos.length === 0
+              ? "The vertical feed is where you'll swipe through your videos TikTok-style. Record at least 10 videos to unlock this immersive experience."
+              : `You have ${videos.length} video${videos.length > 1 ? 's' : ''}. Record ${10 - videos.length} more to unlock the Feed.`
+          }
+          buttonText="Record a Video"
+          onButtonPress={() => {
+            navigation.navigate('Record');
+          }}
+          buttonColor={brandColor}
+        />
       </View>
     )
   }
