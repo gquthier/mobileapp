@@ -27,12 +27,12 @@ import { useTheme } from '../hooks/useTheme';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { LoadingDots } from '../components/LoadingDots';
+import { EmptyState } from '../components/EmptyState';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { VideoRecord } from '../lib/supabase';
 import { VideoService } from '../services/videoService';
 import { VideoCacheService } from '../services/videoCacheService';
 import { ImportQueueService, ImportQueueState } from '../services/importQueueService';
-import { libraryReducer, initialLibraryState } from './LibraryScreen.reducer';
 import { LiquidGlassView, isLiquidGlassSupported } from '@callstack/liquid-glass';
 import { GlassButton, GlassContainer } from './OptimizedGlassComponents';
 import { getUserChapters, getCurrentChapter, Chapter } from '../services/chapterService';
@@ -45,6 +45,13 @@ import {
   LibraryGridView,
   LibrarySearchResults,
 } from './Library/components';
+// ✅ Phase 3.3 - Extracted hooks
+import {
+  useStreak,
+  useLibraryAnimations,
+  useLibrarySearch,
+  useLibraryData,
+} from './Library/hooks';
 
 const { width: screenWidth } = Dimensions.get('window');
 const GRID_PADDING = 4;
@@ -68,8 +75,11 @@ const LibraryScreen: React.FC = () => {
   const insets = useSafeAreaInsets(); // ✅ Get safe area insets manually
   const { brandColor } = useThemeContext(); // ✅ Get user's selected color (auto or custom)
 
-  // ✅ Replace 20+ useState with single useReducer
-  const [state, dispatch] = useReducer(libraryReducer, initialLibraryState);
+  // ✅ Phase 3.3 - Replace useReducer with custom hooks
+  const libraryData = useLibraryData();
+  const libraryAnimations = useLibraryAnimations(libraryData.viewMode);
+  const librarySearch = useLibrarySearch(libraryAnimations.searchBarProgress);
+  const streakData = useStreak(libraryData.videos);
 
   // 🚀 OPTIMIZATION: Track loading phases for progressive rendering
   const [loadingPhase, setLoadingPhase] = useState<'skeleton' | 'cache' | 'complete'>('skeleton');
@@ -77,46 +87,20 @@ const LibraryScreen: React.FC = () => {
   // Track keyboard visibility
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
-  // Chapter filter state
+  // Chapter modal state
   const [showChapterModal, setShowChapterModal] = useState(false);
-  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
-  const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [currentChapter, setCurrentChapter] = useState<Chapter | null>(null);
-
-  // Animation values for chapter modal (iOS native-style animation)
-  const modalScale = useRef(new Animated.Value(0.95)).current;
-  const modalOpacity = useRef(new Animated.Value(0)).current;
-  const filterButtonScale = useRef(new Animated.Value(1)).current;
-  const chapterScrollY = useRef(new Animated.Value(0)).current;
-
-  // Animation values for chapter title swipe (wheel effect)
-  const chapterTitleSlide = useRef(new Animated.Value(0)).current;
-  const chapterTitleOpacity = useRef(new Animated.Value(1)).current;
 
   // ✅ Calculate header height for content inset
   // Different padding for calendar vs grid view
   const headerHeightCalendar = insets.top + 72; // More spacing for calendar view
   const headerHeightGrid = insets.top + 60; // Less spacing for grid view (photos closer to top bar)
 
-  // 🚀 OPTIMIZATION: Lazy animation initialization with useMemo (grouped for performance)
-  const animations = useMemo(() => ({
-    searchBarProgress: new Animated.Value(0),
-    calendarIconScale: new Animated.Value(1),
-    gridIconScale: new Animated.Value(1),
-    toggleSelectorPosition: new Animated.Value(state.viewMode === 'calendar' ? 0 : 1),
-    scrollY: new Animated.Value(0),
-    headerOpacity: new Animated.Value(1),
-  }), []); // ✅ Init once, never recreate
+  // Extract animations for backward compatibility
+  const { searchBarProgress, calendarIconScale, gridIconScale, toggleSelectorPosition, scrollY, headerOpacity } = libraryAnimations;
+  const { modalScale, modalOpacity, filterButtonScale, chapterScrollY, chapterTitleSlide, chapterTitleOpacity } = libraryAnimations;
 
-  // Extract for backward compatibility
-  const searchBarProgress = animations.searchBarProgress;
-  const calendarIconScale = animations.calendarIconScale;
-  const gridIconScale = animations.gridIconScale;
-  const toggleSelectorPosition = animations.toggleSelectorPosition;
-  const scrollY = animations.scrollY;
-  const headerOpacity = animations.headerOpacity;
-
-  const lifeAreaScrollViewRef = useRef<ScrollView>(null);
+  // Extract search ref
+  const { lifeAreaScrollViewRef } = librarySearch;
 
   // ✅ FIX: Stable ref for fetchVideos to avoid re-subscriptions
   const fetchVideosRef = useRef<(pageToLoad?: number, append?: boolean) => Promise<void>>();
@@ -1065,13 +1049,16 @@ const LibraryScreen: React.FC = () => {
 
     if (state.videos.length === 0 && !state.loading) {
       return (
-        <View style={styles.emptyContainer}>
-          <Icon name="cameraFilled" size={48} color={theme.colors.text.disabled} />
-          <Text style={styles.emptyTitle}>No memories yet</Text>
-          <Text style={styles.emptyText}>
-            Record your first video to start building your story
-          </Text>
-        </View>
+        <EmptyState
+          icon="📚"
+          title="Your Library Awaits"
+          description="This is where all your videos live. Record your first video to start building your personal story library."
+          buttonText="Record a Video"
+          onButtonPress={() => {
+            navigation.navigate('Record' as never);
+          }}
+          buttonColor={brandColor}
+        />
       );
     }
 
