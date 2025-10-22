@@ -102,14 +102,8 @@ const LibraryScreen: React.FC = () => {
   // Extract search ref
   const { lifeAreaScrollViewRef } = librarySearch;
 
-  // ✅ FIX: Stable ref for fetchVideos to avoid re-subscriptions
-  const fetchVideosRef = useRef<(pageToLoad?: number, append?: boolean) => Promise<void>>();
-
   // ✅ FIX: Stable date ref to avoid recalculations every minute
   const currentDateRef = useRef(new Date());
-
-  // ✅ OPTIMIZATION: Cancel flag to prevent setState after unmount
-  const cancelledRef = useRef(false);
 
   // Create infinite scroll array (3x duplication for smooth looping)
   const infiniteLifeAreas = useMemo(() => {
@@ -118,7 +112,7 @@ const LibraryScreen: React.FC = () => {
 
   // Initialize toggle selector position on mount
   useEffect(() => {
-    const initialPosition = state.viewMode === 'calendar' ? 0 : 1;
+    const initialPosition = libraryData.viewMode === 'calendar' ? 0 : 1;
     toggleSelectorPosition.setValue(initialPosition);
   }, []);
 
@@ -137,28 +131,6 @@ const LibraryScreen: React.FC = () => {
     };
   }, []);
 
-  // Load chapters on mount
-  useEffect(() => {
-    const loadChapters = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        // Load all chapters
-        const allChapters = await getUserChapters(user.id);
-        setChapters(allChapters);
-
-        // Load current chapter
-        const current = await getCurrentChapter(user.id);
-        setCurrentChapter(current);
-      } catch (error) {
-        console.error('❌ Error loading chapters:', error);
-      }
-    };
-
-    loadChapters();
-  }, []);
-
   // Handle navigation params (filter by chapter if coming from ChapterDetailScreen)
   useEffect(() => {
     const params = route.params as any;
@@ -170,7 +142,7 @@ const LibraryScreen: React.FC = () => {
       });
 
       // Apply chapter filter
-      setSelectedChapterId(params.filterChapterId);
+      libraryData.setSelectedChapterId(params.filterChapterId);
       console.log('✅ Chapter filter applied:', params.filterChapterTitle || params.filterChapterId);
 
       // ✅ Just apply the filter - don't open full search mode
@@ -179,7 +151,7 @@ const LibraryScreen: React.FC = () => {
         console.log('🎯 Filter active - videos will be filtered by chapter');
 
         // Switch to grid view (better for filtered lists)
-        dispatch({ type: 'SET_VIEW_MODE', mode: 'grid' });
+        libraryData.setViewMode('grid');
         console.log('📱 Switched to grid view for filtered results');
 
         // Haptic feedback to confirm filter applied
@@ -193,9 +165,9 @@ const LibraryScreen: React.FC = () => {
   const isFirstRender = useRef(true);
 
   useEffect(() => {
-    const targetCalendarScale = state.viewMode === 'calendar' ? 1 : 0.9;
-    const targetGridScale = state.viewMode === 'grid' ? 1 : 0.9;
-    const targetSelectorPosition = state.viewMode === 'calendar' ? 0 : 1;
+    const targetCalendarScale = libraryData.viewMode === 'calendar' ? 1 : 0.9;
+    const targetGridScale = libraryData.viewMode === 'grid' ? 1 : 0.9;
+    const targetSelectorPosition = libraryData.viewMode === 'calendar' ? 0 : 1;
 
     if (isFirstRender.current) {
       // ✅ First render: Set values immediately without animation (prevents 300ms freeze)
@@ -226,7 +198,7 @@ const LibraryScreen: React.FC = () => {
         }),
       ]).start();
     }
-  }, [state.viewMode, calendarIconScale, gridIconScale, toggleSelectorPosition]);
+  }, [libraryData.viewMode, calendarIconScale, gridIconScale, toggleSelectorPosition]);
 
   // Create placeholder videos for videos being uploaded
   const createUploadingPlaceholders = useCallback((queueState: ImportQueueState | null): VideoRecord[] => {
@@ -400,7 +372,7 @@ const LibraryScreen: React.FC = () => {
 
   // Load more videos handler
   const handleLoadMore = useCallback(() => {
-    const { hasMore, isLoadingMore } = state.pagination;
+    const { hasMore, isLoadingMore } = libraryData.pagination;
     const { loading } = state;
 
     if (!hasMore || isLoadingMore || loading) {
@@ -408,21 +380,21 @@ const LibraryScreen: React.FC = () => {
       return;
     }
 
-    console.log('📄 Loading more videos, page:', state.pagination.page + 1);
-    const nextPage = state.pagination.page + 1;
+    console.log('📄 Loading more videos, page:', libraryData.pagination.page + 1);
+    const nextPage = libraryData.pagination.page + 1;
     fetchVideos(nextPage, true);
-  }, [state.pagination, state.loading, fetchVideos]);
+  }, [libraryData.pagination, libraryData.loading, fetchVideos]);
 
   // 🚀 OPTIMIZATION: Smart memoization - only recalculate when video count changes
   const currentStreak = useMemo(() => {
     const startTime = Date.now();
-    const streak = calculateStreakOptimized(state.videos);
+    const streak = calculateStreakOptimized(libraryData.videos);
     const elapsed = Date.now() - startTime;
     if (elapsed > 10) {
       console.log(`⏱️ Streak calculated in ${elapsed}ms: ${streak} days`);
     }
     return streak;
-  }, [state.videos.length, calculateStreakOptimized]);
+  }, [libraryData.videos.length, calculateStreakOptimized]);
 
   // Update streak in state when it changes
   useEffect(() => {
@@ -469,10 +441,10 @@ const LibraryScreen: React.FC = () => {
 
   // ✅ Memoize combined videos
   const allVideos = useMemo(() => {
-    const uploadingPlaceholders = createUploadingPlaceholders(state.importState.queueState);
+    const uploadingPlaceholders = createUploadingPlaceholders(libraryData.importState.queueState);
     // Put uploading videos first (most recent)
-    return [...uploadingPlaceholders, ...state.videos];
-  }, [state.videos, state.importState.queueState, createUploadingPlaceholders]);
+    return [...uploadingPlaceholders, ...libraryData.videos];
+  }, [libraryData.videos, libraryData.importState.queueState, createUploadingPlaceholders]);
 
   // ✅ Filter videos by selected chapter
   const filteredVideos = useMemo(() => {
@@ -547,9 +519,9 @@ const LibraryScreen: React.FC = () => {
 
     // ✅ OPTION 1: No filtering needed - VideoService already filters at source
     // Use filtered videos (respect current search/filters)
-    const videosToShow = state.search.showSearch && state.search.results.length > 0
-      ? state.search.results
-      : state.videos;
+    const videosToShow = librarySearch.showSearch && librarySearch.results.length > 0
+      ? librarySearch.results
+      : libraryData.videos;
 
     if (videosToShow.length === 0) {
       console.warn('⚠️ No videos to show in Vertical Feed');
@@ -564,10 +536,10 @@ const LibraryScreen: React.FC = () => {
       preserveState: {
         scrollPosition: 0, // TODO: Get actual scroll position
         filters: state.filters,
-        searchQuery: state.search.query,
+        searchQuery: librarySearch.query,
       },
     } as never);
-  }, [navigation, state.videos, state.search.showSearch, state.search.results, state.search.query, state.filters]);
+  }, [navigation, libraryData.videos, librarySearch.showSearch, librarySearch.results, librarySearch.query, state.filters]);
 
   const handleNavigateToSettings = () => {
     // Navigate to the Settings tab
@@ -793,13 +765,13 @@ const LibraryScreen: React.FC = () => {
 
   // Toggle search bar visibility with animation
   const toggleSearchBar = useCallback(() => {
-    const toValue = state.search.showSearchBar ? 0 : 1;
+    const toValue = librarySearch.showSearchBar ? 0 : 1;
 
     // Haptic feedback
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     // Update state immediately for conditional rendering
-    dispatch({ type: 'TOGGLE_SEARCH_BAR', show: !state.search.showSearchBar });
+    dispatch({ type: 'TOGGLE_SEARCH_BAR', show: !librarySearch.showSearchBar });
 
     // Animate the transition
     Animated.spring(searchBarProgress, {
@@ -808,7 +780,7 @@ const LibraryScreen: React.FC = () => {
       tension: 60,
       friction: 10,
     }).start();
-  }, [state.search.showSearchBar, searchBarProgress]);
+  }, [librarySearch.showSearchBar, searchBarProgress]);
 
   // Handle tap on chevron to collapse search bar
   const handleCollapseSearchBar = useCallback(() => {
@@ -839,10 +811,10 @@ const LibraryScreen: React.FC = () => {
     }
 
     // Priority 2: If in search mode, close search
-    if (state.search.showSearch) {
+    if (librarySearch.showSearch) {
       console.log('🔍 Search active - closing search');
       handleCloseSearch();
-    } else if (state.search.showSearchBar) {
+    } else if (librarySearch.showSearchBar) {
       // Mode expanded (search bar visible) - collapse vers mode normal
       console.log('👆 Outside tap detected - collapsing search bar');
 
@@ -860,7 +832,7 @@ const LibraryScreen: React.FC = () => {
         friction: 10,
       }).start();
     }
-  }, [isKeyboardVisible, state.search.showSearch, state.search.showSearchBar, handleCloseSearch, searchBarProgress]);
+  }, [isKeyboardVisible, librarySearch.showSearch, librarySearch.showSearchBar, handleCloseSearch, searchBarProgress]);
 
   // Navigate to VideoImportScreen (custom Apple Photos-style picker)
   const handleImportVideos = () => {
@@ -968,18 +940,18 @@ const LibraryScreen: React.FC = () => {
 
   // Debounced search (500ms to avoid excessive database queries)
   useEffect(() => {
-    if (!state.search.query.trim()) {
+    if (!librarySearch.query.trim()) {
       dispatch({ type: 'SET_SEARCH_RESULTS', results: [] });
       return;
     }
 
     // Wait 500ms after user stops typing before searching
     const debounceTimer = setTimeout(() => {
-      performSearch(state.search.query);
+      performSearch(librarySearch.query);
     }, 500);
 
     return () => clearTimeout(debounceTimer);
-  }, [state.search.query, performSearch]);
+  }, [librarySearch.query, performSearch]);
 
   // Handle infinite scroll repositioning
   const handleLifeAreaScroll = useCallback((event: any) => {
@@ -1002,7 +974,7 @@ const LibraryScreen: React.FC = () => {
 
   // Initialize scroll position to middle set
   useEffect(() => {
-    if (state.search.showSearch && lifeAreaScrollViewRef.current) {
+    if (librarySearch.showSearch && lifeAreaScrollViewRef.current) {
       // Wait for layout then scroll to middle
       setTimeout(() => {
         // Rough estimate: each bubble is ~100px wide
@@ -1011,7 +983,7 @@ const LibraryScreen: React.FC = () => {
         lifeAreaScrollViewRef.current?.scrollTo({ x: oneSetWidth, animated: false });
       }, 100);
     }
-  }, [state.search.showSearch]);
+  }, [librarySearch.showSearch]);
 
   // Handle life area selection
   const handleLifeAreaPress = useCallback(async (lifeArea: string) => {
@@ -1038,7 +1010,7 @@ const LibraryScreen: React.FC = () => {
   }, []);
 
   const renderEmpty = () => {
-    if (state.loading && state.videos.length === 0) {
+    if (libraryData.loading && libraryData.videos.length === 0) {
       return (
         <View style={styles.loadingContainer}>
           <LoadingDots color={brandColor} />
@@ -1047,7 +1019,7 @@ const LibraryScreen: React.FC = () => {
       );
     }
 
-    if (state.videos.length === 0 && !state.loading) {
+    if (libraryData.videos.length === 0 && !libraryData.loading) {
       return (
         <EmptyState
           icon="📚"
@@ -1072,7 +1044,7 @@ const LibraryScreen: React.FC = () => {
     <View style={styles.container}>
       <View style={styles.content}>
         {/* Header - Normal or Search Mode */}
-        {state.search.showSearch ? (
+        {librarySearch.showSearch ? (
             <View style={[styles.searchHeader, { paddingTop: insets.top + theme.spacing['3'] }]}>
               <View style={styles.searchHeaderContent}>
                 {/* Search Bar with Liquid Glass */}
@@ -1091,12 +1063,12 @@ const LibraryScreen: React.FC = () => {
                       style={styles.searchInput}
                       placeholder="Search by title, date, keywords..."
                       placeholderTextColor={theme.colors.text.tertiary}
-                      value={state.search.query}
+                      value={librarySearch.query}
                       onChangeText={(text) => dispatch({ type: 'SET_SEARCH_QUERY', query: text })}
                       autoFocus={true}
                       returnKeyType="search"
                     />
-                    {state.search.query.length > 0 && (
+                    {librarySearch.query.length > 0 && (
                       <TouchableOpacity onPress={() => dispatch({ type: 'SET_SEARCH_QUERY', query: '' })}>
                         <Icon name="close" size={18} color={theme.colors.text.tertiary} />
                       </TouchableOpacity>
@@ -1127,7 +1099,7 @@ const LibraryScreen: React.FC = () => {
             </View>
           ) : (
             <Animated.View style={[styles.header, { paddingTop: insets.top + theme.spacing['3'] }]}>
-              {!state.search.showSearchBar ? (
+              {!librarySearch.showSearchBar ? (
                   <>
                     {/* Left side: Chapters Logo */}
                     <Animated.View
@@ -1212,7 +1184,7 @@ const LibraryScreen: React.FC = () => {
                           onPress={() => {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                             // Toggle between calendar and grid
-                            const newMode = state.viewMode === 'calendar' ? 'grid' : 'calendar';
+                            const newMode = libraryData.viewMode === 'calendar' ? 'grid' : 'calendar';
                             dispatch({ type: 'SET_VIEW_MODE', mode: newMode });
                           }}
                           style={styles.singleViewToggle}
@@ -1220,11 +1192,11 @@ const LibraryScreen: React.FC = () => {
                         >
                           <Animated.View style={{
                             transform: [{
-                              scale: state.viewMode === 'calendar' ? calendarIconScale : gridIconScale
+                              scale: libraryData.viewMode === 'calendar' ? calendarIconScale : gridIconScale
                             }],
                           }}>
                             <Icon
-                              name={state.viewMode === 'calendar' ? 'calendar' : 'grid'}
+                              name={libraryData.viewMode === 'calendar' ? 'calendar' : 'grid'}
                               size={18}
                               color={theme.colors.text.primary}
                             />
@@ -1298,9 +1270,9 @@ const LibraryScreen: React.FC = () => {
           )}
 
           {/* Error state */}
-          {state.error && !state.search.showSearch && (
+          {libraryData.error && !librarySearch.showSearch && (
             <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>{state.error}</Text>
+              <Text style={styles.errorText}>{libraryData.error}</Text>
               <TouchableOpacity onPress={() => fetchVideos()} style={styles.retryButton}>
                 <Text style={styles.retryText}>Retry</Text>
               </TouchableOpacity>
@@ -1308,7 +1280,7 @@ const LibraryScreen: React.FC = () => {
           )}
 
           {/* Content Area */}
-          {state.search.showSearch ? (
+          {librarySearch.showSearch ? (
             <TouchableWithoutFeedback onPress={handleOutsidePress}>
               <View style={[styles.searchContentContainer, { paddingTop: insets.top + 12 + 44 + 10 }]}>
                 {/* Life Area Bubbles - Edge-to-edge with infinite scroll */}
@@ -1323,7 +1295,7 @@ const LibraryScreen: React.FC = () => {
                   keyboardShouldPersistTaps="handled"
                 >
                   {infiniteLifeAreas.map((area, index) => {
-                    const isSelected = state.search.selectedLifeArea === area;
+                    const isSelected = librarySearch.selectedLifeArea === area;
                     return (
                       <TouchableOpacity
                         key={`${area}-${index}`}
@@ -1353,15 +1325,15 @@ const LibraryScreen: React.FC = () => {
                 </ScrollView>
 
                 {/* Results Area */}
-                {state.search.isSearchingLifeArea ? (
+                {librarySearch.isSearchingLifeArea ? (
                   <View style={[styles.searchLoadingContainer, { paddingHorizontal: theme.spacing['4'] }]}>
                     <LoadingDots color={brandColor} size={6} />
                     <Text style={styles.searchLoadingText}>Loading...</Text>
                   </View>
-                ) : state.search.selectedLifeArea && state.search.lifeAreaResults.length > 0 ? (
+                ) : librarySearch.selectedLifeArea && librarySearch.lifeAreaResults.length > 0 ? (
                   <View style={{ paddingHorizontal: 2 }}>
                     <FlatList
-                      data={state.search.lifeAreaResults}
+                      data={librarySearch.lifeAreaResults}
                       keyExtractor={(item) => item.id || ''}
                       numColumns={4}
                       columnWrapperStyle={styles.lifeAreaGridRow}
@@ -1374,7 +1346,7 @@ const LibraryScreen: React.FC = () => {
                       <TouchableOpacity
                         style={styles.lifeAreaGridThumbnail}
                         onPress={() => {
-                          const itemIndex = state.search.lifeAreaResults.findIndex(v => v.id === item.id);
+                          const itemIndex = librarySearch.lifeAreaResults.findIndex(v => v.id === item.id);
 
                           // 🎯 Open VideoPlayer modal with segment timestamp
                           // Pass segment_start_time so VideoPlayer seeks to the highlight
@@ -1382,7 +1354,7 @@ const LibraryScreen: React.FC = () => {
                           dispatch({
                             type: 'OPEN_VIDEO_PLAYER',
                             video: item,
-                            videos: state.search.lifeAreaResults,
+                            videos: librarySearch.lifeAreaResults,
                             initialIndex: itemIndex,
                             initialTimestamp: item.is_segment ? item.segment_start_time : undefined
                           });
@@ -1413,9 +1385,9 @@ const LibraryScreen: React.FC = () => {
                 ) : (
                   <View style={{ paddingHorizontal: theme.spacing['4'] }}>
                     <LibrarySearchResults
-                      results={state.search.results}
-                      query={state.search.query}
-                      isSearching={state.search.isSearching}
+                      results={librarySearch.results}
+                      query={librarySearch.query}
+                      isSearching={librarySearch.isSearching}
                       onVideoPress={(video, allVideos, index) => {
                         handleGridVideoPress(video, allVideos, index);
                         handleCloseSearch();
@@ -1430,7 +1402,7 @@ const LibraryScreen: React.FC = () => {
             <View style={styles.contentContainer}>
               {filteredVideos.length === 0 ? (
                 renderEmpty()
-              ) : state.viewMode === 'grid' ? (
+              ) : libraryData.viewMode === 'grid' ? (
                 <LibraryGridView
                   videos={filteredVideos}
                   onVideoPress={handleGridVideoPress}
@@ -1453,11 +1425,11 @@ const LibraryScreen: React.FC = () => {
 
           {/* Video Player (from grid AND calendar) */}
           <VideoPlayer
-            visible={state.videoPlayer.isOpen}
-            video={state.videoPlayer.selectedVideo}
-            videos={state.videoPlayer.videos}
-            initialIndex={state.videoPlayer.initialIndex}
-            initialTimestamp={state.videoPlayer.initialTimestamp}
+            visible={libraryData.videoPlayer.isOpen}
+            video={libraryData.videoPlayer.selectedVideo}
+            videos={libraryData.videoPlayer.videos}
+            initialIndex={libraryData.videoPlayer.initialIndex}
+            initialTimestamp={libraryData.videoPlayer.initialTimestamp}
             onClose={handleCloseVideoPlayer}
           />
 
