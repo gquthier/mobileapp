@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, memo, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef, memo } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
 import { theme as staticTheme } from '../styles';
 import { Icon } from './Icon';
 import { LoadingDots } from './LoadingDots';
-import { VideoRecord, supabase } from '../lib/supabase';
+import { VideoRecord } from '../lib/supabase';
 import { SourceRect } from './library/types';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -195,51 +195,6 @@ const CalendarGallerySimpleComponent: React.FC<CalendarGalleryProps> = ({
 }) => {
   const { brandColor } = useTheme();
 
-  // ✅ PHASE 2 OPTIMIZATION: Backend calendar data
-  const [useBackendData, setUseBackendData] = useState(false);
-  const [isLoadingBackend, setIsLoadingBackend] = useState(true);
-  const [backendCalendarData, setBackendCalendarData] = useState<any[] | null>(null);
-  const [backendError, setBackendError] = useState<string | null>(null);
-
-  // ✅ PHASE 2: Fetch calendar data from backend (materialized view)
-  useEffect(() => {
-    const fetchBackendCalendarData = async () => {
-      try {
-        setIsLoadingBackend(true);
-        setBackendError(null);
-
-        console.log('📅 [PHASE 2] Fetching calendar data from Edge Function...');
-
-        const { data, error } = await supabase.functions.invoke('get-calendar-data', {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (error) {
-          console.error('❌ [PHASE 2] Edge Function error:', error);
-          setBackendError(error.message);
-          setUseBackendData(false); // Fallback to client-side calculation
-        } else if (data?.calendar) {
-          console.log(`✅ [PHASE 2] Backend calendar data loaded: ${data.calendar.length} entries`);
-          setBackendCalendarData(data.calendar);
-          setUseBackendData(true); // Use backend data
-        } else {
-          console.warn('⚠️ [PHASE 2] No calendar data returned from backend');
-          setUseBackendData(false); // Fallback to client-side calculation
-        }
-      } catch (error: any) {
-        console.error('❌ [PHASE 2] Failed to fetch backend calendar data:', error);
-        setBackendError(error.message);
-        setUseBackendData(false); // Fallback to client-side calculation
-      } finally {
-        setIsLoadingBackend(false);
-      }
-    };
-
-    fetchBackendCalendarData();
-  }, []); // Only fetch once on mount
-
   // Helper function to construct thumbnail URL
   const getThumbnailUrl = useCallback((thumbnailPath: string): string => {
     if (thumbnailPath.startsWith('http')) {
@@ -292,149 +247,6 @@ const CalendarGallerySimpleComponent: React.FC<CalendarGalleryProps> = ({
 
   // ✅ Generate calendar data dynamically for all years with videos
   const calendarData = useMemo((): MonthData[] => {
-    // ✅ PHASE 2: Use backend data if available (80% faster)
-    if (useBackendData && backendCalendarData && backendCalendarData.length > 0) {
-      console.log('📊 [PHASE 2] Using BACKEND calendar data (pre-calculated SQL)');
-
-      // Transform backend data to MonthData[] format
-      // Backend data is already grouped by day, we need to group by month
-      const monthsMap = new Map<string, {
-        year: number;
-        month: number;
-        days: Map<number, DayData>;
-        videoCount: number;
-      }>();
-
-      backendCalendarData.forEach((dayEntry: any) => {
-        const dayDate = new Date(dayEntry.day);
-        const year = dayDate.getFullYear();
-        const month = dayDate.getMonth();
-        const day = dayDate.getDate();
-        const monthKey = `${year}-${month}`;
-
-        // Initialize month if not exists
-        if (!monthsMap.has(monthKey)) {
-          monthsMap.set(monthKey, {
-            year,
-            month,
-            days: new Map(),
-            videoCount: 0,
-          });
-        }
-
-        const monthData = monthsMap.get(monthKey)!;
-
-        // Reconstruct VideoRecord objects from backend data
-        const dayVideos: VideoRecord[] = (dayEntry.video_ids || []).map((id: string, index: number) => ({
-          id,
-          title: dayEntry.video_titles?.[index] || '',
-          thumbnail_path: dayEntry.thumbnail_paths?.[index] || null,
-          thumbnail_frames: dayEntry.thumbnail_frames_array?.[index] || null,
-          chapter_id: dayEntry.chapter_ids?.[index] || null,
-          metadata: dayEntry.metadata_array?.[index] || {},
-          transcription_status: dayEntry.transcription_statuses?.[index] || null,
-          created_at: dayEntry.day,
-        } as VideoRecord));
-
-        // Add day data
-        monthData.days.set(day, {
-          date: day,
-          dayOfWeek: dayDate.getDay(),
-          videos: dayVideos,
-          isCurrentMonth: true,
-          chapterColor: chapterColorsByDate[`${year}-${month}-${day}`],
-        });
-
-        monthData.videoCount += dayEntry.video_count;
-      });
-
-      // Convert to MonthData[] with full calendar grid
-      const months: MonthData[] = [];
-      monthsMap.forEach((monthData, monthKey) => {
-        const { year, month, days, videoCount } = monthData;
-
-        // Generate full calendar grid (35 cells = 5 weeks)
-        const firstDay = new Date(year, month, 1);
-        const lastDay = new Date(year, month + 1, 0);
-        const firstDayOfWeek = firstDay.getDay();
-        const daysInMonth = lastDay.getDate();
-
-        const fullDays: DayData[] = [];
-
-        // Add empty cells before month starts
-        for (let i = 0; i < firstDayOfWeek; i++) {
-          const prevMonthDay = new Date(year, month, -firstDayOfWeek + i + 1);
-          fullDays.push({
-            date: prevMonthDay.getDate(),
-            dayOfWeek: i,
-            videos: [],
-            isCurrentMonth: false,
-          });
-        }
-
-        // Add days of current month
-        for (let day = 1; day <= daysInMonth; day++) {
-          const existingDay = days.get(day);
-          if (existingDay) {
-            fullDays.push(existingDay);
-          } else {
-            fullDays.push({
-              date: day,
-              dayOfWeek: (firstDayOfWeek + day - 1) % 7,
-              videos: [],
-              isCurrentMonth: true,
-            });
-          }
-        }
-
-        // Add empty cells to complete last week
-        const remainingDays = 35 - fullDays.length;
-        for (let i = 1; i <= remainingDays; i++) {
-          fullDays.push({
-            date: i,
-            dayOfWeek: fullDays.length % 7,
-            videos: [],
-            isCurrentMonth: false,
-          });
-        }
-
-        // Reverse weeks (last week first)
-        const reversedDays: DayData[] = [];
-        for (let week = 4; week >= 0; week--) {
-          const weekDays = fullDays.slice(week * 7, (week + 1) * 7);
-          reversedDays.push(...weekDays);
-        }
-
-        // Find chapter for this month
-        const monthDate = new Date(year, month, 15);
-        const chapter = chapters.find(ch => {
-          const start = new Date(ch.periodStart);
-          const end = ch.periodEnd ? new Date(ch.periodEnd) : new Date();
-          return monthDate >= start && monthDate <= end;
-        });
-
-        months.push({
-          year,
-          month,
-          monthName: MONTHS[month],
-          days: reversedDays,
-          chapter: chapter?.title,
-          videoCount,
-        });
-      });
-
-      // Sort: year DESC, month DESC
-      months.sort((a, b) => {
-        if (a.year !== b.year) return b.year - a.year;
-        return b.month - a.month;
-      });
-
-      console.log(`✅ [PHASE 2] Generated ${months.length} months from backend data`);
-      return months.filter(m => m.videoCount > 0);
-    }
-
-    // ✅ FALLBACK: Client-side calculation (if backend fails or disabled)
-    console.log('💻 [FALLBACK] Using CLIENT-SIDE calendar calculation (JavaScript)');
     const months: MonthData[] = [];
 
     // ✅ FIX: Calculate year range dynamically from videos instead of hardcoding 2025
@@ -533,7 +345,7 @@ const CalendarGallerySimpleComponent: React.FC<CalendarGalleryProps> = ({
 
     // ✅ Already in correct order (year DESC, month DESC), just filter
     return months.filter(m => m.videoCount > 0); // ✅ Only show months with videos
-  }, [useBackendData, backendCalendarData, videosByDate, chapterColorsByDate, chapters]);
+  }, [videosByDate, chapterColorsByDate, chapters]);
 
   const handleDayPress = useCallback((day: DayData, cellKey: string) => {
     if (!day.videos.length || !day.isCurrentMonth) return;
