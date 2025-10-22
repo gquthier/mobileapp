@@ -27,8 +27,6 @@ import { useTheme } from '../hooks/useTheme';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { LoadingDots } from '../components/LoadingDots';
-import { CalendarGallerySimple as CalendarGallery } from '../components/CalendarGallerySimple';
-import { VideoGallery } from '../components/VideoGallery';
 import { VideoPlayer } from '../components/VideoPlayer';
 import { VideoRecord } from '../lib/supabase';
 import { VideoService } from '../services/videoService';
@@ -40,6 +38,13 @@ import { GlassButton, GlassContainer } from './OptimizedGlassComponents';
 import { getUserChapters, getCurrentChapter, Chapter } from '../services/chapterService';
 import { useTheme as useThemeContext } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
+// ✅ Phase 3.3 - Refactored UI components
+import {
+  LibraryChapterModal,
+  LibraryCalendarView,
+  LibraryGridView,
+  LibrarySearchResults,
+} from './Library/components';
 
 const { width: screenWidth } = Dimensions.get('window');
 const GRID_PADDING = 4;
@@ -1073,99 +1078,8 @@ const LibraryScreen: React.FC = () => {
     return null;
   };
 
-  const renderSearchGrid = () => (
-    <FlatList
-      data={state.search.results}
-      keyExtractor={(item) => item.id || ''}
-      numColumns={5}
-      columnWrapperStyle={styles.gridRow}
-      contentContainerStyle={styles.gridContainer}
-      // Performance optimizations
-      initialNumToRender={20}
-      maxToRenderPerBatch={10}
-      windowSize={5}
-      removeClippedSubviews={true}
-      getItemLayout={(data, index) => ({
-        length: THUMBNAIL_HEIGHT,
-        offset: THUMBNAIL_HEIGHT * Math.floor(index / 5),
-        index,
-      })}
-      renderItem={({ item }) => (
-        <TouchableOpacity
-          style={styles.gridThumbnail}
-          onPress={() => {
-            const itemIndex = state.search.results.findIndex(v => v.id === item.id);
-            handleGridVideoPress(item, state.search.results, itemIndex);
-            handleCloseSearch();
-          }}
-        >
-          {item.thumbnail_frames && item.thumbnail_frames.length > 0 ? (
-            <Image
-              source={{ uri: item.thumbnail_frames[0] }}
-              style={styles.gridThumbnailImage}
-              resizeMode="cover"
-            />
-          ) : item.thumbnail_path ? (
-            <Image
-              source={{ uri: item.thumbnail_path }}
-              style={styles.gridThumbnailImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.gridThumbnailPlaceholder}>
-              <Icon name="cameraFilled" size={20} color={theme.colors.gray400} />
-            </View>
-          )}
-        </TouchableOpacity>
-      )}
-      showsVerticalScrollIndicator={false}
-    />
-  );
-
-  const renderLibraryGrid = () => (
-    <FlatList
-      data={allVideos}
-      keyExtractor={(item) => item.id || ''}
-      numColumns={5}
-      columnWrapperStyle={styles.gridRow}
-      contentContainerStyle={styles.gridContainer}
-      // Performance optimizations
-      initialNumToRender={20}
-      maxToRenderPerBatch={10}
-      windowSize={5}
-      removeClippedSubviews={true}
-      getItemLayout={(data, index) => ({
-        length: THUMBNAIL_HEIGHT,
-        offset: THUMBNAIL_HEIGHT * Math.floor(index / 5),
-        index,
-      })}
-      renderItem={({ item }) => (
-        <TouchableOpacity
-          style={styles.gridThumbnail}
-          onPress={() => handleGridVideoPress(item)}
-        >
-          {item.thumbnail_frames && item.thumbnail_frames.length > 0 ? (
-            <Image
-              source={{ uri: item.thumbnail_frames[0] }}
-              style={styles.gridThumbnailImage}
-              resizeMode="cover"
-            />
-          ) : item.thumbnail_path ? (
-            <Image
-              source={{ uri: item.thumbnail_path }}
-              style={styles.gridThumbnailImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.gridThumbnailPlaceholder}>
-              <Icon name="cameraFilled" size={20} color={theme.colors.gray400} />
-            </View>
-          )}
-        </TouchableOpacity>
-      )}
-      showsVerticalScrollIndicator={false}
-    />
-  );
+  // ✅ Phase 3.3 - renderSearchGrid and renderLibraryGrid removed
+  // Now using LibrarySearchResults, LibraryGridView, and LibraryCalendarView components
 
   return (
     <View style={styles.container}>
@@ -1509,27 +1423,19 @@ const LibraryScreen: React.FC = () => {
                     showsVerticalScrollIndicator={false}
                   />
                   </View>
-                ) : state.search.isSearching ? (
-                  <View style={[styles.searchLoadingContainer, { paddingHorizontal: theme.spacing['4'] }]}>
-                    <LoadingDots color={brandColor} size={6} />
-                    <Text style={styles.searchLoadingText}>Searching...</Text>
-                  </View>
-                ) : state.search.query.trim() === '' && !state.search.selectedLifeArea ? (
-                  <View />
-                ) : state.search.results.length === 0 && state.search.query.trim() !== '' ? (
-                  <View style={[styles.searchEmptyState, { paddingHorizontal: theme.spacing['4'] }]}>
-                    <Icon name="search" size={48} color={theme.colors.text.disabled} />
-                    <Text style={styles.searchEmptyTitle}>No results</Text>
-                    <Text style={styles.searchEmptyText}>
-                      No videos found for "{state.search.query}"
-                    </Text>
-                  </View>
-                ) : state.search.query.trim() !== '' ? (
-                  <View style={{ paddingHorizontal: theme.spacing['4'] }}>
-                    {renderSearchGrid()}
-                  </View>
                 ) : (
-                  <View />
+                  <View style={{ paddingHorizontal: theme.spacing['4'] }}>
+                    <LibrarySearchResults
+                      results={state.search.results}
+                      query={state.search.query}
+                      isSearching={state.search.isSearching}
+                      onVideoPress={(video, allVideos, index) => {
+                        handleGridVideoPress(video, allVideos, index);
+                        handleCloseSearch();
+                      }}
+                      brandColor={brandColor}
+                    />
+                  </View>
                 )}
               </View>
             </TouchableWithoutFeedback>
@@ -1538,7 +1444,7 @@ const LibraryScreen: React.FC = () => {
               {filteredVideos.length === 0 ? (
                 renderEmpty()
               ) : state.viewMode === 'grid' ? (
-                <VideoGallery
+                <LibraryGridView
                   videos={filteredVideos}
                   onVideoPress={handleGridVideoPress}
                   onEndReached={handleLoadMore}
@@ -1546,7 +1452,7 @@ const LibraryScreen: React.FC = () => {
                   contentInsetTop={headerHeightGrid} // ✅ Less padding for grid view (photos closer to top bar)
                 />
               ) : (
-                <CalendarGallery
+                <LibraryCalendarView
                   videos={filteredVideos}
                   onVideoPress={handleCalendarVideoPress}
                   chapters={chapters}
@@ -1666,199 +1572,19 @@ const LibraryScreen: React.FC = () => {
             </View>
           </Modal>
 
-          {/* Chapter Bubbles - Scrollable vertical list of separate bubbles */}
-          {showChapterModal && (
-            <>
-              {/* Overlay to close bubbles when tapping outside */}
-              <TouchableWithoutFeedback onPress={handleCloseChapterModal}>
-                <View style={styles.chapterBubblesOverlay} />
-              </TouchableWithoutFeedback>
-
-              <Animated.View
-                style={[
-                  styles.chapterBubblesContainer,
-                  {
-                    top: insets.top + 60,
-                    left: theme.spacing['4'],
-                    opacity: modalOpacity,
-                  }
-                ]}
-              >
-                <Animated.ScrollView
-                  style={styles.chapterBubblesScroll}
-                  showsVerticalScrollIndicator={false}
-                  bounces={true}
-                  onScroll={Animated.event(
-                    [{ nativeEvent: { contentOffset: { y: chapterScrollY } } }],
-                    { useNativeDriver: true }
-                  )}
-                  scrollEventThrottle={16}
-                >
-                  {/* All Chapters option */}
-                  {(() => {
-                    const index = 0;
-                    const itemHeight = 52; // 44px height + 8px margin
-                    const itemY = index * itemHeight;
-                    const containerHeight = Dimensions.get('window').height * 0.7;
-                    const fadeZone = containerHeight * 0.15; // 15% fade zones
-
-                    const opacity = chapterScrollY.interpolate({
-                      inputRange: [
-                        itemY - containerHeight,
-                        itemY - containerHeight + fadeZone,
-                        itemY - fadeZone,
-                        itemY,
-                      ],
-                      outputRange: [0, 1, 1, 0],
-                      extrapolate: 'clamp',
-                    });
-
-                    return (
-                      <Animated.View style={{ opacity }}>
-                        <TouchableOpacity
-                          onPress={() => handleSelectChapter(null)}
-                          activeOpacity={0.7}
-                          style={styles.chapterBubbleWrapper}
-                        >
-                          <LiquidGlassView
-                            style={[
-                              styles.chapterBubbleGlass,
-                              selectedChapterId === null && { backgroundColor: brandColor },
-                              !isLiquidGlassSupported && {
-                                backgroundColor: selectedChapterId === null ? brandColor : theme.colors.gray100,
-                              }
-                            ]}
-                            interactive={false}
-                          >
-                            <View style={styles.chapterBubbleContent}>
-                              <Text style={[
-                                styles.chapterBubbleText,
-                                selectedChapterId === null && styles.chapterBubbleTextSelected
-                              ]}>
-                                Chapters
-                              </Text>
-                            </View>
-                          </LiquidGlassView>
-                        </TouchableOpacity>
-                      </Animated.View>
-                    );
-                  })()}
-
-                  {/* Current chapter first */}
-                  {currentChapter && (() => {
-                    const index = 1;
-                    const itemHeight = 52;
-                    const itemY = index * itemHeight;
-                    const containerHeight = Dimensions.get('window').height * 0.7;
-                    const fadeZone = containerHeight * 0.15; // 15% fade zones
-
-                    const opacity = chapterScrollY.interpolate({
-                      inputRange: [
-                        itemY - containerHeight,
-                        itemY - containerHeight + fadeZone,
-                        itemY - fadeZone,
-                        itemY,
-                      ],
-                      outputRange: [0, 1, 1, 0],
-                      extrapolate: 'clamp',
-                    });
-
-                    return (
-                      <Animated.View style={{ opacity }}>
-                        <TouchableOpacity
-                          key={currentChapter.id}
-                          onPress={() => handleSelectChapter(currentChapter.id!)}
-                          activeOpacity={0.7}
-                          style={styles.chapterBubbleWrapper}
-                        >
-                          <LiquidGlassView
-                            style={[
-                              styles.chapterBubbleGlass,
-                              selectedChapterId === currentChapter.id && { backgroundColor: brandColor },
-                              !isLiquidGlassSupported && {
-                                backgroundColor: selectedChapterId === currentChapter.id ? brandColor : theme.colors.gray100,
-                              }
-                            ]}
-                            interactive={false}
-                          >
-                            <View style={styles.chapterBubbleContent}>
-                              <Text style={[
-                                styles.chapterBubbleText,
-                                selectedChapterId === currentChapter.id && styles.chapterBubbleTextSelected
-                              ]}>
-                                {currentChapter.title}
-                              </Text>
-                              <View style={[styles.currentBadgeBubble, {
-                                backgroundColor: selectedChapterId === currentChapter.id ? 'rgba(255,255,255,0.3)' : brandColor
-                              }]}>
-                                <Icon
-                                  name="star"
-                                  size={6}
-                                  color="#FFFFFF"
-                                />
-                              </View>
-                            </View>
-                          </LiquidGlassView>
-                        </TouchableOpacity>
-                      </Animated.View>
-                    );
-                  })()}
-
-                  {/* Other chapters */}
-                  {chapters
-                    .filter(chapter => chapter.id !== currentChapter?.id)
-                    .map((chapter, idx) => {
-                      const index = (currentChapter ? 2 : 1) + idx;
-                      const itemHeight = 52;
-                      const itemY = index * itemHeight;
-                      const containerHeight = Dimensions.get('window').height * 0.7;
-                      const fadeZone = containerHeight * 0.15; // 15% fade zones
-
-                      const opacity = chapterScrollY.interpolate({
-                        inputRange: [
-                          itemY - containerHeight,
-                          itemY - containerHeight + fadeZone,
-                          itemY - fadeZone,
-                          itemY,
-                        ],
-                        outputRange: [0, 1, 1, 0],
-                        extrapolate: 'clamp',
-                      });
-
-                      return (
-                        <Animated.View key={chapter.id} style={{ opacity }}>
-                          <TouchableOpacity
-                            onPress={() => handleSelectChapter(chapter.id!)}
-                            activeOpacity={0.7}
-                            style={styles.chapterBubbleWrapper}
-                          >
-                            <LiquidGlassView
-                              style={[
-                                styles.chapterBubbleGlass,
-                                selectedChapterId === chapter.id && { backgroundColor: brandColor },
-                                !isLiquidGlassSupported && {
-                                  backgroundColor: selectedChapterId === chapter.id ? brandColor : theme.colors.gray100,
-                                }
-                              ]}
-                              interactive={false}
-                            >
-                              <View style={styles.chapterBubbleContent}>
-                                <Text style={[
-                                  styles.chapterBubbleText,
-                                  selectedChapterId === chapter.id && styles.chapterBubbleTextSelected
-                                ]}>
-                                  {chapter.title}
-                                </Text>
-                              </View>
-                            </LiquidGlassView>
-                          </TouchableOpacity>
-                        </Animated.View>
-                      );
-                    })}
-                </Animated.ScrollView>
-              </Animated.View>
-            </>
-          )}
+          {/* ✅ Phase 3.3 - Chapter Modal Component */}
+          <LibraryChapterModal
+            visible={showChapterModal}
+            chapters={chapters}
+            currentChapter={currentChapter}
+            selectedChapterId={selectedChapterId}
+            onSelect={handleSelectChapter}
+            onClose={handleCloseChapterModal}
+            chapterScrollY={chapterScrollY}
+            modalOpacity={modalOpacity}
+            topInset={insets.top}
+            brandColor={brandColor}
+          />
 
           {/* Removed Import Progress Modal - videos now show inline with spinner */}
         </View>
@@ -2474,67 +2200,7 @@ const styles = StyleSheet.create({
     height: ((screenWidth - 4 - 6) / 4) * 1.33,
   },
   // Chapter Modal Styles (iOS-style like Momentum)
-  // Chapter Bubbles - Scrollable separate bubbles
-  chapterBubblesOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    zIndex: 999,
-  },
-  chapterBubblesContainer: {
-    position: 'absolute',
-    zIndex: 1000,
-  },
-  chapterBubblesScroll: {
-    maxHeight: '70%', // Max 70% of screen height for scrolling
-  },
-  chapterBubbleWrapper: {
-    marginBottom: 8, // Space between bubbles
-    alignSelf: 'flex-start', // Width adapts to content
-  },
-  chapterBubbleGlass: {
-    borderRadius: 22,
-    overflow: 'hidden',
-    height: 44, // Same height as main Chapters button
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  chapterBubbleContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center', // Center text horizontally
-    paddingHorizontal: 16,
-    paddingRight: 30, // More space for badge
-    height: '100%',
-    position: 'relative',
-  },
-  chapterBubbleText: {
-    fontFamily: 'Poppins-SemiBoldItalic',
-    fontSize: 16,
-    fontWeight: '600',
-    fontStyle: 'italic',
-    letterSpacing: -0.48,
-    color: theme.colors.text.primary,
-    textAlign: 'center', // Center text
-  },
-  chapterBubbleTextSelected: {
-    color: theme.colors.white,
-  },
-  currentBadgeBubble: {
-    position: 'absolute',
-    right: 12,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  // ✅ Phase 3.3 - Chapter modal styles moved to LibraryChapterModal.tsx
 });
 
 export default LibraryScreen;
