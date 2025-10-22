@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useReducer, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -81,8 +81,8 @@ const LibraryScreen: React.FC = () => {
   const librarySearch = useLibrarySearch(libraryAnimations.searchBarProgress);
   const streakData = useStreak(libraryData.videos);
 
-  // Extract functions from hooks for direct use
-  const { fetchVideos, handleLoadMore } = libraryData;
+  // Extract functions and state from hooks for direct use
+  const { fetchVideos, handleLoadMore, selectedChapterId, setSelectedChapterId, chapters, currentChapter } = libraryData;
   const { performSearch, handleSearchPress, handleCloseSearch, toggleSearchBar, handleCollapseSearchBar, handleLifeAreaPress } = librarySearch;
   const { currentStreak, getStreakMessage, getCurrentMonthDays } = streakData;
 
@@ -236,143 +236,13 @@ const LibraryScreen: React.FC = () => {
       });
   }, []);
 
-  // 🚀 OPTIMIZATION: Fetch videos with non-blocking cache-first strategy
-  const fetchVideos = useCallback(async (pageToLoad: number = 0, append: boolean = false) => {
-    try {
-      if (!append) {
-        if (cancelledRef.current) return; // ✅ Check cancelled before dispatch
-        dispatch({ type: 'FETCH_START' });
+  // ✅ fetchVideos now comes from useLibraryData hook
 
-        // 🚀 PHASE 1: Try cache first (fast, synchronous)
-        console.log('📦 Loading videos from cache...');
-        const cacheStartTime = Date.now();
-        const { videos: cachedVideos } = await VideoCacheService.loadFromCache();
-        console.log(`⏱️ Cache loaded in ${Date.now() - cacheStartTime}ms`);
-
-        if (cachedVideos.length > 0 && !cancelledRef.current) {
-          console.log(`✅ Showing ${cachedVideos.length} cached videos immediately`);
-          // Sort cached videos
-          const sortedCached = cachedVideos.sort((a, b) =>
-            new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
-          );
-          dispatch({ type: 'FETCH_SUCCESS', videos: sortedCached });
-          setLoadingPhase('cache');
-        }
-      } else {
-        if (cancelledRef.current) return; // ✅ Check cancelled before dispatch
-        dispatch({ type: 'LOAD_MORE_START' });
-      }
-
-      // 🚀 PHASE 2: Fetch fresh data in background (after interactions complete)
-      const offset = pageToLoad * VIDEOS_PER_PAGE;
-      console.log(`🔄 Fetching videos page ${pageToLoad} (offset: ${offset}, limit: ${VIDEOS_PER_PAGE})`);
-
-      const fetchStartTime = Date.now();
-      const videosData = await VideoService.getAllVideos(undefined, VIDEOS_PER_PAGE, offset);
-      console.log(`⏱️ Network fetch completed in ${Date.now() - fetchStartTime}ms (${videosData.length} videos)`);
-
-      // ✅ Check cancelled after async operation
-      if (cancelledRef.current) {
-        console.log('⚠️ Fetch cancelled, skipping dispatch');
-        return;
-      }
-
-      // Check if we have more pages
-      const hasMoreVideos = videosData.length === VIDEOS_PER_PAGE;
-
-      // Sort fresh videos
-      const sortedFresh = videosData.sort((a, b) =>
-        new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
-      );
-
-      // Update UI with fresh data
-      if (append) {
-        dispatch({ type: 'LOAD_MORE_SUCCESS', videos: sortedFresh, hasMore: hasMoreVideos });
-      } else {
-        dispatch({ type: 'FETCH_SUCCESS', videos: sortedFresh });
-        setLoadingPhase('complete');
-        // Update cache only on initial load (in background, don't await)
-        VideoCacheService.saveToCache(sortedFresh).catch(err =>
-          console.error('❌ Cache save failed:', err)
-        );
-      }
-    } catch (error) {
-      console.error('❌ Error fetching videos:', error);
-      if (append) {
-        dispatch({ type: 'LOAD_MORE_ERROR' });
-      } else {
-        dispatch({ type: 'FETCH_ERROR', error: 'Failed to load videos. Please try again.' });
-        setLoadingPhase('complete');
-      }
-    }
-  }, []);
-
-  // 🚀 OPTIMIZATION: Calculate streak with early exit and Set-based lookup
-  const calculateStreakOptimized = useCallback((videoList: VideoRecord[]): number => {
-    // 🚀 Early exit: No videos = no streak
-    if (!videoList || videoList.length === 0) return 0;
-
-    // 🚀 Early exit: Few videos = simple check
-    if (videoList.length < 5) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayKey = today.toISOString().split('T')[0];
-
-      const hasVideoToday = videoList.some(v =>
-        v.created_at && new Date(v.created_at).toISOString().split('T')[0] === todayKey
-      );
-      return hasVideoToday ? 1 : 0;
-    }
-
-    // Get today's date
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // 🚀 Optimization: Use Set for O(1) lookups instead of Map
-    const videoDates = new Set<string>();
-    videoList.forEach(video => {
-      if (video.created_at) {
-        const date = new Date(video.created_at);
-        date.setHours(0, 0, 0, 0);
-        videoDates.add(date.toISOString().split('T')[0]);
-      }
-    });
-
-    // Calculate streak
-    let streak = 0;
-    let currentDate = new Date(today);
-    const maxDaysToCheck = 365; // 🚀 Limit to prevent infinite loop
-
-    for (let i = 0; i < maxDaysToCheck; i++) {
-      const dateKey = currentDate.toISOString().split('T')[0];
-
-      if (videoDates.has(dateKey)) {
-        streak++;
-        currentDate.setDate(currentDate.getDate() - 1);
-      } else {
-        break; // 🚀 Early exit when streak breaks
-      }
-    }
-
-    return streak;
-  }, []);
+  // ✅ calculateStreakOptimized now in useStreak hook
 
   // ✅ Video loading on mount now handled in useLibraryData hook
 
-  // Load more videos handler
-  const handleLoadMore = useCallback(() => {
-    const { hasMore, isLoadingMore } = libraryData.pagination;
-    const { loading } = state;
-
-    if (!hasMore || isLoadingMore || loading) {
-      console.log('⏸️ Skipping load more:', { hasMore, isLoadingMore, loading });
-      return;
-    }
-
-    console.log('📄 Loading more videos, page:', libraryData.pagination.page + 1);
-    const nextPage = libraryData.pagination.page + 1;
-    fetchVideos(nextPage, true);
-  }, [libraryData.pagination, libraryData.loading, fetchVideos]);
+  // ✅ handleLoadMore now comes from useLibraryData hook
 
   // ✅ currentStreak now comes from useStreak hook (no need to recalculate)
   // ✅ ImportQueue subscription now handled in useLibraryData hook
@@ -420,9 +290,9 @@ const LibraryScreen: React.FC = () => {
     // Open VideoPlayer with all videos from that day (vertical scroll)
     const videosToShow = allVideosFromDay || [video];
 
-    dispatch({
-      type: 'OPEN_VIDEO_PLAYER',
-      video,
+    libraryData.setVideoPlayer({
+      isOpen: true,
+      selectedVideo: video,
       videos: videosToShow,
       initialIndex: index,
     });
@@ -442,11 +312,16 @@ const LibraryScreen: React.FC = () => {
 
     // Open VideoPlayer directly with selected video
     const videosToPlay = allVideosFromDay || [video];
-    dispatch({ type: 'OPEN_VIDEO_PLAYER', video, videos: videosToPlay, initialIndex: index });
+    libraryData.setVideoPlayer({
+      isOpen: true,
+      selectedVideo: video,
+      videos: videosToPlay,
+      initialIndex: index,
+    });
   }, []);
 
   const handleCloseVideoPlayer = useCallback(() => {
-    dispatch({ type: 'CLOSE_VIDEO_PLAYER' });
+    libraryData.setVideoPlayer({ isOpen: false });
   }, []);
 
   /**
@@ -474,11 +349,11 @@ const LibraryScreen: React.FC = () => {
       sourceScreen: 'library',
       preserveState: {
         scrollPosition: 0, // TODO: Get actual scroll position
-        filters: state.filters,
+        filters: undefined,
         searchQuery: librarySearch.query,
       },
     } as never);
-  }, [navigation, libraryData.videos, librarySearch.showSearch, librarySearch.results, librarySearch.query, state.filters]);
+  }, [navigation, libraryData.videos, librarySearch.showSearch, librarySearch.results, librarySearch.query, undefined]);
 
   const handleNavigateToSettings = () => {
     // Navigate to the Settings tab
@@ -610,53 +485,7 @@ const LibraryScreen: React.FC = () => {
   }, [navigateToChapter, sortedChapters.length]);
 
   // 🚀 OPTIMIZATION: Memoize month days calculation - only recalculate when needed
-  const getCurrentMonthDays = useMemo(() => {
-    // 🚀 Early exit: No videos = empty month
-    if (filteredVideos.length < 5) {
-      return [];
-    }
-
-    // ✅ FIX: Use stable date ref instead of new Date() to avoid recalc every minute
-    const today = currentDateRef.current;
-    const year = today.getFullYear();
-    const month = today.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    // 🚀 Optimization: Pre-calculate video dates Set once
-    const videoDates = new Set<number>();
-    filteredVideos.forEach(video => {
-      if (video.created_at) {
-        const date = new Date(video.created_at);
-        if (date.getMonth() === month && date.getFullYear() === year) {
-          videoDates.add(date.getDate());
-        }
-      }
-    });
-
-    // Build days array
-    const days = [];
-    const todayDate = today.getDate();
-
-    for (let day = 1; day <= daysInMonth; day++) {
-      days.push({
-        day,
-        date: new Date(year, month, day),
-        hasVideo: videoDates.has(day),
-        isToday: day === todayDate,
-      });
-    }
-
-    return days;
-  }, [filteredVideos.length]); // ✅ FIX: Removed new Date() deps - only recalc when video count changes
-
-  const getStreakMessage = (streak: number) => {
-    if (streak === 0) return "Start your journey today! 🎬";
-    if (streak === 1) return "Great start! Keep it going! 🌟";
-    if (streak < 7) return `${streak} days strong! You're building a habit! 💪`;
-    if (streak < 30) return `Incredible! ${streak} day streak! 🔥`;
-    if (streak < 100) return `Wow! ${streak} days of dedication! 🏆`;
-    return `Legendary! ${streak} day streak! You're unstoppable! 👑`;
-  };
+  // ✅ getCurrentMonthDays and getStreakMessage now come from useStreak hook
 
   const handleShareApp = async () => {
     try {
@@ -686,59 +515,7 @@ const LibraryScreen: React.FC = () => {
     }
   };
 
-  const handleSearchPress = useCallback(() => {
-    dispatch({ type: 'TOGGLE_SEARCH_BAR', show: true });
-  }, []);
-
-  const handleCloseSearch = useCallback(() => {
-    dispatch({ type: 'CLOSE_SEARCH' });
-
-    // Reset search bar animation to closed state (logo visible)
-    Animated.spring(searchBarProgress, {
-      toValue: 0,
-      useNativeDriver: false,
-      tension: 60,
-      friction: 10,
-    }).start();
-  }, [searchBarProgress]);
-
-  // Toggle search bar visibility with animation
-  const toggleSearchBar = useCallback(() => {
-    const toValue = librarySearch.showSearchBar ? 0 : 1;
-
-    // Haptic feedback
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    // Update state immediately for conditional rendering
-    dispatch({ type: 'TOGGLE_SEARCH_BAR', show: !librarySearch.showSearchBar });
-
-    // Animate the transition
-    Animated.spring(searchBarProgress, {
-      toValue,
-      useNativeDriver: false,
-      tension: 60,
-      friction: 10,
-    }).start();
-  }, [librarySearch.showSearchBar, searchBarProgress]);
-
-  // Handle tap on chevron to collapse search bar
-  const handleCollapseSearchBar = useCallback(() => {
-    console.log('◀ Chevron tapped - collapsing search bar');
-
-    // Haptic feedback
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    // Collapse search bar
-    dispatch({ type: 'TOGGLE_SEARCH_BAR', show: false });
-
-    // Animate the transition
-    Animated.spring(searchBarProgress, {
-      toValue: 0,
-      useNativeDriver: false,
-      tension: 60,
-      friction: 10,
-    }).start();
-  }, [searchBarProgress]);
+  // ✅ handleSearchPress, handleCloseSearch, toggleSearchBar, handleCollapseSearchBar now come from useLibrarySearch hook
 
 
   const handleOutsidePress = useCallback(() => {
@@ -761,7 +538,7 @@ const LibraryScreen: React.FC = () => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
       // Collapse search bar
-      dispatch({ type: 'TOGGLE_SEARCH_BAR', show: false });
+      librarySearch.toggleSearchBar();
 
       // Animate the transition
       Animated.spring(searchBarProgress, {
@@ -851,31 +628,7 @@ const LibraryScreen: React.FC = () => {
     // Videos are automatically filtered by the filteredVideos useMemo
   }, [handleCloseChapterModal]);
 
-  const performSearch = useCallback(async (query: string) => {
-    if (!query.trim()) {
-      dispatch({ type: 'SET_SEARCH_RESULTS', results: [] });
-      return;
-    }
-
-    // Don't search if query is too short (< 2 characters)
-    if (query.trim().length < 2) {
-      dispatch({ type: 'SET_SEARCH_RESULTS', results: [] });
-      return;
-    }
-
-    dispatch({ type: 'SET_SEARCHING', isSearching: true });
-    try {
-      console.time('⏱️ Search request');
-      const results = await VideoService.searchVideos(query);
-      console.timeEnd('⏱️ Search request');
-      dispatch({ type: 'SET_SEARCH_RESULTS', results });
-    } catch (error) {
-      console.error('❌ Search failed:', error);
-      dispatch({ type: 'SET_SEARCH_RESULTS', results: [] });
-    } finally {
-      dispatch({ type: 'SET_SEARCHING', isSearching: false });
-    }
-  }, []);
+  // ✅ performSearch now comes from useLibrarySearch hook
 
   // ✅ Debounced search now handled in useLibrarySearch hook
 
@@ -900,29 +653,7 @@ const LibraryScreen: React.FC = () => {
 
   // ✅ Scroll position initialization now handled in useLibrarySearch hook
 
-  // Handle life area selection
-  const handleLifeAreaPress = useCallback(async (lifeArea: string) => {
-    console.log('🎯 Life area selected:', lifeArea);
-
-    // Haptic feedback
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    // Select this life area
-    dispatch({ type: 'SELECT_LIFE_AREA', lifeArea });
-    dispatch({ type: 'SET_SEARCHING_LIFE_AREA', isSearching: true });
-
-    try {
-      // Search videos by life area
-      const results = await VideoService.searchVideosByLifeArea(lifeArea);
-      console.log(`✅ Found ${results.length} videos for ${lifeArea}`);
-      dispatch({ type: 'SET_LIFE_AREA_RESULTS', results });
-    } catch (error) {
-      console.error('❌ Life area search failed:', error);
-      dispatch({ type: 'SET_LIFE_AREA_RESULTS', results: [] });
-    } finally {
-      dispatch({ type: 'SET_SEARCHING_LIFE_AREA', isSearching: false });
-    }
-  }, []);
+  // ✅ handleLifeAreaPress now comes from useLibrarySearch hook
 
   const renderEmpty = () => {
     if (libraryData.loading && libraryData.videos.length === 0) {
@@ -979,12 +710,12 @@ const LibraryScreen: React.FC = () => {
                       placeholder="Search by title, date, keywords..."
                       placeholderTextColor={theme.colors.text.tertiary}
                       value={librarySearch.query}
-                      onChangeText={(text) => dispatch({ type: 'SET_SEARCH_QUERY', query: text })}
+                      onChangeText={(text) => librarySearch.setQuery(text)}
                       autoFocus={true}
                       returnKeyType="search"
                     />
                     {librarySearch.query.length > 0 && (
-                      <TouchableOpacity onPress={() => dispatch({ type: 'SET_SEARCH_QUERY', query: '' })}>
+                      <TouchableOpacity onPress={() => librarySearch.setQuery('')}>
                         <Icon name="close" size={18} color={theme.colors.text.tertiary} />
                       </TouchableOpacity>
                     )}
@@ -1100,7 +831,7 @@ const LibraryScreen: React.FC = () => {
                             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                             // Toggle between calendar and grid
                             const newMode = libraryData.viewMode === 'calendar' ? 'grid' : 'calendar';
-                            dispatch({ type: 'SET_VIEW_MODE', mode: newMode });
+                            libraryData.setViewMode(newMode);
                           }}
                           style={styles.singleViewToggle}
                           fallbackStyle={{ backgroundColor: theme.colors.gray100 }}
@@ -1137,7 +868,7 @@ const LibraryScreen: React.FC = () => {
                       }}
                     >
                       <GlassButton
-                        onPress={() => dispatch({ type: 'OPEN_SEARCH' })}
+                        onPress={() => librarySearch.handleSearchPress()}
                         style={styles.expandedSearchBar}
                         fallbackStyle={{ backgroundColor: theme.colors.gray100 }}
                       >
@@ -1266,9 +997,9 @@ const LibraryScreen: React.FC = () => {
                           // 🎯 Open VideoPlayer modal with segment timestamp
                           // Pass segment_start_time so VideoPlayer seeks to the highlight
                           // Don't close search - user will return to filter view on back
-                          dispatch({
-                            type: 'OPEN_VIDEO_PLAYER',
-                            video: item,
+                          libraryData.setVideoPlayer({
+                            isOpen: true,
+                            selectedVideo: item,
                             videos: librarySearch.lifeAreaResults,
                             initialIndex: itemIndex,
                             initialTimestamp: item.is_segment ? item.segment_start_time : undefined
@@ -1353,14 +1084,14 @@ const LibraryScreen: React.FC = () => {
             visible={state.showStreakModal}
             transparent
             animationType="fade"
-            onRequestClose={() => dispatch({ type: 'TOGGLE_STREAK_MODAL', show: false })}
+            onRequestClose={() => setShowStreakModal(false)}
           >
             <View style={styles.streakModalOverlay}>
               {/* Background overlay - closes modal when tapped */}
               <TouchableOpacity
                 style={StyleSheet.absoluteFill}
                 activeOpacity={1}
-                onPress={() => dispatch({ type: 'TOGGLE_STREAK_MODAL', show: false })}
+                onPress={() => setShowStreakModal(false)}
               />
 
               {/* Modal content - does not close modal when tapped */}
@@ -1369,7 +1100,7 @@ const LibraryScreen: React.FC = () => {
                     <View style={styles.streakModalHeader}>
                       <View style={{ flex: 1 }} />
                       <TouchableOpacity
-                        onPress={() => dispatch({ type: 'TOGGLE_STREAK_MODAL', show: false })}
+                        onPress={() => setShowStreakModal(false)}
                         style={styles.streakModalCloseButton}
                       >
                         <Icon name="x" size={24} color={theme.colors.gray400} />
