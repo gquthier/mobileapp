@@ -1081,7 +1081,7 @@ const LibraryScreen: React.FC = () => {
 
           {/* Streak Modal */}
           <Modal
-            visible={state.showStreakModal}
+            visible={showStreakModal}
             transparent
             animationType="fade"
             onRequestClose={() => setShowStreakModal(false)}
