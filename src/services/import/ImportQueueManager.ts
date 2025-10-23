@@ -233,13 +233,13 @@ export class ImportQueueManager {
    * unsubscribe();
    */
   static subscribe(callback: ProgressCallback): () => void {
-    console.log('📢 [ImportQueueManager] New listener subscribed');
+    // console.log('📢 [ImportQueueManager] New listener subscribed');
     this.listeners.push(callback);
 
     // Return unsubscribe function
     return () => {
       this.listeners = this.listeners.filter(listener => listener !== callback);
-      console.log('📢 [ImportQueueManager] Listener unsubscribed');
+      // console.log('📢 [ImportQueueManager] Listener unsubscribed');
     };
   }
 
@@ -304,12 +304,12 @@ export class ImportQueueManager {
         this.queue = state.items;
         this.currentIndex = state.currentIndex;
 
-        console.log('📥 [ImportQueueManager] Queue state loaded from AsyncStorage');
-        console.log(`  - Queue length: ${this.queue.length}`);
-        console.log(`  - Current index: ${this.currentIndex}`);
-        console.log(`  - Pending items: ${this.queue.filter(i => i.status === 'pending' || i.status === 'failed').length}`);
+        // console.log('📥 [ImportQueueManager] Queue state loaded from AsyncStorage');
+        // console.log(`  - Queue length: ${this.queue.length}`);
+        // console.log(`  - Current index: ${this.currentIndex}`);
+        // console.log(`  - Pending items: ${this.queue.filter(i => i.status === 'pending' || i.status === 'failed').length}`);
       } else {
-        console.log('📥 [ImportQueueManager] No saved queue state found');
+        // console.log('📥 [ImportQueueManager] No saved queue state found');
       }
     } catch (error) {
       console.error('❌ Failed to load queue state:', error);

@@ -15,6 +15,7 @@ import { FirstRecordingPrompt } from '../components/FirstRecordingPrompt';
 import { OnboardingScreens } from '../components/OnboardingScreens';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import LibraryScreen from '../screens/LibraryScreen';
+import LibraryScreenV2 from '../screens/LibraryScreenV2'; // Phase 3 - React Query version
 import RecordScreen from '../screens/RecordScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import AuthScreen from '../screens/AuthScreen';
@@ -29,6 +30,9 @@ import { VerticalFeedScreen } from '../features/vertical-feed/screens/VerticalFe
 import { VerticalFeedTabScreen } from '../screens/VerticalFeedTabScreen';
 import { setupNotificationClickListener, requestNotificationPermissions } from '../services/notificationService';
 import { CHAPTER_COLORS } from '../constants/chapterColors';
+
+// ✅ Phase 3 - Flag to enable React Query version
+const ENABLE_REACT_QUERY_LIBRARY = true; // Set to true to test React Query version
 
 const Tab = createNativeBottomTabNavigator();
 const LibraryStack = createStackNavigator();
@@ -159,7 +163,10 @@ function RootStackNavigator() {
 function LibraryStackNavigator() {
   return (
     <LibraryStack.Navigator screenOptions={{ headerShown: false }}>
-      <LibraryStack.Screen name="LibraryMain" component={LibraryScreen} />
+      <LibraryStack.Screen
+        name="LibraryMain"
+        component={ENABLE_REACT_QUERY_LIBRARY ? LibraryScreenV2 : LibraryScreen}
+      />
       <LibraryStack.Screen name="Settings" component={SettingsScreen} />
       <LibraryStack.Screen name="VideoImport" component={VideoImportScreen} />
       <LibraryStack.Screen name="ChapterManagement" component={ChapterManagementScreen} />

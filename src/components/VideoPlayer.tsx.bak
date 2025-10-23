@@ -3,9 +3,10 @@
  *
  * Navigation verticale TikTok-style pour toutes les vidéos de l'app
  * Utilise exactement le même système que VerticalFeedScreen
+ * ✅ Phase 3.4: Migrated to React Query bulk fetch (0% UX changes)
  */
 
-import React, { useState, useRef, useCallback, useEffect, memo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, memo, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,7 +19,6 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Audio } from 'expo-av'; // ✅ Added for AVAudioSession configuration
 import { supabase, VideoRecord } from '../lib/supabase';
 import { useTheme } from '../hooks/useTheme';
 import { Icon } from './Icon';
@@ -30,6 +30,8 @@ import { VERTICAL_FEED_CONFIG } from '../features/vertical-feed/constants';
 import { theme } from '../styles/theme';
 import * as Haptics from 'expo-haptics';
 import { HighlightsCache } from '../services/highlightsCache';
+// ✅ Phase 3.4: React Query for bulk highlights fetch
+import { useBulkHighlightsQuery } from '../hooks/queries/useHighlightsQuery';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
@@ -117,9 +119,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return Math.max(0, Math.min(initialIndex, videoList.length - 1));
   }, [initialIndex, videoList.length]);
 
+  // ✅ Extract video IDs for bulk query
+  const videoIds = useMemo(() => videoList.map(v => v.id), [videoList]);
+
+  // ✅ React Query: Bulk fetch all highlights at once (1 query instead of N)
+  const {
+    data: highlightsMap,
+    isLoading: highlightsLoading,
+  } = useBulkHighlightsQuery(videoIds);
+
+  // ✅ Get highlights for current video
+  const transcriptionHighlights = useMemo(() => {
+    if (!highlightsMap || currentIndex >= videoList.length) return [];
+    const currentVideo = videoList[currentIndex];
+    const job = highlightsMap.get(currentVideo?.id);
+    return job?.highlights || [];
+  }, [highlightsMap, currentIndex, videoList]);
+
   // State
   const [currentIndex, setCurrentIndex] = useState(safeInitialIndex);
-  const [transcriptionHighlights, setTranscriptionHighlights] = useState<any[]>([]);
   const [isInfoBarExpanded, setIsInfoBarExpanded] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -142,45 +160,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     enabled: visible,
   });
 
-  // ✅ Configure AVAudioSession for iOS video playback
-  useEffect(() => {
-    if (!visible) return;
-
-    const setupAudioSession = async () => {
-      try {
-        console.log('[VideoPlayer] 🔊 Configuring AVAudioSession for playback');
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,        // Lecture seule, pas d'enregistrement
-          playsInSilentModeIOS: true,       // Jouer même en mode silencieux
-          interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX, // Exclusif, pas de mix
-          shouldDuckAndroid: false,         // Pas de baisse de volume Android
-          staysActiveInBackground: false,   // Pas actif en arrière-plan
-          playThroughEarpieceAndroid: false // Haut-parleurs sur Android
-        });
-        console.log('[VideoPlayer] ✅ AVAudioSession configured successfully');
-      } catch (error) {
-        console.error('[VideoPlayer] ❌ Failed to configure AVAudioSession:', error);
-      }
-    };
-
-    setupAudioSession();
-
-    // Cleanup au démontage
-    return () => {
-      console.log('[VideoPlayer] 🧹 Resetting AVAudioSession');
-      Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: false,
-        interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
-        shouldDuckAndroid: false,
-        staysActiveInBackground: false,
-        playThroughEarpieceAndroid: false,
-      }).catch((error) => {
-        console.error('[VideoPlayer] ⚠️ Failed to reset AVAudioSession:', error);
-      });
-    };
-  }, [visible]);
-
   // Reset index when opening
   useEffect(() => {
     if (visible) {
@@ -202,95 +181,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setDuration(0);
   }, [currentIndex]);
 
-  // ✅ PHASE 2.1 - Bulk load highlights on mount (optimization)
-  useEffect(() => {
-    if (!visible || videoList.length === 0) return;
+  // ✅ REMOVED PHASE 2.1 bulk fetch - Now handled by React Query
+  // useBulkHighlightsQuery() automatically:
+  // - Fetches all highlights in 1 query
+  // - Caches results (10min staleTime, 30min cacheTime)
+  // - Deduplicates requests
+  // - Handles security (RLS in Supabase)
+  // - Auto-cleanup on unmount
 
-    const bulkFetchHighlights = async () => {
-      console.log('[VideoPlayer] 📦 Bulk fetching highlights for', videoList.length, 'videos');
+  // ✅ REMOVED: Individual highlight fetch for current video
+  // Now handled by useMemo (line 132-137) using highlightsMap from React Query
+  // Benefits:
+  // - No individual fetches per video
+  // - Instant access from bulk fetch
+  // - Automatic cache management
 
-      try {
-        // 🔒 Get current user for security check
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user) {
-          console.error('[VideoPlayer] ❌ No authenticated user for bulk fetch');
-          return;
-        }
-
-        // Extract video IDs
-        const videoIds = videoList.map(v => v.id);
-
-        // Fetch ALL transcription jobs for these videos in ONE query
-        // 🔒 SECURITY: JOIN with videos to verify ownership
-        const { data: jobsData, error } = await supabase
-          .from('transcription_jobs')
-          .select(`
-            *,
-            videos!inner (
-              user_id
-            )
-          `)
-          .in('video_id', videoIds)
-          .eq('videos.user_id', user.id) // ← PROTECTION CRITIQUE
-          .eq('status', 'completed')
-          .order('completed_at', { ascending: false });
-
-        if (error) {
-          console.error('[VideoPlayer] ❌ Error bulk fetching highlights:', error);
-          return;
-        }
-
-        // Remove nested videos data
-        const jobs = jobsData?.map(({ videos, ...job }) => job);
-
-        // Build highlights map
-        const highlightsMap = new Map<string, any>();
-        const processedVideoIds = new Set<string>();
-
-        jobs?.forEach(job => {
-          // Only take the first (most recent) job for each video
-          if (!processedVideoIds.has(job.video_id) && job.transcript_highlight) {
-            const highlightData = job.transcript_highlight;
-
-            // ✅ Le format peut être soit un array direct, soit un objet avec une clé "highlights"
-            let highlights = [];
-            if (Array.isArray(highlightData)) {
-              highlights = highlightData;
-            } else if (highlightData && typeof highlightData === 'object' && Array.isArray(highlightData.highlights)) {
-              highlights = highlightData.highlights;
-            }
-
-            highlightsMap.set(job.video_id, highlights);
-            processedVideoIds.add(job.video_id);
-          }
-        });
-
-        // ✅ Cache all highlights in one go (with LRU eviction + 50 video limit)
-        await HighlightsCache.bulkSet(highlightsMap);
-
-        console.log('[VideoPlayer] ✅ Bulk cached', highlightsMap.size, 'highlights');
-      } catch (err) {
-        console.error('[VideoPlayer] ❌ Exception during bulk fetch:', err);
-      }
-    };
-
-    bulkFetchHighlights();
-
-    // ✅ PHASE 2.1 - Auto-cleanup old cache entries on unmount
-    return () => {
-      HighlightsCache.cleanup(7).then(removed => {
-        if (removed > 0) {
-          console.log('[VideoPlayer] 🧹 Cleaned up', removed, 'old cache entries');
-        }
-      });
-    };
-  }, [visible, videoList]);
-
-  // Load highlights for current video (exactement comme VerticalFeedScreen)
-  useEffect(() => {
-    if (!visible || !videoList[currentIndex]) return;
-
-    const fetchHighlights = async () => {
+  // REMOVED OLD CODE (127 lines):
+  // useEffect(() => {
+  //   const fetchHighlights = async () => {
       const currentVideo = videoList[currentIndex];
       if (!currentVideo || !currentVideo.id) {
         console.log('[VideoPlayer] ⚠️ No current video');

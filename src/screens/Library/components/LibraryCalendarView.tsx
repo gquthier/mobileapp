@@ -19,6 +19,7 @@ interface LibraryCalendarViewProps {
   onEndReached: () => void;
   onEndReachedThreshold?: number;
   contentInsetTop: number;
+  refreshControl?: React.ReactElement; // ✅ Pull-to-refresh support
 }
 
 export const LibraryCalendarView: React.FC<LibraryCalendarViewProps> = ({
@@ -28,6 +29,7 @@ export const LibraryCalendarView: React.FC<LibraryCalendarViewProps> = ({
   onEndReached,
   onEndReachedThreshold = 0.8,
   contentInsetTop,
+  refreshControl, // ✅ Pull-to-refresh support
 }) => {
   return (
     <CalendarGallery
@@ -37,6 +39,7 @@ export const LibraryCalendarView: React.FC<LibraryCalendarViewProps> = ({
       onEndReached={onEndReached}
       onEndReachedThreshold={onEndReachedThreshold}
       contentInsetTop={contentInsetTop}
+      refreshControl={refreshControl}
     />
   );
 };

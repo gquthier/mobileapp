@@ -201,13 +201,12 @@ const CalendarGallerySimpleComponent: React.FC<CalendarGalleryProps> = ({
   const [backendCalendarData, setBackendCalendarData] = useState<any[] | null>(null);
   const [backendError, setBackendError] = useState<string | null>(null);
 
-  // ✅ PHASE 2: Fetch calendar data from backend (materialized view)
+  // ✅ PHASE 2: Fetch calendar data from backend Edge Function
   useEffect(() => {
     const fetchBackendCalendarData = async () => {
       try {
         setIsLoadingBackend(true);
         setBackendError(null);
-
         console.log('📅 [PHASE 2] Fetching calendar data from Edge Function...');
 
         const { data, error } = await supabase.functions.invoke('get-calendar-data', {
@@ -237,8 +236,10 @@ const CalendarGallerySimpleComponent: React.FC<CalendarGalleryProps> = ({
       }
     };
 
-    fetchBackendCalendarData();
-  }, []); // Only fetch once on mount
+    if (videos.length > 0) {
+      fetchBackendCalendarData();
+    }
+  }, [videos.length]); // Fetch when videos are loaded
 
   // Helper function to construct thumbnail URL
   const getThumbnailUrl = useCallback((thumbnailPath: string): string => {
@@ -434,7 +435,7 @@ const CalendarGallerySimpleComponent: React.FC<CalendarGalleryProps> = ({
     }
 
     // ✅ FALLBACK: Client-side calculation (if backend fails or disabled)
-    console.log('💻 [FALLBACK] Using CLIENT-SIDE calendar calculation (JavaScript)');
+    // console.log('💻 [FALLBACK] Using CLIENT-SIDE calendar calculation (JavaScript)');
     const months: MonthData[] = [];
 
     // ✅ FIX: Calculate year range dynamically from videos instead of hardcoding 2025

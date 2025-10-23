@@ -982,7 +982,7 @@ export class ImportQueueService {
    */
   static async cleanupInvalidBackups(): Promise<void> {
     try {
-      console.log('🧹 [CLEANUP] Starting queue cleanup...');
+      // console.log('🧹 [CLEANUP] Starting queue cleanup...');
       const items = ImportQueueManager.getItems();
       let removedInvalid = 0;
       let removedOldCompleted = 0;
@@ -996,7 +996,7 @@ export class ImportQueueService {
           if (timestampMatch) {
             const itemTimestamp = parseInt(timestampMatch[1], 10);
             if (itemTimestamp < sevenDaysAgo) {
-              console.log(`🗑️ [CLEANUP] Removing old completed item: ${item.filename} (age: ${Math.floor((Date.now() - itemTimestamp) / (24 * 60 * 60 * 1000))} days)`);
+              // console.log(`🗑️ [CLEANUP] Removing old completed item: ${item.filename} (age: ${Math.floor((Date.now() - itemTimestamp) / (24 * 60 * 60 * 1000))} days)`);
               ImportQueueManager.removeItem(item.id);
               removedOldCompleted++;
               continue;
@@ -1034,9 +1034,9 @@ export class ImportQueueService {
 
       if (removedInvalid > 0 || removedOldCompleted > 0) {
         await ImportQueueManager.saveState();
-        console.log(`✅ [CLEANUP] Removed ${removedInvalid} invalid backup(s) and ${removedOldCompleted} old completed item(s)`);
+        // console.log(`✅ [CLEANUP] Removed ${removedInvalid} invalid backup(s) and ${removedOldCompleted} old completed item(s)`);
       } else {
-        console.log('✅ [CLEANUP] Queue is clean, no items removed');
+        // console.log('✅ [CLEANUP] Queue is clean, no items removed');
       }
 
       ImportQueueManager.notifyListeners();

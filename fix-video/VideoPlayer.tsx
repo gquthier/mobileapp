@@ -18,7 +18,6 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Audio } from 'expo-av'; // ✅ Added for AVAudioSession configuration
 import { supabase, VideoRecord } from '../lib/supabase';
 import { useTheme } from '../hooks/useTheme';
 import { Icon } from './Icon';
@@ -141,45 +140,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     currentIndex,
     enabled: visible,
   });
-
-  // ✅ Configure AVAudioSession for iOS video playback
-  useEffect(() => {
-    if (!visible) return;
-
-    const setupAudioSession = async () => {
-      try {
-        console.log('[VideoPlayer] 🔊 Configuring AVAudioSession for playback');
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,        // Lecture seule, pas d'enregistrement
-          playsInSilentModeIOS: true,       // Jouer même en mode silencieux
-          interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX, // Exclusif, pas de mix
-          shouldDuckAndroid: false,         // Pas de baisse de volume Android
-          staysActiveInBackground: false,   // Pas actif en arrière-plan
-          playThroughEarpieceAndroid: false // Haut-parleurs sur Android
-        });
-        console.log('[VideoPlayer] ✅ AVAudioSession configured successfully');
-      } catch (error) {
-        console.error('[VideoPlayer] ❌ Failed to configure AVAudioSession:', error);
-      }
-    };
-
-    setupAudioSession();
-
-    // Cleanup au démontage
-    return () => {
-      console.log('[VideoPlayer] 🧹 Resetting AVAudioSession');
-      Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: false,
-        interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DO_NOT_MIX,
-        shouldDuckAndroid: false,
-        staysActiveInBackground: false,
-        playThroughEarpieceAndroid: false,
-      }).catch((error) => {
-        console.error('[VideoPlayer] ⚠️ Failed to reset AVAudioSession:', error);
-      });
-    };
-  }, [visible]);
 
   // Reset index when opening
   useEffect(() => {

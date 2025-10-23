@@ -237,7 +237,7 @@ export default function ChapterManagementScreen({ navigation }: ChapterManagemen
                       <Text style={styles.modalButtonText}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.modalButton, styles.modalButtonSave]}
+                      style={[styles.modalButton, { backgroundColor: brandColor }]}
                       onPress={handleSaveDates}
                     >
                       <Text style={[styles.modalButtonText, styles.modalButtonTextSave]}>
@@ -341,12 +341,13 @@ function ChapterManagementCard({
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.actionButton}
               onPress={onEditChapter}
               activeOpacity={0.7}
+              style={styles.editChapterLink}
             >
-              <Icon name="edit" size={16} color={staticTheme.colors.text.primary} />
-              <Text style={styles.actionButtonText}>Edit Chapter</Text>
+              <Text style={[styles.editChapterLinkText, { color: color || brandColor }]}>
+                Edit Chapter
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -517,6 +518,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: staticTheme.colors.text.primary,
   },
+  // Edit Chapter Link - Simple text style
+  editChapterLink: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editChapterLinkText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
   // Edit Dates Modal
   modalOverlay: {
     flex: 1,
@@ -527,7 +539,8 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '90%',
-    maxWidth: 400,
+    minWidth: 350, // ✅ Minimum width for comfortable date picker
+    maxWidth: 500, // ✅ Increased from 400 for better date picker display
     borderRadius: 16,
     padding: 24,
     overflow: 'hidden',
@@ -580,9 +593,7 @@ const styles = StyleSheet.create({
   modalButtonCancel: {
     backgroundColor: 'rgba(0, 0, 0, 0.05)',
   },
-  modalButtonSave: {
-    backgroundColor: staticTheme.colors.brand.primary,
-  },
+  // ✅ modalButtonSave removed - now using dynamic brandColor
   modalButtonText: {
     fontSize: 16,
     fontWeight: '600',

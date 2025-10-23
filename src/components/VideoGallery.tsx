@@ -53,6 +53,7 @@ interface VideoGalleryProps {
   onEndReached?: () => void;
   onEndReachedThreshold?: number;
   contentInsetTop?: number; // ✅ Padding top for floating header
+  refreshControl?: React.ReactElement; // ✅ Pull-to-refresh support
 }
 
 /**
@@ -65,6 +66,7 @@ const VideoGalleryComponent: React.FC<VideoGalleryProps> = ({
   onEndReached,
   onEndReachedThreshold = 0.8,
   contentInsetTop = 0, // ✅ Default to 0 if not provided
+  refreshControl, // ✅ Pull-to-refresh support
 }) => {
   const { brandColor } = useTheme();
   const flatListRef = useRef<FlatList>(null);
@@ -192,6 +194,7 @@ const VideoGalleryComponent: React.FC<VideoGalleryProps> = ({
         showsVerticalScrollIndicator={false}
         onEndReached={onEndReached}
         onEndReachedThreshold={onEndReachedThreshold}
+        refreshControl={refreshControl} // ✅ Pull-to-refresh
         // ✅ Performance optimizations
         removeClippedSubviews={true}
         maxToRenderPerBatch={8}

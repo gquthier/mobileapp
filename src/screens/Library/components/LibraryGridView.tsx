@@ -17,6 +17,7 @@ interface LibraryGridViewProps {
   onEndReached: () => void;
   onEndReachedThreshold?: number;
   contentInsetTop: number;
+  refreshControl?: React.ReactElement; // ✅ Pull-to-refresh support
 }
 
 export const LibraryGridView: React.FC<LibraryGridViewProps> = ({
@@ -25,6 +26,7 @@ export const LibraryGridView: React.FC<LibraryGridViewProps> = ({
   onEndReached,
   onEndReachedThreshold = 0.8,
   contentInsetTop,
+  refreshControl, // ✅ Pull-to-refresh support
 }) => {
   return (
     <VideoGallery
@@ -33,6 +35,7 @@ export const LibraryGridView: React.FC<LibraryGridViewProps> = ({
       onEndReached={onEndReached}
       onEndReachedThreshold={onEndReachedThreshold}
       contentInsetTop={contentInsetTop}
+      refreshControl={refreshControl}
     />
   );
 };

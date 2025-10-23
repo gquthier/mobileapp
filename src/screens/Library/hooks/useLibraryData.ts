@@ -103,30 +103,37 @@ export function useLibraryData(): UseLibraryDataReturn {
   });
 
   // Refs
-  const fetchVideosRef = useRef<(pageToLoad?: number, append?: boolean) => Promise<void>>();
+  const fetchVideosRef = useRef<(pageToLoad?: number, append?: boolean, silent?: boolean) => Promise<void>>();
   const cancelledRef = useRef(false);
 
   // 🚀 OPTIMIZATION: Fetch videos with non-blocking cache-first strategy
-  const fetchVideos = useCallback(async (pageToLoad: number = 0, append: boolean = false) => {
+  const fetchVideos = useCallback(async (pageToLoad: number = 0, append: boolean = false, silent: boolean = false) => {
     try {
       if (!append) {
         if (cancelledRef.current) return; // ✅ Check cancelled before setState
-        setLoading(true);
-        setError(null);
 
-        // 🚀 PHASE 1: Try cache first (fast, synchronous)
-        console.log('📦 Loading videos from cache...');
-        const cacheStartTime = Date.now();
-        const { videos: cachedVideos } = await VideoCacheService.loadFromCache();
-        const cacheElapsed = Date.now() - cacheStartTime;
+        // ✅ Silent refresh: skip loading state and cache, go directly to network
+        if (!silent) {
+          setLoading(true);
+          setError(null);
 
-        if (cachedVideos && cachedVideos.length > 0) {
-          console.log(`✅ Cache hit! Loaded ${cachedVideos.length} videos in ${cacheElapsed}ms`);
-          if (cancelledRef.current) return; // ✅ Check cancelled before dispatch
-          setVideos(cachedVideos);
-          setLoading(false);
+          // 🚀 PHASE 1: Try cache first (fast, synchronous)
+          console.log('📦 Loading videos from cache...');
+          const cacheStartTime = Date.now();
+          const { videos: cachedVideos } = await VideoCacheService.loadFromCache();
+          const cacheElapsed = Date.now() - cacheStartTime;
+
+          if (cachedVideos && cachedVideos.length > 0) {
+            console.log(`✅ Cache hit! Loaded ${cachedVideos.length} videos in ${cacheElapsed}ms`);
+            if (cancelledRef.current) return; // ✅ Check cancelled before dispatch
+            setVideos(cachedVideos);
+            setLoading(false);
+          } else {
+            console.log('💨 Cache miss, showing skeleton...');
+          }
         } else {
-          console.log('💨 Cache miss, showing skeleton...');
+          console.log('🔄 Silent refresh - keeping current UI, fetching from network...');
+          setError(null);
         }
       } else {
         // Pagination: Loading more

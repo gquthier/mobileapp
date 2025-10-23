@@ -66,18 +66,6 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
     }
   }, [isNearby, shouldLoadPlayer, video.id])
 
-  // ✅ Log video URI for debugging
-  useEffect(() => {
-    if (videoUri && shouldLoadPlayer) {
-      console.log(`[VideoCard ${video.id.substring(0, 8)}] 📹 Video URI:`, {
-        uri: videoUri.substring(0, 150),
-        isLocal: videoUri.startsWith('file://'),
-        isHTTPS: videoUri.startsWith('https://'),
-        isHTTP: videoUri.startsWith('http://')
-      })
-    }
-  }, [videoUri, shouldLoadPlayer, video.id])
-
   // ✅ CRITICAL: Only create player if shouldLoadPlayer=true
   // If false, return null → this prevents creating 48 players at once!
   // 🔧 FIX: Empty callback to avoid race condition with useEffect play/pause
@@ -213,7 +201,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
    * 3. Pause immédiate si devient inactive
    * 4. GUARD: Empêche les doubles play() sans pause() intermédiaire
    * 5. 🎯 SEGMENT MODE: Démarre au timestamp du highlight si is_segment = true
-   * 🔧 FIX: `player` MUST be in deps so useEffect re-triggers when player becomes available
+   * ✅ FIX: Ne PAS inclure `player` dans les dépendances pour éviter re-triggers
    */
   useEffect(() => {
     if (!player) return
@@ -280,7 +268,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
         isPlayingRef.current = false
       }
     }
-  }, [player, isActive, video.is_segment, video.segment_start_time, isMuted, video.id]) // 🔧 FIX: Added 'player' back
+  }, [isActive, video.is_segment, video.segment_start_time, isMuted]) // ✅ FIXED: Removed 'player' from dependencies
 
   /**
    * 🆕 Mute/unmute avec expo-video (séparé pour les changements de préférence)
@@ -292,7 +280,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
     player.muted = isMuted
     player.volume = isMuted ? 0 : 1
     console.log(`[VideoCard ${video.id.substring(0, 8)}] 🔊 Mute changed: ${isMuted}`)
-  }, [player, isMuted, isActive, video.id]) // 🔧 FIX: Added 'player' for consistency
+  }, [isMuted, isActive]) // ✅ FIXED: Removed 'player' from dependencies
 
   /**
    * 🆕 Speed control (1.6x playback)
@@ -303,11 +291,10 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
     if (isSpeedUp) {
       console.log(`[VideoCard ${video.id.substring(0, 8)}] Speed: 1.6x ⚡`)
     }
-  }, [player, isSpeedUp, video.id]) // 🔧 FIX: Added 'player' for consistency
+  }, [isSpeedUp]) // ✅ FIXED: Removed 'player' from dependencies
 
   /**
    * 🆕 Listen to player events (expo-video)
-   * ✅ Enhanced with detailed error logging
    */
   useEffect(() => {
     if (!player) return
@@ -320,7 +307,6 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
     playingListenerRef.current = player.addListener('playingChange', (newStatus) => {
       if (newStatus.isPlaying && isLoading) {
         setIsLoading(false)
-        console.log(`[VideoCard ${video.id.substring(0, 8)}] ✅ Video started playing`)
       }
     })
 
@@ -330,17 +316,10 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
         setIsLoading(false)
         setHasError(false) // ✅ Clear error if video loads successfully
         errorRetryCount.current = 0 // Reset retry count
-        console.log(`[VideoCard ${video.id.substring(0, 8)}] ✅ Player ready to play`)
       } else if (newStatus.status === 'error') {
-        // ✅ Enhanced error logging with details
+        // ✅ Only log errors for ACTIVE videos (not background players)
         if (isActive) {
-          console.error(`[VideoCard ${video.id.substring(0, 8)}] 🚨 Player error details:`, {
-            message: newStatus.error?.message,
-            code: newStatus.error?.code,
-            details: newStatus.error,
-            videoUri: videoUri?.substring(0, 100),
-            attempt: errorRetryCount.current + 1
-          })
+          console.warn(`⚠️ [VideoCard] Video loading error (attempt ${errorRetryCount.current + 1}/3):`, newStatus.error?.message)
 
           // ✅ Retry logic: Try 3 times before showing error
           if (errorRetryCount.current < 3) {
@@ -473,40 +452,24 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
 
   /**
    * Cleanup au unmount - FORCE STOP du player
-   * ✅ FIX: Protection contre NativeSharedObjectNotFoundException
+   * ✅ FIX: Ne PAS inclure `player` dans les dépendances pour éviter cleanup prématuré
    */
   useEffect(() => {
     // Capture player ref au moment du mount pour le cleanup
     const playerRef = player
 
     return () => {
-      // ✅ Check if player still exists before cleanup
-      if (!playerRef) {
-        console.log(`[VideoCard ${video.id.substring(0, 8)}] 🧹 Skipping cleanup: no player`)
-        return
-      }
-
       // 🚨 FORCE: Arrêter complètement le player avant unmount
-      try {
-        console.log(`[VideoCard ${video.id.substring(0, 8)}] 🧹 Cleanup: Stopping player`)
-
-        // ✅ Check each property exists before calling
-        if (typeof playerRef.pause === 'function') {
+      if (playerRef) {
+        try {
+          console.log(`[VideoCard ${video.id.substring(0, 8)}] 🧹 Cleanup: Stopping player`)
           playerRef.pause()
-        }
-        if ('currentTime' in playerRef) {
           playerRef.currentTime = 0
-        }
-        if ('volume' in playerRef) {
           playerRef.volume = 0
-        }
-        if ('muted' in playerRef) {
           playerRef.muted = true
-        }
-      } catch (error: any) {
-        // ✅ Only log if it's NOT the expected NativeSharedObjectNotFoundException
-        if (!error?.message?.includes('NativeSharedObjectNotFoundException')) {
-          console.warn(`[VideoCard ${video.id.substring(0, 8)}] ⚠️ Cleanup error:`, error?.message)
+        } catch (error) {
+          // ✅ Silently catch - player already destroyed by expo-video (normal race condition)
+          // No need to log this error, it's expected behavior during fast unmount
         }
       }
 
@@ -525,7 +488,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
 
       console.log(`[VideoCard] 🗑️ Unmounted video ${video.id.substring(0, 8)}`)
     }
-  }, [video.id]) // ✅ Dependencies: only video.id to avoid re-creating cleanup
+  }, [video.id]) // ✅ FIXED: Removed 'player' from dependencies
 
   return (
     <View style={styles.container}>
