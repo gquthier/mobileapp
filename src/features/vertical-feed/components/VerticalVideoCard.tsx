@@ -199,6 +199,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
    * 3. Pause immédiate si devient inactive
    * 4. GUARD: Empêche les doubles play() sans pause() intermédiaire
    * 5. 🎯 SEGMENT MODE: Démarre au timestamp du highlight si is_segment = true
+   * ✅ FIX: Ne PAS inclure `player` dans les dépendances pour éviter re-triggers
    */
   useEffect(() => {
     if (!player) return
@@ -242,17 +243,19 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
       player.volume = 0 // 🚨 FORCE VOLUME à 0
       isPlayingRef.current = false // Marquer comme en pause
     }
-  }, [isActive, player, video.is_segment, video.segment_start_time]) // Réagir aux changements pertinents
+  }, [isActive, video.is_segment, video.segment_start_time, isMuted]) // ✅ FIXED: Removed 'player' from dependencies
 
   /**
    * 🆕 Mute/unmute avec expo-video (séparé pour les changements de préférence)
+   * ✅ Note: isMuted changes are already handled in main play/pause useEffect
+   * This effect is now redundant but kept for explicit mute toggle handling
    */
   useEffect(() => {
     if (!player || !isActive) return // Only apply to active video
     player.muted = isMuted
     player.volume = isMuted ? 0 : 1
     console.log(`[VideoCard ${video.id.substring(0, 8)}] 🔊 Mute changed: ${isMuted}`)
-  }, [isMuted, player, isActive])
+  }, [isMuted, isActive]) // ✅ FIXED: Removed 'player' from dependencies
 
   /**
    * 🆕 Speed control (1.6x playback)
@@ -263,7 +266,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
     if (isSpeedUp) {
       console.log(`[VideoCard ${video.id.substring(0, 8)}] Speed: 1.6x ⚡`)
     }
-  }, [isSpeedUp, player])
+  }, [isSpeedUp]) // ✅ FIXED: Removed 'player' from dependencies
 
   /**
    * 🆕 Listen to player events (expo-video)
@@ -339,6 +342,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
 
   /**
    * 🆕 Listen to playToEnd event - Auto-scroll to next video
+   * ✅ FIX: Keep player in deps since we need to re-attach listener when player changes
    */
   useEffect(() => {
     if (!player || !isActive) return // Only for active video
@@ -351,7 +355,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
     return () => {
       playToEndListener.remove()
     }
-  }, [player, isActive, onVideoEnd, video.id])
+  }, [player, isActive, onVideoEnd, video.id]) // ✅ OK: player needed for listener re-attach
 
   /**
    * 🎯 SEGMENT MODE: Monitor playback time and stop at segment_end_time
@@ -423,17 +427,21 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
 
   /**
    * Cleanup au unmount - FORCE STOP du player
+   * ✅ FIX: Ne PAS inclure `player` dans les dépendances pour éviter cleanup prématuré
    */
   useEffect(() => {
+    // Capture player ref au moment du mount pour le cleanup
+    const playerRef = player
+
     return () => {
       // 🚨 FORCE: Arrêter complètement le player avant unmount
-      if (player) {
+      if (playerRef) {
         try {
           console.log(`[VideoCard ${video.id.substring(0, 8)}] 🧹 Cleanup: Stopping player`)
-          player.pause()
-          player.currentTime = 0
-          player.volume = 0
-          player.muted = true
+          playerRef.pause()
+          playerRef.currentTime = 0
+          playerRef.volume = 0
+          playerRef.muted = true
         } catch (error) {
           // ✅ Silently catch - player already destroyed by expo-video (normal race condition)
           // No need to log this error, it's expected behavior during fast unmount
@@ -455,7 +463,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
 
       console.log(`[VideoCard] 🗑️ Unmounted video ${video.id.substring(0, 8)}`)
     }
-  }, [video.id, player])
+  }, [video.id]) // ✅ FIXED: Removed 'player' from dependencies
 
   return (
     <View style={styles.container}>
