@@ -309,6 +309,7 @@ function recordingReducer(state: RecordingState, action: RecordingAction): Recor
       return {
         ...state,
         questionsCache: action.payload,
+        cacheIndex: 0, // Reset index when setting new cache
       };
 
     case 'SET_LOADING_CACHE':
@@ -821,7 +822,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
     const loadPromise = (async () => {
       try {
-        setIsLoadingCache(true);
+        dispatch({ type: 'SET_LOADING_CACHE', payload: true });
 
         // ✅ Vérifier d'abord le cache local AsyncStorage
         try {
@@ -832,9 +833,8 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
             if (cacheAge < CACHE_EXPIRY_MS) {
               console.log('✅ Using cached questions from AsyncStorage (age: ' + Math.round(cacheAge / 1000) + 's)');
-              setQuestionsCache(parsed.questions);
-              setCacheIndex(0);
-              setFallbackToStatic(false);
+              dispatch({ type: 'SET_QUESTIONS_CACHE', payload: parsed.questions });
+              // fallbackToStatic reset by having questions in cache
               return; // Cache valide, pas besoin de fetch
             } else {
               console.log('⏰ Cache expired, fetching fresh questions');
@@ -851,9 +851,8 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         if (questions.length > 0) {
           // Take up to 30 questions for cache
           const questionsToCache = questions.slice(0, 30);
-          setQuestionsCache(questionsToCache);
-          setCacheIndex(0);
-          setFallbackToStatic(false); // Switch back to AI questions
+          dispatch({ type: 'SET_QUESTIONS_CACHE', payload: questionsToCache });
+          // fallbackToStatic reset by having questions in cache
           console.log(`✅ Preloaded ${questionsToCache.length} questions into cache`);
 
           // ✅ Sauvegarder dans AsyncStorage
@@ -877,7 +876,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         startPollingForAIQuestions(); // Start checking for AI questions
         throw error; // Re-throw pour que les appelants puissent gérer l'erreur
       } finally {
-        setIsLoadingCache(false);
+        dispatch({ type: 'SET_LOADING_CACHE', payload: false });
         isPreloadingRef.current = false;
         preloadPromiseRef.current = null; // Reset pour permettre futurs appels
       }
@@ -892,12 +891,12 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     const setupOrientation = async () => {
       // Get current orientation
       const currentOrientation = await ScreenOrientation.getOrientationAsync();
-      setOrientation(currentOrientation);
+      dispatch({ type: 'SET_ORIENTATION', payload: currentOrientation });
 
       // Listen for orientation changes
       const subscription = ScreenOrientation.addOrientationChangeListener((event) => {
         console.log('📱 Orientation changed:', event.orientationInfo.orientation);
-        setOrientation(event.orientationInfo.orientation);
+        dispatch({ type: 'SET_ORIENTATION', payload: event.orientationInfo.orientation });
       });
 
       return () => {
@@ -1112,7 +1111,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
     if (showControls) {
       // Si les contrôles sont visibles, les masquer
-      setShowControls(false);
+      dispatch({ type: 'TOGGLE_CONTROLS', payload: false });
       navigation.setParams({ showControls: false });
 
       // Clear le timeout s'il existe
@@ -1122,7 +1121,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       }
     } else {
       // Si les contrôles sont masqués, les afficher
-      setShowControls(true);
+      dispatch({ type: 'TOGGLE_CONTROLS', payload: true });
       navigation.setParams({ showControls: true });
 
       // Clear existing timeout
@@ -1132,7 +1131,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
       // Hide controls after 3 seconds
       controlsTimeoutRef.current = setTimeout(() => {
-        setShowControls(false);
+        dispatch({ type: 'TOGGLE_CONTROLS', payload: false });
         navigation.setParams({ showControls: false });
       }, 3000);
     }
@@ -1176,13 +1175,12 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
     // ✅ ALWAYS show long press indicator (whether recording or not)
     console.log('📍 Showing long press indicator');
-    setIsLongPressing(true);
-    setLongPressPosition({ x: pageX, y: pageY });
+    dispatch({ type: 'START_LONG_PRESS', payload: { x: pageX, y: pageY } });
   };
 
   const handleLongPressComplete = () => {
     console.log('✅ Long press completed (0.5 seconds)');
-    setIsLongPressing(false);
+    dispatch({ type: 'END_LONG_PRESS' });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
     const isModal = route.params?.isModal;
@@ -1327,7 +1325,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     console.log('❌ Touch ended - Duration:', duration, 'ms');
 
     // Reset long press indicator
-    setIsLongPressing(false);
+    dispatch({ type: 'END_LONG_PRESS' });
 
     // If released before 0.5 seconds (500ms), it's a TAP not a LONG PRESS
     if (duration < 500) {
@@ -1369,7 +1367,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       if (questionsCache.length > 0 && cacheIndex < questionsCache.length) {
         const nextQuestion = questionsCache[cacheIndex];
         dispatch({ type: 'SET_QUESTION', payload: nextQuestion });
-        setFallbackToStatic(false);
+        // fallbackToStatic will be false when using AI questions (no need to set explicitly)
         console.log(`✅ Loaded question from cache [${cacheIndex + 1}/${questionsCache.length}]:`, nextQuestion.question_text);
 
         // Check if cache is running low (<10 questions left)
@@ -1386,7 +1384,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         // Try again from fresh cache
         if (questionsCache.length > 0) {
           dispatch({ type: 'SET_QUESTION', payload: questionsCache[0] });
-          setFallbackToStatic(false);
+          // fallbackToStatic will be false when using AI questions
         } else {
           // No AI questions available, use static fallback
           console.log('⚠️ No AI questions available, using static fallback');
@@ -1416,11 +1414,13 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
       // Check if we have the next question in cache
       if (questionsCache.length > 0 && nextIndex < questionsCache.length) {
-        // 1. AFFICHER LA PROCHAINE QUESTION IMMÉDIATEMENT (synchrone, 0ms!)
+        // 1. Increment cache index FIRST
+        dispatch({ type: 'NEXT_QUESTION' });
+
+        // 2. AFFICHER LA PROCHAINE QUESTION IMMÉDIATEMENT (synchrone, 0ms!)
         const nextQuestion = questionsCache[nextIndex];
         dispatch({ type: 'SET_QUESTION', payload: nextQuestion });
-        setCacheIndex(nextIndex);
-        setFallbackToStatic(false);
+        // fallbackToStatic will be false when using AI questions
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         console.log(`✅ Loaded question from cache [${nextIndex + 1}/${questionsCache.length}]:`, nextQuestion.question_text);
 
@@ -1535,7 +1535,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     console.log('▶️ Resuming recording...');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     dispatch({ type: 'HIDE_RECORDING_CONTROLS' });
-    setIsPaused(false);
+    dispatch({ type: 'RESUME_RECORDING' });
     navigation.setParams({ isPaused: false });
   };
 
