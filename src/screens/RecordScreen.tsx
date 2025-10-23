@@ -1398,7 +1398,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
             order_index: 0,
             is_used: false,
             created_at: new Date().toISOString()
-          } as UserQuestion });
+          } });
         }
       }
     } catch (error) {
@@ -1457,7 +1457,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
           order_index: 0,
           is_used: false,
           created_at: new Date().toISOString(),
-        } as UserQuestion });
+        } });
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
         // Start background polling for AI questions
@@ -1481,7 +1481,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         order_index: 0,
         is_used: false,
         created_at: new Date().toISOString()
-      } as UserQuestion);
+      } });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   };
