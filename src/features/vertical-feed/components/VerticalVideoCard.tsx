@@ -203,30 +203,53 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
 
       // ✅ SEGMENT MODE: Start at highlight timestamp
       const startTime = isSegment ? segmentStartTime : 0
-      player.currentTime = startTime
-      player.muted = isMuted // Respecter la préférence
-      player.volume = isMuted ? 0 : 1
 
-      if (isSegment) {
-        console.log(`[VideoCard ${video.id.substring(0, 8)}] ▶️  Playing SEGMENT from ${startTime}s (muted=${isMuted})`)
-      } else {
-        console.log(`[VideoCard ${video.id.substring(0, 8)}] ▶️  Playing from start (muted=${isMuted})`)
+      try {
+        player.currentTime = startTime
+        player.muted = isMuted // Respecter la préférence
+        player.volume = isMuted ? 0 : 1
+
+        if (isSegment) {
+          console.log(`[VideoCard ${video.id.substring(0, 8)}] ▶️  Playing SEGMENT from ${startTime}s (muted=${isMuted})`)
+        } else {
+          console.log(`[VideoCard ${video.id.substring(0, 8)}] ▶️  Playing from start (muted=${isMuted})`)
+        }
+
+        player.play()
+        isPlayingRef.current = true // Marquer comme en lecture
+      } catch (error) {
+        console.warn(`[VideoCard ${video.id.substring(0, 8)}] ⚠️  Play failed (player not ready):`, error)
+        // Retry after player loads
+        setTimeout(() => {
+          try {
+            player.currentTime = startTime
+            player.muted = isMuted
+            player.volume = isMuted ? 0 : 1
+            player.play()
+            isPlayingRef.current = true
+            console.log(`[VideoCard ${video.id.substring(0, 8)}] ✅ Play retry successful`)
+          } catch (retryError) {
+            console.error(`[VideoCard ${video.id.substring(0, 8)}] ❌ Play retry failed:`, retryError)
+          }
+        }, 1000)
       }
-
-      player.play()
-      isPlayingRef.current = true // Marquer comme en lecture
     } else {
       // ✅ TOUJOURS FORCER pause ET mute sur vidéos inactives
       console.log(`[VideoCard ${video.id.substring(0, 8)}] ⏸️  Forcing pause + mute`)
-      player.pause()
+      try {
+        player.pause()
 
-      // Reset to segment start or 0
-      const resetTime = isSegment ? segmentStartTime : 0
-      player.currentTime = resetTime
+        // Reset to segment start or 0
+        const resetTime = isSegment ? segmentStartTime : 0
+        player.currentTime = resetTime
 
-      player.muted = true // 🚨 FORCE MUTE pour éviter audio en background
-      player.volume = 0 // 🚨 FORCE VOLUME à 0
-      isPlayingRef.current = false // Marquer comme en pause
+        player.muted = true // 🚨 FORCE MUTE pour éviter audio en background
+        player.volume = 0 // 🚨 FORCE VOLUME à 0
+        isPlayingRef.current = false // Marquer comme en pause
+      } catch (error) {
+        // Silently fail if player already destroyed
+        isPlayingRef.current = false
+      }
     }
   }, [isActive, video.is_segment, video.segment_start_time, isMuted]) // ✅ FIXED: Removed 'player' from dependencies
 

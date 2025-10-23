@@ -267,9 +267,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (initialTimestamp && initialTimestamp > 0) {
       setTimeout(() => {
         if (activePlayerRef.current) {
-          console.log('[VideoPlayer] ⏩ Seeking to initial timestamp:', initialTimestamp, 'seconds');
-          activePlayerRef.current.currentTime = initialTimestamp;
-          activePlayerRef.current.play();
+          try {
+            console.log('[VideoPlayer] ⏩ Seeking to initial timestamp:', initialTimestamp, 'seconds');
+            activePlayerRef.current.currentTime = initialTimestamp;
+            activePlayerRef.current.play();
+            console.log('[VideoPlayer] ✅ Seek successful');
+          } catch (error) {
+            console.warn('[VideoPlayer] ⚠️ Seek failed (player not ready):', error);
+            // Retry after 1s if player wasn't ready
+            setTimeout(() => {
+              try {
+                if (activePlayerRef.current) {
+                  activePlayerRef.current.currentTime = initialTimestamp;
+                  activePlayerRef.current.play();
+                  console.log('[VideoPlayer] ✅ Seek retry successful');
+                }
+              } catch (retryError) {
+                console.error('[VideoPlayer] ❌ Seek retry failed:', retryError);
+              }
+            }, 1000);
+          }
         }
       }, 500); // Small delay to ensure player is fully ready
     }
@@ -297,7 +314,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setTempPosition(newPosition);
 
         // Mise à jour fluide de la vidéo en temps réel (expo-video)
-        activePlayerRef.current.currentTime = newPosition;
+        try {
+          activePlayerRef.current.currentTime = newPosition;
+        } catch (error) {
+          // Silently fail if player not ready (user is still scrubbing)
+        }
       });
     }
   }, [duration]);
@@ -315,7 +336,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const newPosition = (progressPercentage / 100) * duration;
 
         // Position finale au relâchement
-        activePlayerRef.current.currentTime = newPosition;
+        try {
+          activePlayerRef.current.currentTime = newPosition;
+        } catch (error) {
+          console.warn('[VideoPlayer] ⚠️ Failed to seek on touch end:', error);
+        }
 
         // Réinitialiser isDragging après le touch
         setIsDragging(false);
@@ -328,9 +353,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
    */
   const handleHighlightPress = useCallback((timestamp: number) => {
     if (activePlayerRef.current) {
-      console.log('[VideoPlayer] ⏩ Seeking to', timestamp, 'seconds');
-      activePlayerRef.current.currentTime = timestamp;
-      activePlayerRef.current.play();
+      try {
+        console.log('[VideoPlayer] ⏩ Seeking to', timestamp, 'seconds');
+        activePlayerRef.current.currentTime = timestamp;
+        activePlayerRef.current.play();
+        console.log('[VideoPlayer] ✅ Highlight seek successful');
+      } catch (error) {
+        console.warn('[VideoPlayer] ⚠️ Highlight seek failed (player not ready):', error);
+        // Retry after 500ms
+        setTimeout(() => {
+          try {
+            if (activePlayerRef.current) {
+              activePlayerRef.current.currentTime = timestamp;
+              activePlayerRef.current.play();
+              console.log('[VideoPlayer] ✅ Highlight seek retry successful');
+            }
+          } catch (retryError) {
+            console.error('[VideoPlayer] ❌ Highlight seek retry failed:', retryError);
+          }
+        }, 500);
+      }
     } else {
       console.warn('[VideoPlayer] ⚠️ No active player to seek');
     }
