@@ -766,7 +766,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       await preloadQuestionsCache();
     } catch (error) {
       console.error('❌ Failed to initialize questions:', error);
-      setFallbackToStatic(true);
+      dispatch({ type: 'ENABLE_FALLBACK' });
     }
   };
 
@@ -869,12 +869,12 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
           }
         } else {
           console.log('⚠️ No AI questions available for cache, will use static');
-          setFallbackToStatic(true);
+          dispatch({ type: 'ENABLE_FALLBACK' });
           startPollingForAIQuestions(); // Start checking for AI questions
         }
       } catch (error) {
         console.error('❌ Error preloading questions cache:', error);
-        setFallbackToStatic(true);
+        dispatch({ type: 'ENABLE_FALLBACK' });
         startPollingForAIQuestions(); // Start checking for AI questions
         throw error; // Re-throw pour que les appelants puissent gérer l'erreur
       } finally {
@@ -1062,7 +1062,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
           console.log('⏳ Waiting for iOS to release camera session...');
           await new Promise(resolve => setTimeout(resolve, 300));
           console.log('🔄 Remounting camera after permission grant');
-          setCameraKey(prev => prev + 1);
+          dispatch({ type: 'REMOUNT_CAMERA' });
         }
       } else {
         console.log('✅ Camera permission already granted via hook, skipping request');
@@ -1192,7 +1192,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     if (isModal && isRecording) {
       console.log('⏸️ Modal long press during recording: Pausing + showing controls...');
       pauseRecording();
-      setShowRecordingControls(true);
+      dispatch({ type: 'SHOW_RECORDING_CONTROLS' });
       return;
     }
 
@@ -1348,7 +1348,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
   };
 
   const toggleFlash = () => {
-    setFlashEnabled(!flashEnabled);
+    dispatch({ type: 'TOGGLE_FLASH' });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
@@ -1392,7 +1392,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         } else {
           // No AI questions available, use static fallback
           console.log('⚠️ No AI questions available, using static fallback');
-          setFallbackToStatic(true);
+          dispatch({ type: 'ENABLE_FALLBACK' });
           const staticQuestion = getRandomQuestion();
           setCurrentQuestion({
             id: 'static',
@@ -1407,7 +1407,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       }
     } catch (error) {
       console.error('❌ Error loading question:', error);
-      setFallbackToStatic(true);
+      dispatch({ type: 'ENABLE_FALLBACK' });
     }
   };
 
@@ -1449,7 +1449,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         // Cache exhausted - IMMEDIATELY show static question (0ms latency!)
         console.log('⚠️ Cache exhausted, switching to static question IMMEDIATELY');
 
-        setFallbackToStatic(true);
+        dispatch({ type: 'ENABLE_FALLBACK' });
         const staticQuestion = getRandomQuestion();
         setCurrentQuestion({
           id: 'static',
@@ -1473,7 +1473,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     } catch (error) {
       console.error('❌ Error getting new question:', error);
       // Fallback to static question on error
-      setFallbackToStatic(true);
+      dispatch({ type: 'ENABLE_FALLBACK' });
       const staticQuestion = getRandomQuestion();
       setCurrentQuestion({
         id: 'static',
@@ -1536,7 +1536,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
   const handleResumeRecording = () => {
     console.log('▶️ Resuming recording...');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setShowRecordingControls(false);
+    dispatch({ type: 'HIDE_RECORDING_CONTROLS' });
     setIsPaused(false);
     navigation.setParams({ isPaused: false });
   };
@@ -1634,10 +1634,8 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       if (!video) {
         console.error('❌ recordAsync returned null/undefined video object');
         Alert.alert('Recording Error', 'Failed to record video. Please try again.');
-        setIsRecording(false);
-        setIsPaused(false);
-        setShowControls(true);
-        setRecordingTime(0);
+        // ✅ PHASE 2: STOP_RECORDING handles all 4 state updates
+        dispatch({ type: 'STOP_RECORDING' });
         navigation.setParams({ isRecording: false, showControls: true, isPaused: false });
 
         // ✅ Close modal if error occurred in modal
@@ -1818,7 +1816,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     // Hide controls
-    setShowRecordingControls(false);
+    dispatch({ type: 'HIDE_RECORDING_CONTROLS' });
 
     // ✅ Set a flag to bypass the validation modal in startRecording()
     const bypassValidationRef = { current: true };
@@ -1840,7 +1838,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     // Hide controls
-    setShowRecordingControls(false);
+    dispatch({ type: 'HIDE_RECORDING_CONTROLS' });
 
     // Close validation modal if it's shown
     setShowValidationModal(false);
