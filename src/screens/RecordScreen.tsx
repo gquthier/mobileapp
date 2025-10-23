@@ -525,8 +525,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         const { pageX, pageY } = event.nativeEvent;
         console.log('👆 [DRAG] Touch started at:', pageX, pageY);
 
-        setIsDragging(true);
-        setDragFingerPosition({ x: pageX, y: pageY });
+        dispatch({ type: 'START_DRAG', payload: { x: pageX, y: pageY } });
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
         // Fade in finger indicator and zones
@@ -553,15 +552,17 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         if (!isRecording) return;
 
         const { pageX, pageY } = event.nativeEvent;
-        setDragFingerPosition({ x: pageX, y: pageY });
 
         // Determine which zone we're in
         const zone = determineDragZone(pageX);
 
         if (zone !== dragCurrentZone) {
-          setDragCurrentZone(zone);
+          dispatch({ type: 'UPDATE_DRAG', payload: { x: pageX, y: pageY, zone } });
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           console.log('🎯 [DRAG] Entered zone:', zone);
+        } else {
+          // Just update position without zone change
+          setDragFingerPosition({ x: pageX, y: pageY });
         }
       },
 
@@ -607,13 +608,11 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         }
 
         // Reset state
-        setIsDragging(false);
-        setDragCurrentZone(null);
+        dispatch({ type: 'END_DRAG' });
       },
 
       onPanResponderTerminate: () => {
-        setIsDragging(false);
-        setDragCurrentZone(null);
+        dispatch({ type: 'END_DRAG' });
         Animated.parallel([
           Animated.timing(dragFingerOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
           Animated.timing(dragDeleteZoneOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
@@ -1257,7 +1256,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     }
 
     // Close modal immediately
-    setShowValidationModal(false);
+    dispatch({ type: 'HIDE_VALIDATION' });
 
     // EXTRACTION AUDIO : Same as before
     if (Platform.OS === 'ios') {
@@ -1288,7 +1287,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
     // Sauvegarder la vidéo (EXACTLY like the old flow)
     await handleAutoSaveVideo(pendingVideoUri, autoTitle);
-    setPendingVideoUri(null);
+    // pendingVideoUri already cleared by HIDE_VALIDATION
 
     // ✅ FERMER LE MODAL et revenir au tab Record normal
     if (navigation.canGoBack()) {
@@ -1300,7 +1299,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
   const handleCancelValidation = () => {
     // User cancelled - delete the recording
     console.log('❌ User cancelled - deleting recording');
-    setShowValidationModal(false);
+    dispatch({ type: 'HIDE_VALIDATION' });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     // ✅ FERMER LE MODAL et revenir au tab Record normal
@@ -1312,8 +1311,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     // Réinitialiser l'état d'enregistrement
     navigation.setParams({ isRecording: false });
 
-    // Supprimer l'URI en attente sans sauvegarder
-    setPendingVideoUri(null);
+    // pendingVideoUri already cleared by HIDE_VALIDATION
   };
 
   const handleTouchEnd = (event?: any) => {
@@ -1357,7 +1355,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       // Charger la première question quand on ouvre
       await loadNextQuestion();
     }
-    setShowQuestions(!showQuestions);
+    dispatch({ type: showQuestions ? 'HIDE_QUESTIONS' : 'SHOW_QUESTIONS' });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
@@ -1370,7 +1368,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       // Check if we have questions in cache
       if (questionsCache.length > 0 && cacheIndex < questionsCache.length) {
         const nextQuestion = questionsCache[cacheIndex];
-        setCurrentQuestion(nextQuestion);
+        dispatch({ type: 'SET_QUESTION', payload: nextQuestion });
         setFallbackToStatic(false);
         console.log(`✅ Loaded question from cache [${cacheIndex + 1}/${questionsCache.length}]:`, nextQuestion.question_text);
 
@@ -1387,14 +1385,14 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
         // Try again from fresh cache
         if (questionsCache.length > 0) {
-          setCurrentQuestion(questionsCache[0]);
+          dispatch({ type: 'SET_QUESTION', payload: questionsCache[0] });
           setFallbackToStatic(false);
         } else {
           // No AI questions available, use static fallback
           console.log('⚠️ No AI questions available, using static fallback');
           dispatch({ type: 'ENABLE_FALLBACK' });
           const staticQuestion = getRandomQuestion();
-          setCurrentQuestion({
+          dispatch({ type: 'SET_QUESTION', payload: {
             id: 'static',
             user_id: '',
             question_text: staticQuestion.question,
@@ -1402,7 +1400,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
             order_index: 0,
             is_used: false,
             created_at: new Date().toISOString()
-          } as UserQuestion);
+          } as UserQuestion });
         }
       }
     } catch (error) {
@@ -1420,7 +1418,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       if (questionsCache.length > 0 && nextIndex < questionsCache.length) {
         // 1. AFFICHER LA PROCHAINE QUESTION IMMÉDIATEMENT (synchrone, 0ms!)
         const nextQuestion = questionsCache[nextIndex];
-        setCurrentQuestion(nextQuestion);
+        dispatch({ type: 'SET_QUESTION', payload: nextQuestion });
         setCacheIndex(nextIndex);
         setFallbackToStatic(false);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1451,7 +1449,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
         dispatch({ type: 'ENABLE_FALLBACK' });
         const staticQuestion = getRandomQuestion();
-        setCurrentQuestion({
+        dispatch({ type: 'SET_QUESTION', payload: {
           id: 'static',
           user_id: '',
           question_text: staticQuestion.question,
@@ -1459,7 +1457,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
           order_index: 0,
           is_used: false,
           created_at: new Date().toISOString(),
-        } as UserQuestion);
+        } as UserQuestion });
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
         // Start background polling for AI questions
@@ -1475,7 +1473,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       // Fallback to static question on error
       dispatch({ type: 'ENABLE_FALLBACK' });
       const staticQuestion = getRandomQuestion();
-      setCurrentQuestion({
+      dispatch({ type: 'SET_QUESTION', payload: {
         id: 'static',
         user_id: '',
         question_text: staticQuestion.question,
@@ -1652,10 +1650,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       if (!video.uri) {
         console.error('❌ recordAsync returned video without URI:', JSON.stringify(video, null, 2));
         Alert.alert('Recording Error', 'Video was recorded but no file path was provided. Please try again.');
-        setIsRecording(false);
-        setIsPaused(false);
-        setShowControls(true);
-        setRecordingTime(0);
+        dispatch({ type: 'STOP_RECORDING' });
         navigation.setParams({ isRecording: false, showControls: true, isPaused: false });
 
         // ✅ Close modal if error occurred in modal
@@ -1694,10 +1689,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         }
 
         // Reset recording states
-        setIsRecording(false);
-        setIsPaused(false);
-        setShowControls(true);
-        setRecordingTime(0);
+        dispatch({ type: 'STOP_RECORDING' });
         navigation.setParams({ isRecording: false, showControls: true, isPaused: false });
 
         // ✅ Check if we should bypass the validation modal (user clicked Save button)
@@ -1722,8 +1714,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
         } else {
           // ✅ Normal flow: SHOW VALIDATION MODAL
           console.log('📝 Recording complete, showing validation modal...');
-          setPendingVideoUri(video.uri);
-          setShowValidationModal(true);
+          dispatch({ type: 'SHOW_VALIDATION', payload: video.uri });
           console.log('✅ Validation modal shown with video URI ready:', video.uri);
         }
       }
@@ -1737,10 +1728,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       console.log('🔓 recordAsyncActiveRef reset to false after error');
 
       // Réinitialiser l'état même en cas d'erreur
-      setIsRecording(false);
-      setIsPaused(false);
-      setShowControls(true);
-      setRecordingTime(0);
+      dispatch({ type: 'STOP_RECORDING' });
       navigation.setParams({ isRecording: false, showControls: true, isPaused: false });
 
       // ✅ Close modal if error occurred in modal
@@ -1841,7 +1829,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     dispatch({ type: 'HIDE_RECORDING_CONTROLS' });
 
     // Close validation modal if it's shown
-    setShowValidationModal(false);
+    dispatch({ type: 'HIDE_VALIDATION' });
 
     // Set cancelling flag BEFORE stopping
     isCancellingRef.current = true;
@@ -1855,8 +1843,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       // Reset recording state
       navigation.setParams({ isRecording: false });
 
-      // Clear pending video URI
-      setPendingVideoUri(null);
+      // pendingVideoUri already cleared by HIDE_VALIDATION
 
       // Close modal and return to tab (same as validation modal)
       if (navigation.canGoBack()) {
@@ -1896,10 +1883,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
               sharedCameraRef.current?.stopRecording();
 
               // Réinitialiser tous les états
-              setIsRecording(false);
-              setIsPaused(false);
-              setShowControls(true);
-              setRecordingTime(0);
+              dispatch({ type: 'STOP_RECORDING' });
 
               // Clear timeout if exists
               if (controlsTimeoutRef.current) {
