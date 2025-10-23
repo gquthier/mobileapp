@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, useReducer } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -164,7 +164,7 @@ type RecordingAction =
   | { type: 'PAUSE_RECORDING' }
   | { type: 'RESUME_RECORDING' }
   | { type: 'STOP_RECORDING' }
-  | { type: 'INCREMENT_TIMER' } // Auto-increment recordingTime by 1
+  | { type: 'UPDATE_TIMER'; payload: number } // recordingTime in seconds
   | { type: 'RESET_RECORDING' } // Reset to initial state
 
   // ===== Camera Actions =====
@@ -239,10 +239,10 @@ function recordingReducer(state: RecordingState, action: RecordingAction): Recor
         showControls: true, // Show controls after stopping
       };
 
-    case 'INCREMENT_TIMER':
+    case 'UPDATE_TIMER':
       return {
         ...state,
-        recordingTime: state.recordingTime + 1,
+        recordingTime: action.payload,
       };
 
     case 'RESET_RECORDING':
@@ -422,50 +422,61 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
   // Momentum analysis hook
   const { analyzeMomentum } = useMomentumAnalysis();
 
-  // ✅ PHASE 2 OPTIMIZATION: useReducer replaces 21 useState hooks
-  const [state, dispatch] = useReducer(recordingReducer, initialRecordingState);
+  // Recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
 
-  // Destructure state for easier access (keeps code changes minimal)
-  const {
-    // Recording
-    isRecording,
-    isPaused,
-    recordingTime,
-    // Camera
-    cameraKey,
-    showControls,
-    orientation,
-    flashEnabled,
-    // Questions
-    showQuestions,
-    currentQuestion,
-    fallbackToStatic,
-    questionsCache,
-    cacheIndex,
-    isLoadingCache,
-    // Drag-to-action
-    isDragging,
-    dragFingerPosition,
-    dragCurrentZone,
-    // Long press
-    isLongPressing,
-    longPressPosition,
-    // Post-recording
-    showValidationModal,
-    pendingVideoUri,
-    showRecordingControls,
-  } = state;
+  // Camera state
+  const [cameraKey, setCameraKey] = useState(0);
+  // ✅ SOLUTION 2: isCameraReady is now in CameraContext (shared state)
+  // ✅ PHASE 2: shouldMountCamera and tabCameraUnmountedRef removed (no TAB camera)
 
-  // Refs (not part of reducer state)
+  // Recording UI state
+  const [showControls, setShowControls] = useState(true);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const longPressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Animated values (not part of reducer state)
+  // Orientation state
+  const [orientation, setOrientation] = useState<ScreenOrientation.Orientation>(
+    ScreenOrientation.Orientation.PORTRAIT_UP
+  );
+
+  // Flash state
+  const [flashEnabled, setFlashEnabled] = useState(false);
+
+  // Questions state with preloading cache
+  const [showQuestions, setShowQuestions] = useState(false);
+  const [currentQuestion, setCurrentQuestion] = useState<UserQuestion | null>(null);
+  const [fallbackToStatic, setFallbackToStatic] = useState(false);
+  const [questionsCache, setQuestionsCache] = useState<UserQuestion[]>([]);
+  const [cacheIndex, setCacheIndex] = useState(0);
+  const [isLoadingCache, setIsLoadingCache] = useState(false);
+
+  // Polling interval for checking AI questions availability
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Draggable overlay position (for questions)
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
+
+  // Drag-to-action state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragFingerPosition, setDragFingerPosition] = useState({ x: 0, y: 0 });
+  const [dragCurrentZone, setDragCurrentZone] = useState<'delete' | 'pause' | 'save' | null>(null);
   const dragFingerOpacity = useRef(new Animated.Value(0)).current;
   const dragDeleteZoneOpacity = useRef(new Animated.Value(0)).current;
   const dragSaveZoneOpacity = useRef(new Animated.Value(0)).current;
+
+  // Long press state
+  const [isLongPressing, setIsLongPressing] = useState(false);
+  const [longPressPosition, setLongPressPosition] = useState({ x: 0, y: 0 });
+  const longPressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Validation modal state
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  const [pendingVideoUri, setPendingVideoUri] = useState<string | null>(null);
+
+  // ✅ NEW: Recording controls state (3 buttons: Delete, Resume, Save)
+  const [showRecordingControls, setShowRecordingControls] = useState(false);
 
   // ❌ REMOVED: Swipe gesture state (not working, reverting to old button interface)
 
@@ -638,7 +649,29 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
   useEffect(() => {
     if (isRecording && !isPaused) {
       recordingIntervalRef.current = setInterval(() => {
-        dispatch({ type: 'INCREMENT_TIMER' });
+        setRecordingTime(prev => {
+          const newTime = prev + 1;
+
+          // Avertissement à 28 minutes (1680 secondes)
+          if (newTime === 1680) {
+            Alert.alert(
+              '⏰ Attention',
+              'Il vous reste 2 minutes d\'enregistrement avant la limite de 30 minutes.',
+              [{ text: 'OK' }]
+            );
+          }
+
+          // Avertissement à 29min30s (1770 secondes)
+          if (newTime === 1770) {
+            Alert.alert(
+              '⏰ Dernières secondes',
+              '30 secondes restantes avant l\'arrêt automatique.',
+              [{ text: 'OK' }]
+            );
+          }
+
+          return newTime;
+        });
       }, 1000);
     } else {
       if (recordingIntervalRef.current) {
@@ -650,50 +683,6 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
     return () => {
       if (recordingIntervalRef.current) {
         clearInterval(recordingIntervalRef.current);
-        recordingIntervalRef.current = null;
-      }
-    };
-  }, [isRecording, isPaused]);
-
-  // Show alerts based on recording time
-  useEffect(() => {
-    if (isRecording && !isPaused) {
-      // Avertissement à 28 minutes (1680 secondes)
-      if (recordingTime === 1680) {
-        Alert.alert(
-          '⏰ Attention',
-          'Il vous reste 2 minutes d\'enregistrement avant la limite de 30 minutes.',
-          [{ text: 'OK' }]
-        );
-      }
-
-      // Avertissement à 29min30s (1770 secondes)
-      if (recordingTime === 1770) {
-        Alert.alert(
-          '⏰ Dernières secondes',
-          '30 secondes restantes avant l\'arrêt automatique.',
-          [{ text: 'OK' }]
-        );
-      }
-
-      // Arrêt automatique à 30 minutes (1800 secondes)
-      if (recordingTime >= 1800) {
-        Alert.alert(
-          '⏹️ Limite atteinte',
-          'Enregistrement arrêté automatiquement après 30 minutes.',
-          [{ text: 'OK' }]
-        );
-        dispatch({ type: 'STOP_RECORDING' });
-      }
-    }
-  }, [isRecording, isPaused, recordingTime]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (recordingIntervalRef.current) {
-        clearInterval(recordingIntervalRef.current);
-        recordingIntervalRef.current = null;
       }
       if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
@@ -1522,8 +1511,7 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
       // Simplement basculer l'état de pause
       // Le timer s'arrêtera automatiquement grâce au useEffect
-      // ✅ PHASE 2: Dispatch PAUSE or RESUME based on current state
-      dispatch({ type: isPaused ? 'RESUME_RECORDING' : 'PAUSE_RECORDING' });
+      setIsPaused(!isPaused);
       navigation.setParams({ isPaused: !isPaused });
 
       console.log(`📹 Recording ${!isPaused ? 'paused' : 'resumed'} (UI only)`);
@@ -1566,8 +1554,10 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
       console.log('🔴 Starting recording...');
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-      // ✅ PHASE 2: Single dispatch instead of 4 setters
-      dispatch({ type: 'START_RECORDING' });
+      setIsRecording(true);
+      setIsPaused(false);
+      setRecordingTime(0);
+      setShowControls(false); // Masquer les contrôles quand l'enregistrement commence
 
       // Notify navigation about recording state and controls visibility
       navigation.setParams({ isRecording: true, showControls: false });
