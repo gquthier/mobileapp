@@ -253,6 +253,13 @@ export default function MomentumDashboardScreen({ navigation }: MomentumDashboar
     refetchChapters();
   }, [refetchVideos, refetchChapters]);
 
+  // ✅ Retry handler for error state (fix critical bug)
+  const handleRetry = useCallback(() => {
+    console.log('[MomentumDashboard] Retry button pressed - Refetching all data...');
+    refetchVideos();
+    refetchChapters();
+  }, [refetchVideos, refetchChapters]);
+
   // ✅ Use React Query mutation for chapter color update
   const handleColorChange = useCallback(async (chapterId: string, color: string) => {
     try {
@@ -391,7 +398,7 @@ export default function MomentumDashboardScreen({ navigation }: MomentumDashboar
     return (
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>Impossible de charger vos données</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={loadDashboardData}>
+        <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
           <Text style={styles.retryButtonText}>Réessayer</Text>
         </TouchableOpacity>
       </View>

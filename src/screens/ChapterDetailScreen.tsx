@@ -38,7 +38,7 @@ import * as Haptics from 'expo-haptics';
 import DateTimePicker from '@react-native-community/datetimepicker';
 // ✅ Phase 3.3: React Query hooks
 import { useVideosByChapterQuery } from '../hooks/queries/useVideosQuery';
-import { useChapterQuery, useChaptersQuery } from '../hooks/queries/useChaptersQuery';
+import { useChapterQuery, useChaptersQuery, useUpdateChapterMutation } from '../hooks/queries/useChaptersQuery';
 import { useQuotesQuery, useBulkTranscriptionsQuery } from '../hooks/queries/useTranscriptionQuery';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -99,6 +99,9 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
   const {
     data: allChapters = [],
   } = useChaptersQuery();
+
+  // ✅ React Query: Chapter mutation
+  const updateChapterMutation = useUpdateChapterMutation();
 
   // ✅ Get video IDs for bulk fetching
   const videoIds = useMemo(() => videos.map(v => v.id), [videos]);
@@ -231,33 +234,17 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
   const handleColorSelect = useCallback(async (color: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      // 🔒 Get current user for security check
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        console.error('❌ No authenticated user for updating chapter color');
-        return;
-      }
-
-      // 🔒 SECURITY: Update chapter color with user_id verification
-      const { error } = await supabase
-        .from('chapters')
-        .update({ color })
-        .eq('id', chapter.id)
-        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
-
-      if (error) {
-        console.error('❌ Error updating chapter color:', error);
-        return;
-      }
-
-      // Update local state
-      setChapter({ ...chapter, color });
+      // ✅ Use React Query mutation with optimistic updates
+      await updateChapterMutation.mutateAsync({
+        id: chapter.id,
+        updates: { color },
+      });
       console.log('✅ Chapter color updated:', color);
     } catch (error) {
       console.error('❌ Error in handleColorSelect:', error);
     }
     setShowColorPicker(false);
-  }, [chapter]);
+  }, [chapter.id, updateChapterMutation]);
 
   const handleKeywordPress = useCallback((keyword: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -314,235 +301,11 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
     ).length || Math.floor(Math.random() * videos.length) + 1;
   }, [videos]);
 
-  const loadChapterData = async () => {
-    try {
-      setLoading(true);
-
-      // Reload chapter with AI data
-      const { data: chapterData, error: chapterError } = await supabase
-        .from('chapters')
-        .select('*')
-        .eq('id', chapter.id)
-        .single();
-
-      if (!chapterError && chapterData) {
-        setChapter(chapterData as Chapter);
-        console.log('📊 Chapter Data Loaded:', {
-          title: chapterData.title,
-          hasChallenges: !!chapterData.challenges,
-          challengesCount: chapterData.challenges?.length || 0,
-          challenges: chapterData.challenges,
-          hasGrowth: !!chapterData.growth,
-          growthCount: chapterData.growth?.length || 0,
-          growth: chapterData.growth,
-          hasLessons: !!chapterData.lessons_learned,
-          lessonsCount: chapterData.lessons_learned?.length || 0,
-          lessons: chapterData.lessons_learned,
-        });
-      }
-
-      // Load videos
-      const { data: videosData, error: videosError } = await supabase
-        .from('videos')
-        .select('*')
-        .eq('chapter_id', chapter.id)
-        .order('created_at', { ascending: true });
-
-      if (videosError) throw videosError;
-      setVideos(videosData || []);
-
-      if (videosData && videosData.length > 0) {
-        const videoIds = videosData.map((v) => v.id);
-        const { data: jobs, error: jobsError } = await supabase
-          .from('transcription_jobs')
-          .select('*')
-          .in('video_id', videoIds);
-
-        if (!jobsError && jobs) {
-          const jobsMap: { [videoId: string]: TranscriptionJob } = {};
-          jobs.forEach((job) => {
-            jobsMap[job.video_id] = job as TranscriptionJob;
-          });
-          setTranscriptionJobs(jobsMap);
-        }
-      }
-    } catch (error) {
-      console.error('❌ Error loading chapter data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadAllChapters = async () => {
-    try {
-      // 🔒 Get current user for security check
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        console.error('❌ No authenticated user for loading chapters');
-        return;
-      }
-
-      // 🔒 SECURITY: Only load chapters that belong to the current user
-      const { data: chaptersData, error } = await supabase
-        .from('chapters')
-        .select('*')
-        .eq('user_id', user.id) // ← PROTECTION CRITIQUE
-        .order('created_at', { ascending: false });
-
-      if (!error && chaptersData) {
-        setAllChapters(chaptersData as Chapter[]);
-      }
-    } catch (error) {
-      console.error('❌ Error loading chapters:', error);
-    }
-  };
-
-  // 🆕 Load quotes from transcript_highlight for this chapter's videos
-  const loadQuotes = async () => {
-    try {
-      if (videos.length === 0) {
-        console.log('📝 No videos to load quotes from');
-        return;
-      }
-
-      const videoIds = videos.map(v => v.id);
-
-      // Fetch transcription jobs with highlights
-      const { data: jobs, error } = await supabase
-        .from('transcription_jobs')
-        .select('video_id, transcript_highlight')
-        .in('video_id', videoIds)
-        .eq('status', 'completed');
-
-      if (error) {
-        console.error('❌ Error loading quotes:', error);
-        return;
-      }
-
-      if (!jobs || jobs.length === 0) {
-        console.log('📝 No transcription jobs found for quotes');
-        return;
-      }
-
-      // Extract quotes from transcript_highlight.quotes
-      const allQuotes: Quote[] = [];
-      jobs.forEach(job => {
-        if (job.transcript_highlight && typeof job.transcript_highlight === 'object') {
-          const highlight = job.transcript_highlight as any;
-
-          // Look for 'quotes' field in transcript_highlight JSON
-          if (Array.isArray(highlight.quotes)) {
-            highlight.quotes.forEach((quote: any) => {
-              // Find video title
-              const video = videos.find(v => v.id === job.video_id);
-
-              allQuotes.push({
-                text: quote.text || quote.quote || '',
-                video_id: job.video_id,
-                video_title: video?.title || 'Untitled Video',
-                timestamp: quote.timestamp || quote.start_time || 0,
-              });
-            });
-          }
-        }
-      });
-
-      console.log(`✅ Loaded ${allQuotes.length} quotes for chapter:`, chapter.title);
-      setQuotes(allQuotes);
-    } catch (error) {
-      console.error('❌ Error in loadQuotes:', error);
-    }
-  };
-
-  // 🆕 Load random quote for Chapter Summary Card
-  const loadRandomQuote = () => {
-    try {
-      if (quotes.length === 0) {
-        // Will be called again when quotes load
-        return;
-      }
-
-      // Pick random quote
-      const randomIndex = Math.floor(Math.random() * quotes.length);
-      setRandomQuote(quotes[randomIndex]);
-      console.log('✅ Random quote selected for summary card');
-    } catch (error) {
-      console.error('❌ Error in loadRandomQuote:', error);
-    }
-  };
-
-  // 🆕 Load Life Area mentions for this chapter (simplified - reads from highlights JSON)
-  const loadLifeAreaMentions = async () => {
-    try {
-      if (videos.length === 0) return;
-
-      const videoIds = videos.map(v => v.id);
-
-      // Get transcription jobs with highlights for this chapter's videos
-      const { data: jobs, error: jobsError } = await supabase
-        .from('transcription_jobs')
-        .select('transcript_highlight, video_id')
-        .in('video_id', videoIds)
-        .not('transcript_highlight', 'is', null);
-
-      if (jobsError || !jobs || jobs.length === 0) return;
-
-      // Count mentions per life area (simple string counting)
-      const mentionCounts = new Map<string, number>();
-      let totalHighlights = 0;
-
-      jobs.forEach((job) => {
-        if (!job.transcript_highlight) return;
-
-        const highlights = job.transcript_highlight.highlights || [];
-
-        highlights.forEach((highlight: any) => {
-          totalHighlights++;
-
-          // Get the area field from the highlight (simple string)
-          const highlightArea = highlight.area;
-
-          if (highlightArea && typeof highlightArea === 'string') {
-            // Normalize to capitalized form (e.g., "health" → "Health")
-            const normalizedArea = highlightArea.charAt(0).toUpperCase() + highlightArea.slice(1).toLowerCase();
-
-            // Check if it exists in our config
-            if (LIFE_AREAS_CONFIG[normalizedArea]) {
-              const currentCount = mentionCounts.get(normalizedArea) || 0;
-              mentionCounts.set(normalizedArea, currentCount + 1);
-            }
-          }
-        });
-      });
-
-      if (totalHighlights === 0) return;
-
-      // Calculate percentages for ALL areas (including those with 0 mentions)
-      const allAreaKeys = Object.keys(LIFE_AREAS_CONFIG);
-      const allAreaPercentages = allAreaKeys.map(areaKey => ({
-        area_key: areaKey,
-        display_name: LIFE_AREAS_CONFIG[areaKey].name,
-        count: mentionCounts.get(areaKey) || 0,
-        percentage: Math.round(((mentionCounts.get(areaKey) || 0) / totalHighlights) * 100)
-      }));
-
-      // Top mentioned (sorted by count descending, only areas with mentions)
-      const topMentioned = allAreaPercentages
-        .filter(item => item.count > 0) // Only areas with at least one mention
-        .sort((a, b) => b.count - a.count); // Sort by count descending
-
-      setLifeAreaMentions(topMentioned);
-
-      // Least mentioned (sorted by count ascending, take bottom 3)
-      const leastMentioned = allAreaPercentages
-        .sort((a, b) => a.count - b.count) // Sort by count ascending
-        .slice(0, 3); // Take bottom 3
-
-      setLeastMentionedAreas(leastMentioned);
-    } catch (error) {
-      console.error('❌ Error loading life area mentions:', error);
-    }
-  };
+  // ✅ Removed 4 dead functions (176 lines):
+  // - loadChapterData() → useChapterQuery()
+  // - loadAllChapters() → useChaptersQuery()
+  // - loadQuotes() → useQuotesQuery()
+  // - loadLifeAreaMentions() → useMemo calculation (lines 142-150)
 
   const getVideoUri = (video: VideoRecord): string => {
     if (video.file_path.startsWith('http')) return video.file_path;
