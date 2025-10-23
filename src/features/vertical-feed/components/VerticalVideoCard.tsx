@@ -213,10 +213,21 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
    * 3. Pause immédiate si devient inactive
    * 4. GUARD: Empêche les doubles play() sans pause() intermédiaire
    * 5. 🎯 SEGMENT MODE: Démarre au timestamp du highlight si is_segment = true
-   * 🔧 FIX: `player` MUST be in deps so useEffect re-triggers when player becomes available
+   * 🔧 FIX: Reset guard when player changes (new source loaded)
    */
   useEffect(() => {
-    if (!player) return
+    console.log(`[VideoCard ${video.id.substring(0, 8)}] 🔄 useEffect ENTRY:`, {
+      hasPlayer: !!player,
+      isActive,
+      isPlayingGuard: isPlayingRef.current,
+      isMuted,
+      videoUri: videoUri?.substring(0, 80)
+    })
+
+    if (!player) {
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] ⏭️ No player yet, skipping`)
+      return
+    }
 
     const isSegment = video.is_segment || false
     const segmentStartTime = video.segment_start_time || 0
@@ -224,17 +235,26 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
     console.log(`[VideoCard ${video.id.substring(0, 8)}] 🎯 useEffect trigger - isActive=${isActive}, isSegment=${isSegment}, startTime=${segmentStartTime}s`)
 
     if (isActive) {
+      // 🔧 FIX: Reset guard when player object changes (new source loaded)
+      // This allows play() when URI changes from HTTPS → file://
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🔍 Guard check: isPlayingRef.current=${isPlayingRef.current}`)
+
       // 🚨 GUARD: Ne pas play si déjà en train de jouer
       if (isPlayingRef.current) {
-        console.log(`[VideoCard ${video.id.substring(0, 8)}] ⚠️  BLOCKED duplicate play()`)
-        return
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ⚠️  BLOCKED duplicate play() - Resetting guard and retrying`)
+        // ✅ Reset guard to allow retry (player might have changed source)
+        isPlayingRef.current = false
       }
 
       // ✅ SEGMENT MODE: Start at highlight timestamp
       const startTime = isSegment ? segmentStartTime : 0
 
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🎬 Attempting play() call...`)
       try {
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ⏰ Setting currentTime to ${startTime}s`)
         player.currentTime = startTime
+
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] 🔊 Setting muted=${isMuted}, volume=${isMuted ? 0 : 1}`)
         player.muted = isMuted // Respecter la préférence
         player.volume = isMuted ? 0 : 1
 
@@ -244,27 +264,36 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
           console.log(`[VideoCard ${video.id.substring(0, 8)}] ▶️  Playing from start (muted=${isMuted})`)
         }
 
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ▶️  CALLING player.play()...`)
         player.play()
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ✅ player.play() call completed without error`)
         isPlayingRef.current = true // Marquer comme en lecture
-      } catch (error) {
-        console.warn(`[VideoCard ${video.id.substring(0, 8)}] ⚠️  Play failed (player not ready):`, error)
+      } catch (error: any) {
+        console.error(`[VideoCard ${video.id.substring(0, 8)}] ❌ Play failed:`, {
+          message: error?.message,
+          code: error?.code,
+          stack: error?.stack?.substring(0, 200)
+        })
+
         // Retry after player loads
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] 🔄 Scheduling retry in 1s...`)
         setTimeout(() => {
           try {
+            console.log(`[VideoCard ${video.id.substring(0, 8)}] 🔄 RETRY: Attempting play() again`)
             player.currentTime = startTime
             player.muted = isMuted
             player.volume = isMuted ? 0 : 1
             player.play()
             isPlayingRef.current = true
             console.log(`[VideoCard ${video.id.substring(0, 8)}] ✅ Play retry successful`)
-          } catch (retryError) {
-            console.error(`[VideoCard ${video.id.substring(0, 8)}] ❌ Play retry failed:`, retryError)
+          } catch (retryError: any) {
+            console.error(`[VideoCard ${video.id.substring(0, 8)}] ❌ Play retry failed:`, retryError?.message)
           }
         }, 1000)
       }
     } else {
       // ✅ TOUJOURS FORCER pause ET mute sur vidéos inactives
-      console.log(`[VideoCard ${video.id.substring(0, 8)}] ⏸️  Forcing pause + mute`)
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] ⏸️  Forcing pause + mute (isActive=false)`)
       try {
         player.pause()
 
@@ -275,12 +304,13 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
         player.muted = true // 🚨 FORCE MUTE pour éviter audio en background
         player.volume = 0 // 🚨 FORCE VOLUME à 0
         isPlayingRef.current = false // Marquer comme en pause
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ✅ Pause completed, guard reset`)
       } catch (error) {
         // Silently fail if player already destroyed
         isPlayingRef.current = false
       }
     }
-  }, [player, isActive, video.is_segment, video.segment_start_time, isMuted, video.id]) // 🔧 FIX: Added 'player' back
+  }, [player, isActive, video.is_segment, video.segment_start_time, isMuted, video.id, videoUri]) // ✅ Added videoUri to track source changes
 
   /**
    * 🆕 Mute/unmute avec expo-video (séparé pour les changements de préférence)
@@ -318,19 +348,36 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
 
     // Playing state listener
     playingListenerRef.current = player.addListener('playingChange', (newStatus) => {
-      if (newStatus.isPlaying && isLoading) {
-        setIsLoading(false)
-        console.log(`[VideoCard ${video.id.substring(0, 8)}] ✅ Video started playing`)
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🎵 playingChange event:`, {
+        isPlaying: newStatus.isPlaying,
+        oldIsPlaying: newStatus.oldIsPlaying,
+        wasLoading: isLoading
+      })
+
+      if (newStatus.isPlaying) {
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ✅ ✅ ✅ VIDEO IS PLAYING! ✅ ✅ ✅`)
+        if (isLoading) {
+          setIsLoading(false)
+        }
+      } else {
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ⏸️ Video is NOT playing (paused or stopped)`)
       }
     })
 
     // Status listener with retry logic
     statusListenerRef.current = player.addListener('statusChange', (newStatus) => {
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] 📊 statusChange event:`, {
+        status: newStatus.status,
+        oldStatus: newStatus.oldStatus
+      })
+
       if (newStatus.status === 'readyToPlay') {
         setIsLoading(false)
         setHasError(false) // ✅ Clear error if video loads successfully
         errorRetryCount.current = 0 // Reset retry count
-        console.log(`[VideoCard ${video.id.substring(0, 8)}] ✅ Player ready to play`)
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ✅ Player ready to play - will attempt play() now`)
+      } else if (newStatus.status === 'loading') {
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] ⏳ Player is loading...`)
       } else if (newStatus.status === 'error') {
         // ✅ Enhanced error logging with details
         if (isActive) {
