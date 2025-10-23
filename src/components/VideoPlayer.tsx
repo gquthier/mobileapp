@@ -3,9 +3,10 @@
  *
  * Navigation verticale TikTok-style pour toutes les vidéos de l'app
  * Utilise exactement le même système que VerticalFeedScreen
+ * ✅ Phase 3.4: Migrated to React Query bulk fetch (0% UX changes)
  */
 
-import React, { useState, useRef, useCallback, useEffect, memo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, memo, useMemo } from 'react';
 import {
   View,
   Text,
@@ -29,6 +30,8 @@ import { VERTICAL_FEED_CONFIG } from '../features/vertical-feed/constants';
 import { theme } from '../styles/theme';
 import * as Haptics from 'expo-haptics';
 import { HighlightsCache } from '../services/highlightsCache';
+// ✅ Phase 3.4: React Query for bulk highlights fetch
+import { useBulkHighlightsQuery } from '../hooks/queries/useHighlightsQuery';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
@@ -116,9 +119,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return Math.max(0, Math.min(initialIndex, videoList.length - 1));
   }, [initialIndex, videoList.length]);
 
+  // ✅ Extract video IDs for bulk query
+  const videoIds = useMemo(() => videoList.map(v => v.id), [videoList]);
+
+  // ✅ React Query: Bulk fetch all highlights at once (1 query instead of N)
+  const {
+    data: highlightsMap,
+    isLoading: highlightsLoading,
+  } = useBulkHighlightsQuery(videoIds);
+
+  // ✅ Get highlights for current video
+  const transcriptionHighlights = useMemo(() => {
+    if (!highlightsMap || currentIndex >= videoList.length) return [];
+    const currentVideo = videoList[currentIndex];
+    const job = highlightsMap.get(currentVideo?.id);
+    return job?.highlights || [];
+  }, [highlightsMap, currentIndex, videoList]);
+
   // State
   const [currentIndex, setCurrentIndex] = useState(safeInitialIndex);
-  const [transcriptionHighlights, setTranscriptionHighlights] = useState<any[]>([]);
   const [isInfoBarExpanded, setIsInfoBarExpanded] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -162,218 +181,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setDuration(0);
   }, [currentIndex]);
 
-  // ✅ PHASE 2.1 - Bulk load highlights on mount (optimization)
-  useEffect(() => {
-    if (!visible || videoList.length === 0) return;
+  // ✅ REMOVED PHASE 2.1 bulk fetch - Now handled by React Query
+  // useBulkHighlightsQuery() automatically:
+  // - Fetches all highlights in 1 query
+  // - Caches results (10min staleTime, 30min cacheTime)
+  // - Deduplicates requests
+  // - Handles security (RLS in Supabase)
+  // - Auto-cleanup on unmount
 
-    const bulkFetchHighlights = async () => {
-      console.log('[VideoPlayer] 📦 Bulk fetching highlights for', videoList.length, 'videos');
+  // ✅ REMOVED: Individual highlight fetch for current video
+  // Now handled by useMemo (line 132-137) using highlightsMap from React Query
+  // Benefits:
+  // - No individual fetches per video
+  // - Instant access from bulk fetch
+  // - Automatic cache management
 
-      try {
-        // 🔒 Get current user for security check
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user) {
-          console.error('[VideoPlayer] ❌ No authenticated user for bulk fetch');
-          return;
-        }
-
-        // Extract video IDs
-        const videoIds = videoList.map(v => v.id);
-
-        // Fetch ALL transcription jobs for these videos in ONE query
-        // 🔒 SECURITY: JOIN with videos to verify ownership
-        const { data: jobsData, error } = await supabase
-          .from('transcription_jobs')
-          .select(`
-            *,
-            videos!inner (
-              user_id
-            )
-          `)
-          .in('video_id', videoIds)
-          .eq('videos.user_id', user.id) // ← PROTECTION CRITIQUE
-          .eq('status', 'completed')
-          .order('completed_at', { ascending: false });
-
-        if (error) {
-          console.error('[VideoPlayer] ❌ Error bulk fetching highlights:', error);
-          return;
-        }
-
-        // Remove nested videos data
-        const jobs = jobsData?.map(({ videos, ...job }) => job);
-
-        // Build highlights map
-        const highlightsMap = new Map<string, any>();
-        const processedVideoIds = new Set<string>();
-
-        jobs?.forEach(job => {
-          // Only take the first (most recent) job for each video
-          if (!processedVideoIds.has(job.video_id) && job.transcript_highlight) {
-            const highlightData = job.transcript_highlight;
-
-            // ✅ Le format peut être soit un array direct, soit un objet avec une clé "highlights"
-            let highlights = [];
-            if (Array.isArray(highlightData)) {
-              highlights = highlightData;
-            } else if (highlightData && typeof highlightData === 'object' && Array.isArray(highlightData.highlights)) {
-              highlights = highlightData.highlights;
-            }
-
-            highlightsMap.set(job.video_id, highlights);
-            processedVideoIds.add(job.video_id);
-          }
-        });
-
-        // ✅ Cache all highlights in one go (with LRU eviction + 50 video limit)
-        await HighlightsCache.bulkSet(highlightsMap);
-
-        console.log('[VideoPlayer] ✅ Bulk cached', highlightsMap.size, 'highlights');
-      } catch (err) {
-        console.error('[VideoPlayer] ❌ Exception during bulk fetch:', err);
-      }
-    };
-
-    bulkFetchHighlights();
-
-    // ✅ PHASE 2.1 - Auto-cleanup old cache entries on unmount
-    return () => {
-      HighlightsCache.cleanup(7).then(removed => {
-        if (removed > 0) {
-          console.log('[VideoPlayer] 🧹 Cleaned up', removed, 'old cache entries');
-        }
-      });
-    };
-  }, [visible, videoList]);
-
-  // Load highlights for current video (exactement comme VerticalFeedScreen)
-  useEffect(() => {
-    if (!visible || !videoList[currentIndex]) return;
-
-    const fetchHighlights = async () => {
-      const currentVideo = videoList[currentIndex];
-      if (!currentVideo || !currentVideo.id) {
-        console.log('[VideoPlayer] ⚠️ No current video');
-        setTranscriptionHighlights([]);
-        return;
-      }
-
-      // ✅ PHASE 2.1 - Check cache first
-      const cachedHighlights = await HighlightsCache.get(currentVideo.id);
-      if (cachedHighlights) {
-        console.log('[VideoPlayer] 🎯 Cache hit for video:', currentVideo.id, '(', cachedHighlights.length, 'highlights)');
-        setTranscriptionHighlights(cachedHighlights);
-        return;
-      }
-
-      console.log('[VideoPlayer] 🔍 Cache miss - fetching highlights for video:', {
-        id: currentVideo.id,
-        title: currentVideo.title,
-      });
-
-      try {
-        // 🔒 Get current user for security check
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user) {
-          console.error('[VideoPlayer] ❌ No authenticated user for fetching transcription');
-          setTranscriptionHighlights([]);
-          return;
-        }
-
-        // 1. D'abord, chercher TOUS les jobs pour cette vidéo (sans filtre status)
-        // 🔒 SECURITY: JOIN with videos to verify ownership
-        const { data: allJobsData, error: allJobsError } = await supabase
-          .from('transcription_jobs')
-          .select(`
-            *,
-            videos!inner (
-              user_id
-            )
-          `)
-          .eq('video_id', currentVideo.id)
-          .eq('videos.user_id', user.id) // ← PROTECTION CRITIQUE
-          .order('created_at', { ascending: false });
-
-        // Remove nested videos data
-        const allJobs = allJobsData?.map(({ videos, ...job }) => job);
-
-        console.log('[VideoPlayer] 📊 ALL transcription jobs for this video:', {
-          count: allJobs?.length || 0,
-          jobs: allJobs?.map(j => ({
-            id: j.id,
-            status: j.status,
-            has_highlights: !!j.transcript_highlight,
-            highlights_count: Array.isArray(j.transcript_highlight) ? j.transcript_highlight.length : 0,
-          })),
-        });
-
-        // 2. Chercher les jobs complétés avec highlights
-        // 🔒 SECURITY: JOIN with videos to verify ownership
-        const { data: jobsData, error } = await supabase
-          .from('transcription_jobs')
-          .select(`
-            *,
-            videos!inner (
-              user_id
-            )
-          `)
-          .eq('video_id', currentVideo.id)
-          .eq('videos.user_id', user.id) // ← PROTECTION CRITIQUE
-          .eq('status', 'completed')
-          .order('completed_at', { ascending: false })
-          .limit(1);
-
-        // Remove nested videos data
-        const jobs = jobsData?.map(({ videos, ...job }) => job);
-
-        if (error) {
-          console.error('[VideoPlayer] ❌ Error fetching transcription:', error);
-          setTranscriptionHighlights([]);
-          return;
-        }
-
-        console.log('[VideoPlayer] 🎯 Completed jobs with highlights:', {
-          found: jobs?.length || 0,
-          job: jobs?.[0] ? {
-            id: jobs[0].id,
-            status: jobs[0].status,
-            has_highlight: !!jobs[0].transcript_highlight,
-            highlight_type: typeof jobs[0].transcript_highlight,
-            highlight_content: jobs[0].transcript_highlight,
-          } : null,
-        });
-
-        if (jobs && jobs.length > 0 && jobs[0]?.transcript_highlight) {
-          const highlightData = jobs[0].transcript_highlight;
-
-          // ✅ Le format peut être soit un array direct, soit un objet avec une clé "highlights"
-          let highlights = [];
-          if (Array.isArray(highlightData)) {
-            highlights = highlightData;
-          } else if (highlightData && typeof highlightData === 'object' && Array.isArray(highlightData.highlights)) {
-            highlights = highlightData.highlights;
-          }
-
-          console.log('[VideoPlayer] ✅ Found', highlights.length, 'highlights:', highlights);
-          setTranscriptionHighlights(highlights);
-
-          // ✅ PHASE 2.1 - Cache individual fetch result
-          await HighlightsCache.set(currentVideo.id, highlights);
-        } else {
-          console.log('[VideoPlayer] ℹ️ No highlights found for this video');
-          setTranscriptionHighlights([]);
-
-          // ✅ PHASE 2.1 - Cache empty result to avoid refetching
-          await HighlightsCache.set(currentVideo.id, []);
-        }
-      } catch (err) {
-        console.error('[VideoPlayer] ❌ Exception fetching highlights:', err);
-        setTranscriptionHighlights([]);
-      }
-    };
-
-    fetchHighlights();
-  }, [visible, currentIndex, videoList]);
 
   /**
    * Handler changement de vidéo visible (exactement comme VerticalFeedScreen)

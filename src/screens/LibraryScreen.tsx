@@ -46,11 +46,12 @@ import {
   LibrarySearchResults,
 } from './Library/components';
 // ✅ Phase 3.3 - Extracted hooks
+// ✅ Phase 3.2 - Migrated to React Query with useLibraryDataV2
 import {
   useStreak,
   useLibraryAnimations,
   useLibrarySearch,
-  useLibraryData,
+  useLibraryDataV2,
 } from './Library/hooks';
 
 const { width: screenWidth } = Dimensions.get('window');
@@ -76,7 +77,8 @@ const LibraryScreen: React.FC = () => {
   const { brandColor } = useThemeContext(); // ✅ Get user's selected color (auto or custom)
 
   // ✅ Phase 3.3 - Replace useReducer with custom hooks
-  const libraryData = useLibraryData();
+  // ✅ Phase 3.2 - Migrated to React Query (TanStack Query)
+  const libraryData = useLibraryDataV2();
   const libraryAnimations = useLibraryAnimations(libraryData.viewMode);
   const librarySearch = useLibrarySearch(libraryAnimations.searchBarProgress);
   const streakData = useStreak(libraryData.videos);
@@ -101,8 +103,8 @@ const LibraryScreen: React.FC = () => {
 
   // ✅ Calculate header height for content inset
   // Different padding for calendar vs grid view
-  const headerHeightCalendar = insets.top + 72; // More spacing for calendar view
-  const headerHeightGrid = insets.top + 60; // Less spacing for grid view (photos closer to top bar)
+  const headerHeightCalendar = 44; // Minimal height for calendar view
+  const headerHeightGrid = 48; // Slightly more for grid view
 
   // Extract animations for backward compatibility
   const { searchBarProgress, calendarIconScale, gridIconScale, toggleSelectorPosition, scrollY, headerOpacity } = libraryAnimations;
@@ -330,12 +332,13 @@ const LibraryScreen: React.FC = () => {
   /**
    * ✅ Pull-to-refresh handler
    * Reloads videos from Supabase when user swipes down
+   * Uses silent refresh: keeps current UI visible while fetching in background
    */
   const handleRefresh = useCallback(async () => {
     console.log('🔄 Pull-to-refresh triggered');
     setRefreshing(true);
     try {
-      await fetchVideos(0, false); // Reload from page 0
+      await fetchVideos(0, false, true); // Silent refresh - keeps UI visible
     } finally {
       setRefreshing(false);
     }

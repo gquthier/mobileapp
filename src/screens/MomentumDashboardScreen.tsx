@@ -1,9 +1,10 @@
 // ============================================================================
 // Momentum Dashboard Screen
 // Description: Écran principal affichant le score et les chapitres
+// ✅ Phase 3.3: Migrated to TanStack Query (0% UX changes)
 // ============================================================================
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -41,10 +42,8 @@ import {
 } from '../services/momentumService';
 import { getActiveLifeAreas } from '../services/lifeAreasService';
 import { supabase, Chapter, VideoRecord } from '../lib/supabase';
-import { VideoService } from '../services/videoService';
 import {
   getCurrentChapter,
-  getUserChapters,
   formatDuration,
   formatChapterPeriod,
 } from '../services/chapterService';
@@ -53,6 +52,9 @@ import { LoadingDots } from '../components/LoadingDots';
 import { EmptyState } from '../components/EmptyState';
 import { Icon } from '../components/Icon';
 import { getRandomChapterColor } from '../constants/chapterColors';
+// ✅ Phase 3.3: React Query hooks
+import { useVideosQuery } from '../hooks/queries/useVideosQuery';
+import { useChaptersQuery, useUpdateChapterMutation } from '../hooks/queries/useChaptersQuery';
 
 const { width } = Dimensions.get('window');
 
@@ -63,15 +65,33 @@ interface MomentumDashboardScreenProps {
 export default function MomentumDashboardScreen({ navigation }: MomentumDashboardScreenProps) {
   const insets = useSafeAreaInsets();
   const { colorMode, loadCurrentChapterColor, brandColor } = useTheme();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+
+  // ✅ React Query: Replace useState/useEffect with useQuery
+  const {
+    data: videos = [],
+    isLoading: videosLoading,
+    isRefetching: videosRefetching,
+    refetch: refetchVideos,
+  } = useVideosQuery();
+
+  const {
+    data: chapters = [],
+    isLoading: chaptersLoading,
+    isRefetching: chaptersRefetching,
+    refetch: refetchChapters,
+  } = useChaptersQuery();
+
+  const updateChapterMutation = useUpdateChapterMutation();
+
+  // ✅ Keep UI state (not data fetching)
   const [stats, setStats] = useState<MomentumStats | null>(null);
-  const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [videos, setVideos] = useState<VideoRecord[]>([]);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  // const [showChaptersModal, setShowChaptersModal] = useState(false);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [showStreakModal, setShowStreakModal] = useState(false);
+
+  // ✅ Combined loading and refreshing states
+  const loading = videosLoading || chaptersLoading;
+  const refreshing = videosRefetching || chaptersRefetching;
 
   // Calculate header height for content inset (same as LibraryScreen)
   // Header height = safe area top + icon height (44px) + padding (12px top + 12px bottom for spacing)
@@ -86,11 +106,13 @@ export default function MomentumDashboardScreen({ navigation }: MomentumDashboar
   const buttonScale = useRef(new Animated.Value(1)).current;
   */
 
-  // Charger les données au montage et au focus
+  // ✅ Refetch data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      loadDashboardData();
-    }, [])
+      console.log('[MomentumDashboard] Screen focused - Refetching data...');
+      refetchVideos();
+      refetchChapters();
+    }, [refetchVideos, refetchChapters])
   );
 
   // Calculate current streak
@@ -197,80 +219,51 @@ export default function MomentumDashboardScreen({ navigation }: MomentumDashboar
     }
   };
 
-  const loadDashboardData = async () => {
+  // ✅ Load stats and avatar on mount (separate from videos/chapters queries)
+  useFocusEffect(
+    useCallback(() => {
+      const loadUserData = async () => {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) return;
+
+          // Load stats and avatar in parallel
+          const [statsData, profileData] = await Promise.all([
+            getMomentumStats(user.id),
+            supabase.from('profiles').select('avatar_url').eq('id', user.id).single(),
+          ]);
+
+          setStats(statsData);
+          if (profileData.data?.avatar_url) {
+            setAvatarUrl(profileData.data.avatar_url);
+          }
+        } catch (error) {
+          console.error('❌ Error loading user data:', error);
+        }
+      };
+
+      loadUserData();
+    }, [])
+  );
+
+  // ✅ Pull to refresh: Simplified with React Query
+  const onRefresh = useCallback(() => {
+    console.log('[MomentumDashboard] Pull to refresh triggered');
+    refetchVideos();
+    refetchChapters();
+  }, [refetchVideos, refetchChapters]);
+
+  // ✅ Use React Query mutation for chapter color update
+  const handleColorChange = useCallback(async (chapterId: string, color: string) => {
     try {
-      setLoading(true);
-
-      // Récupérer l'utilisateur
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) {
-        console.error('❌ No authenticated user');
-        return;
-      }
-
-      // Charger en parallèle (y compris le profil pour l'avatar)
-      const [statsData, chaptersData, videosData, profileData] = await Promise.all([
-        getMomentumStats(user.id),
-        getUserChapters(user.id),
-        VideoService.getAllVideos(),
-        supabase.from('profiles').select('avatar_url').eq('id', user.id).single(),
-      ]);
-
-      setStats(statsData);
-      setChapters(chaptersData);
-      setVideos(videosData);
-
-      // Set avatar URL
-      if (profileData.data?.avatar_url) {
-        setAvatarUrl(profileData.data.avatar_url);
-      }
-    } catch (error) {
-      console.error('❌ Error loading dashboard data:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadDashboardData();
-  };
-
-  const handleColorChange = async (chapterId: string, color: string) => {
-    try {
-      // 🔒 Get current user for security check
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        console.error('❌ No authenticated user for updating chapter color');
-        return;
-      }
-
       // Check if this is the current chapter
       const isCurrentChapter = chapters.find(ch => ch.id === chapterId)?.is_current;
 
-      // 🔒 SECURITY: Update with user_id verification
-      const { error } = await supabase
-        .from('chapters')
-        .update({ color })
-        .eq('id', chapterId)
-        .eq('user_id', user.id); // ← PROTECTION CRITIQUE
-
-      if (error) {
-        console.error('❌ Error updating chapter color:', error);
-        return;
-      }
-
-      // Update local state
-      setChapters((prevChapters) =>
-        prevChapters.map((chapter) =>
-          chapter.id === chapterId ? { ...chapter, color } : chapter
-        )
-      );
+      // ✅ Use mutation with optimistic update
+      await updateChapterMutation.mutateAsync({
+        id: chapterId,
+        updates: { color },
+      });
 
       // If this is the current chapter and color mode is auto, reload the theme color
       if (isCurrentChapter && colorMode === 'auto') {
@@ -282,7 +275,7 @@ export default function MomentumDashboardScreen({ navigation }: MomentumDashboar
     } catch (error) {
       console.error('❌ Error in handleColorChange:', error);
     }
-  };
+  }, [chapters, colorMode, loadCurrentChapterColor, updateChapterMutation]);
 
   // Memoize streak calculation (expensive operation)
   const currentStreak = useMemo(() => {

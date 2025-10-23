@@ -2,17 +2,19 @@
  * Feed Tab Screen
  * Loads all videos and displays them in VerticalFeedScreen (TikTok-style)
  * Same behavior as Library's play button
+ *
+ * ✅ Phase 3.2: Migrated to TanStack Query (0% UX changes)
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import { View,  StyleSheet, Text } from 'react-native'
 import { LoadingDots } from '../components/LoadingDots';
 import { EmptyState } from '../components/EmptyState';
 import { useTheme } from '../contexts/ThemeContext';
 import { VerticalFeedScreen } from '../features/vertical-feed/screens/VerticalFeedScreen'
-import { VideoService } from '../services/videoService'
 import { VideoRecord } from '../lib/supabase'
 import { theme } from '../styles'
+import { useVideosQuery } from '../hooks/queries/useVideosQuery';
 
 interface VerticalFeedTabScreenProps {
   navigation: any
@@ -20,69 +22,53 @@ interface VerticalFeedTabScreenProps {
 
 export const VerticalFeedTabScreen: React.FC<VerticalFeedTabScreenProps> = ({ navigation }) => {
   const { brandColor } = useTheme();
-  const [videos, setVideos] = useState<VideoRecord[]>([])
-  const [loading, setLoading] = useState(true)
 
+  // ✅ React Query: Replace useState + useEffect with useQuery
+  const {
+    data: allVideos = [],
+    isLoading,
+    refetch,
+  } = useVideosQuery();
+
+  // ✅ Navigation focus listener: Refetch when tab becomes active
   useEffect(() => {
-    // Load videos when tab becomes active
     const unsubscribe = navigation.addListener('focus', () => {
-      loadVideos()
-    })
+      console.log('[VerticalFeedTabScreen] Tab focused - Refetching videos...');
+      refetch();
+    });
 
-    // Initial load
-    loadVideos()
-
-    return unsubscribe
-  }, [navigation])
+    return unsubscribe;
+  }, [navigation, refetch]);
 
   /**
    * 🎲 Shuffle algorithm: Fisher-Yates with seeded randomness
    * Ensures different order every time user opens the feed
+   *
+   * ✅ Now using useMemo to shuffle only when allVideos changes
    */
-  const shuffleVideos = (videos: VideoRecord[]): VideoRecord[] => {
+  const videos = useMemo(() => {
+    if (!allVideos.length) return [];
+
     // Create a copy to avoid mutating original array
-    const shuffled = [...videos]
+    const shuffled = [...allVideos];
 
     // Use current timestamp + random for truly random seed each time
-    const seed = Date.now() + Math.random()
+    const seed = Date.now() + Math.random();
 
     // Fisher-Yates shuffle algorithm
     for (let i = shuffled.length - 1; i > 0; i--) {
       // Generate pseudo-random index based on seed
-      const j = Math.floor(Math.random() * (i + 1))
+      const j = Math.floor(Math.random() * (i + 1));
 
       // Swap elements
-      ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
 
-    console.log(`[VerticalFeedTabScreen] 🎲 Shuffled ${shuffled.length} videos (seed: ${seed.toFixed(0)})`)
-    return shuffled
-  }
+    console.log(`[VerticalFeedTabScreen] 🎲 Shuffled ${shuffled.length} videos (seed: ${seed.toFixed(0)})`);
+    return shuffled;
+  }, [allVideos]);
 
-  const loadVideos = async () => {
-    try {
-      console.log('[VerticalFeedTabScreen] Loading videos...')
-      setLoading(true)
-
-      // ✅ OPTION 1: No filtering needed - VideoService already filters at source
-      // Load all videos (already validated by VideoService.getAllVideos())
-      const allVideos = await VideoService.getAllVideos()
-
-      // 🎲 Shuffle randomly instead of chronological sort
-      // This ensures a completely different order every time the user opens the feed
-      const shuffledVideos = shuffleVideos(allVideos)
-
-      console.log(`[VerticalFeedTabScreen] Loaded ${shuffledVideos.length} videos in random order`)
-      setVideos(shuffledVideos)
-    } catch (error) {
-      console.error('[VerticalFeedTabScreen] Error loading videos:', error)
-      setVideos([])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  if (loading) {
+  if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         <LoadingDots color={brandColor} />
