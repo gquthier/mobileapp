@@ -55,13 +55,14 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
 }) => {
   // ✅ FIX: Créer le player UNE SEULE FOIS avec l'URI finale
   // Ne JAMAIS changer l'URI sinon expo-video recrée le player en boucle
-  // 🚨 STRATÉGIE: Pause IMMÉDIATE dans le callback pour empêcher autoplay
+  // 🎯 NEW STRATEGY: Don't touch player in callback - let useEffect handle everything
+  // This prevents AudioToolbox session from timing out when we unmute later
   const player = useVideoPlayer(videoUri, (player) => {
-    // ✅ PAUSE IMMÉDIATE - avant que expo-video ne démarre la lecture
+    // ✅ Just pause - DON'T mute here or AudioToolbox will timeout!
     player.pause()
     player.currentTime = 0
-    player.muted = true // Mute aussi par sécurité
-    console.log(`[VideoCard ${video.id.substring(0, 8)}] 🛑 Initial pause in callback`)
+    // ❌ REMOVED: player.muted = true - This breaks audio playback!
+    console.log(`[VideoCard ${video.id.substring(0, 8)}] 🛑 Initial pause in callback (audio enabled)`)
   })
 
   const [isLoading, setIsLoading] = useState(true)
