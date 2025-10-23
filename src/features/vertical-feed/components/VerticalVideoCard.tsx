@@ -53,17 +53,31 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
   onPlayerReady,
   onProgressUpdate,
 }) => {
-  // ✅ FIX: Créer le player UNE SEULE FOIS avec l'URI finale
-  // Ne JAMAIS changer l'URI sinon expo-video recrée le player en boucle
-  // 🎯 NEW STRATEGY: Don't touch player in callback - let useEffect handle everything
-  // This prevents AudioToolbox session from timing out when we unmute later
-  const player = useVideoPlayer(videoUri, (player) => {
-    // ✅ Just pause - DON'T mute here or AudioToolbox will timeout!
-    player.pause()
-    player.currentTime = 0
-    // ❌ REMOVED: player.muted = true - This breaks audio playback!
-    console.log(`[VideoCard ${video.id.substring(0, 8)}] 🛑 Initial pause in callback (audio enabled)`)
-  })
+  // ✅ LAZY LOADING: Only create player for nearby videos (N-1, N, N+1)
+  // This prevents creating 48 players at once which crashes the app!
+  const isNearby = Math.abs(index - currentIndex) <= 1
+  const [shouldLoadPlayer, setShouldLoadPlayer] = useState(isNearby)
+
+  // Activate loading when becoming nearby
+  useEffect(() => {
+    if (isNearby && !shouldLoadPlayer) {
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🔄 Becoming nearby, creating player...`)
+      setShouldLoadPlayer(true)
+    }
+  }, [isNearby, shouldLoadPlayer, video.id])
+
+  // ✅ CRITICAL: Only create player if shouldLoadPlayer=true
+  // If false, return null → this prevents creating 48 players at once!
+  const player = useVideoPlayer(
+    shouldLoadPlayer ? videoUri : '',  // Empty URI when not nearby
+    (player) => {
+      if (!shouldLoadPlayer) return  // Safety check
+      // ✅ Just pause - DON'T mute here or AudioToolbox will timeout!
+      player.pause()
+      player.currentTime = 0
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🛑 Initial pause in callback (audio enabled)`)
+    }
+  )
 
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
