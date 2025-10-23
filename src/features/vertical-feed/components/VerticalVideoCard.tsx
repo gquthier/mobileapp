@@ -68,14 +68,16 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
 
   // ✅ CRITICAL: Only create player if shouldLoadPlayer=true
   // If false, return null → this prevents creating 48 players at once!
+  // 🔧 FIX: Empty callback to avoid race condition with useEffect play/pause
+  // expo-video starts paused by default, useEffect will handle play/pause lifecycle
   const player = useVideoPlayer(
     shouldLoadPlayer ? videoUri : '',  // Empty URI when not nearby
     (player) => {
-      if (!shouldLoadPlayer) return  // Safety check
-      // ✅ Just pause - DON'T mute here or AudioToolbox will timeout!
-      player.pause()
-      player.currentTime = 0
-      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🛑 Initial pause in callback (audio enabled)`)
+      // ✅ EMPTY CALLBACK - let useEffect handle all player lifecycle
+      // Don't call pause() here or it will race with play() in useEffect!
+      if (shouldLoadPlayer && videoUri) {
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] 🎬 Player initialized with source`)
+      }
     }
   )
 
@@ -199,7 +201,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
    * 3. Pause immédiate si devient inactive
    * 4. GUARD: Empêche les doubles play() sans pause() intermédiaire
    * 5. 🎯 SEGMENT MODE: Démarre au timestamp du highlight si is_segment = true
-   * ✅ FIX: Ne PAS inclure `player` dans les dépendances pour éviter re-triggers
+   * 🔧 FIX: `player` MUST be in deps so useEffect re-triggers when player becomes available
    */
   useEffect(() => {
     if (!player) return
@@ -266,7 +268,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
         isPlayingRef.current = false
       }
     }
-  }, [isActive, video.is_segment, video.segment_start_time, isMuted]) // ✅ FIXED: Removed 'player' from dependencies
+  }, [player, isActive, video.is_segment, video.segment_start_time, isMuted, video.id]) // 🔧 FIX: Added 'player' back
 
   /**
    * 🆕 Mute/unmute avec expo-video (séparé pour les changements de préférence)
@@ -278,7 +280,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
     player.muted = isMuted
     player.volume = isMuted ? 0 : 1
     console.log(`[VideoCard ${video.id.substring(0, 8)}] 🔊 Mute changed: ${isMuted}`)
-  }, [isMuted, isActive]) // ✅ FIXED: Removed 'player' from dependencies
+  }, [player, isMuted, isActive, video.id]) // 🔧 FIX: Added 'player' for consistency
 
   /**
    * 🆕 Speed control (1.6x playback)
@@ -289,7 +291,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
     if (isSpeedUp) {
       console.log(`[VideoCard ${video.id.substring(0, 8)}] Speed: 1.6x ⚡`)
     }
-  }, [isSpeedUp]) // ✅ FIXED: Removed 'player' from dependencies
+  }, [player, isSpeedUp, video.id]) // 🔧 FIX: Added 'player' for consistency
 
   /**
    * 🆕 Listen to player events (expo-video)
