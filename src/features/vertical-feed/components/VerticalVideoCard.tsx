@@ -80,15 +80,22 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
 
   // ✅ CRITICAL: Only create player if shouldLoadPlayer=true
   // If false, return null → this prevents creating 48 players at once!
-  // 🔧 RESTORED from working version (4fbed5c): Pause + Mute immediately in callback
+  // 🔧 FIX: Protect against NativeSharedObjectNotFoundException
   const player = useVideoPlayer(
     shouldLoadPlayer ? videoUri : '',  // Empty URI when not nearby
     (player) => {
-      // ✅ PAUSE + MUTE IMMÉDIATE - seul moment pour empêcher l'autoplay
-      player.pause()
-      player.currentTime = 0
-      player.muted = true // Mute par sécurité
-      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🛑 Initial pause + mute in callback`)
+      // ✅ PAUSE + MUTE with try/catch - player might not be fully initialized
+      try {
+        player.pause()
+        player.currentTime = 0
+        player.muted = true // Mute par sécurité
+        console.log(`[VideoCard ${video.id.substring(0, 8)}] 🛑 Initial pause + mute in callback`)
+      } catch (error: any) {
+        // Silently catch if player not ready - useEffect will handle it
+        if (!error?.message?.includes('NativeSharedObjectNotFoundException')) {
+          console.warn(`[VideoCard ${video.id.substring(0, 8)}] ⚠️ Callback error:`, error?.message)
+        }
+      }
     }
   )
 

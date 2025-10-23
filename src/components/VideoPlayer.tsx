@@ -19,7 +19,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Audio } from 'expo-av'; // ✅ Added for AVAudioSession configuration
+import { Audio, InterruptionModeIOS } from 'expo-av'; // ✅ Added for AVAudioSession configuration
 import * as Device from 'expo-device'; // ✅ For Simulator detection
 import { supabase, VideoRecord } from '../lib/supabase';
 import { useTheme } from '../hooks/useTheme';
@@ -167,10 +167,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         await Audio.setAudioModeAsync({
           allowsRecordingIOS: false,        // Lecture seule, pas d'enregistrement
           playsInSilentModeIOS: true,       // Jouer même en mode silencieux
-          // 🔧 FIX: Use DUCK_OTHERS instead of DO_NOT_MIX for Simulator compatibility
-          // DO_NOT_MIX requires exclusive audio access (fails on Simulator)
-          // DUCK_OTHERS allows mixing with other audio sources (works everywhere)
-          interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DUCK_OTHERS,
+          // 🔧 FIX: Use correct enum - InterruptionModeIOS.DuckOthers (not string constant)
+          // MixWithOthers = 0, DoNotMix = 1, DuckOthers = 2
+          interruptionModeIOS: InterruptionModeIOS.DuckOthers,
           shouldDuckAndroid: false,         // Pas de baisse de volume Android
           staysActiveInBackground: false,   // Pas actif en arrière-plan
           playThroughEarpieceAndroid: false // Haut-parleurs sur Android
@@ -189,7 +188,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: false,
-        interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DUCK_OTHERS,
+        interruptionModeIOS: InterruptionModeIOS.DuckOthers,
         shouldDuckAndroid: false,
         staysActiveInBackground: false,
         playThroughEarpieceAndroid: false,
