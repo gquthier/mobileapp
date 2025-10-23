@@ -53,31 +53,16 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
   onPlayerReady,
   onProgressUpdate,
 }) => {
-  // ✅ NOUVELLE STRATÉGIE: Charger N-1, N, N+1 pour fluidité
-  // Cela évite le délai de chargement lors du scroll
-  const isNearby = Math.abs(index - currentIndex) <= 1
-  const [shouldLoadPlayer, setShouldLoadPlayer] = useState(isNearby)
-
-  // Activer loading si on devient nearby
-  useEffect(() => {
-    if (isNearby && !shouldLoadPlayer) {
-      setShouldLoadPlayer(true)
-    }
-  }, [isNearby, shouldLoadPlayer])
-
-  // Créer player si nearby (N-1, N, N+1)
-  // 🚨 NOUVELLE STRATÉGIE: Pause IMMÉDIATE dans le callback
-  // C'est le seul moment où on peut empêcher l'autoplay d'expo-video
-  const player = useVideoPlayer(
-    shouldLoadPlayer ? videoUri : '', // URI vide = player minimal sans ressources
-    (player) => {
-      // ✅ PAUSE IMMÉDIATE - avant que expo-video ne démarre la lecture
-      player.pause()
-      player.currentTime = 0
-      player.muted = true // Mute aussi par sécurité
-      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🛑 Initial pause in callback`)
-    }
-  )
+  // ✅ FIX: Créer le player UNE SEULE FOIS avec l'URI finale
+  // Ne JAMAIS changer l'URI sinon expo-video recrée le player en boucle
+  // 🚨 STRATÉGIE: Pause IMMÉDIATE dans le callback pour empêcher autoplay
+  const player = useVideoPlayer(videoUri, (player) => {
+    // ✅ PAUSE IMMÉDIATE - avant que expo-video ne démarre la lecture
+    player.pause()
+    player.currentTime = 0
+    player.muted = true // Mute aussi par sécurité
+    console.log(`[VideoCard ${video.id.substring(0, 8)}] 🛑 Initial pause in callback`)
+  })
 
   const [isLoading, setIsLoading] = useState(true)
   const [hasError, setHasError] = useState(false)
