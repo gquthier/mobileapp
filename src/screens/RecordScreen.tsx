@@ -556,14 +556,15 @@ const RecordScreen: React.FC = ({ route, navigation }: any) => {
 
         // Determine which zone we're in
         const zone = determineDragZone(pageX);
+        const previousZone = dragCurrentZone;
 
-        if (zone !== dragCurrentZone) {
-          dispatch({ type: 'UPDATE_DRAG', payload: { x: pageX, y: pageY, zone } });
+        // Always update position and zone
+        dispatch({ type: 'UPDATE_DRAG', payload: { x: pageX, y: pageY, zone } });
+
+        // Haptic feedback only when zone changes
+        if (zone !== previousZone) {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           console.log('🎯 [DRAG] Entered zone:', zone);
-        } else {
-          // Just update position without zone change
-          setDragFingerPosition({ x: pageX, y: pageY });
         }
       },
 
