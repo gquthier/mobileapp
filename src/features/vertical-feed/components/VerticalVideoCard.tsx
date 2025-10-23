@@ -80,16 +80,15 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
 
   // ✅ CRITICAL: Only create player if shouldLoadPlayer=true
   // If false, return null → this prevents creating 48 players at once!
-  // 🔧 FIX: Empty callback to avoid race condition with useEffect play/pause
-  // expo-video starts paused by default, useEffect will handle play/pause lifecycle
+  // 🔧 RESTORED from working version (4fbed5c): Pause + Mute immediately in callback
   const player = useVideoPlayer(
     shouldLoadPlayer ? videoUri : '',  // Empty URI when not nearby
     (player) => {
-      // ✅ EMPTY CALLBACK - let useEffect handle all player lifecycle
-      // Don't call pause() here or it will race with play() in useEffect!
-      if (shouldLoadPlayer && videoUri) {
-        console.log(`[VideoCard ${video.id.substring(0, 8)}] 🎬 Player initialized with source`)
-      }
+      // ✅ PAUSE + MUTE IMMÉDIATE - seul moment pour empêcher l'autoplay
+      player.pause()
+      player.currentTime = 0
+      player.muted = true // Mute par sécurité
+      console.log(`[VideoCard ${video.id.substring(0, 8)}] 🛑 Initial pause + mute in callback`)
     }
   )
 
@@ -310,7 +309,7 @@ export const VerticalVideoCard: React.FC<VerticalVideoCardProps> = ({
         isPlayingRef.current = false
       }
     }
-  }, [player, isActive, video.is_segment, video.segment_start_time, isMuted, video.id, videoUri]) // ✅ Added videoUri to track source changes
+  }, [player, isActive, video.is_segment, video.segment_start_time, video.id]) // 🔧 RESTORED: Removed isMuted to avoid re-triggers
 
   /**
    * 🆕 Mute/unmute avec expo-video (séparé pour les changements de préférence)
