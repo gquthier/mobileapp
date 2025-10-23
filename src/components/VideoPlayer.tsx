@@ -16,9 +16,11 @@ import {
   FlatList,
   ViewToken,
   TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av'; // ✅ Added for AVAudioSession configuration
+import * as Device from 'expo-device'; // ✅ For Simulator detection
 import { supabase, VideoRecord } from '../lib/supabase';
 import { useTheme } from '../hooks/useTheme';
 import { Icon } from './Icon';
@@ -32,6 +34,9 @@ import * as Haptics from 'expo-haptics';
 import { HighlightsCache } from '../services/highlightsCache';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+
+// ✅ Detect if running on iOS Simulator (audio doesn't work properly)
+const IS_IOS_SIMULATOR = Platform.OS === 'ios' && !Device.isDevice;
 
 interface VideoPlayerProps {
   visible: boolean;
@@ -146,9 +151,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   useEffect(() => {
     if (!visible) return;
 
+    // ⚠️ iOS Simulator has known audio issues with expo-video
+    if (IS_IOS_SIMULATOR) {
+      console.warn('[VideoPlayer] ⚠️ Running on iOS Simulator - Audio may not work properly');
+      console.warn('[VideoPlayer] 💡 For full audio testing, use a physical iOS device');
+    }
+
     const setupAudioSession = async () => {
       try {
-        console.log('[VideoPlayer] 🔊 Configuring AVAudioSession for playback');
+        console.log('[VideoPlayer] 🔊 Configuring AVAudioSession for playback', {
+          isSimulator: IS_IOS_SIMULATOR,
+          platform: Platform.OS
+        });
+
         await Audio.setAudioModeAsync({
           allowsRecordingIOS: false,        // Lecture seule, pas d'enregistrement
           playsInSilentModeIOS: true,       // Jouer même en mode silencieux
