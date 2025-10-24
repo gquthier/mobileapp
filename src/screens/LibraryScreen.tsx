@@ -913,7 +913,7 @@ const LibraryScreen: React.FC = () => {
           {/* Content Area */}
           {librarySearch.showSearch ? (
             <TouchableWithoutFeedback onPress={handleOutsidePress}>
-              <View style={[styles.searchContentContainer, { paddingTop: insets.top + 12 + 44 + 10 }]}>
+              <View style={[styles.searchContentContainer, { paddingTop: insets.top + 12 + 44 + 24 }]}>
                 {/* Life Area Bubbles - Edge-to-edge with infinite scroll */}
                 <ScrollView
                   ref={lifeAreaScrollViewRef}
