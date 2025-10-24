@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { withRetry } from '../utils/networkUtils'; // ✅ Phase 4.4.2: Network retry logic
 
 export interface Profile {
   id: string;
@@ -49,16 +50,22 @@ export interface SignInData {
 export class AuthService {
   /**
    * Sign up a new user
+   * ✅ Phase 4.4.2: Enhanced with network retry logic
    */
   static async signUp(data: SignUpData) {
     try {
       console.log('🔐 Starting sign up process for:', data.email);
 
-      // Sign up with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-      });
+      // Sign up with Supabase Auth (with retry)
+      const signUpWithRetry = withRetry(
+        async () => supabase.auth.signUp({
+          email: data.email,
+          password: data.password,
+        }),
+        { maxAttempts: 3 }
+      );
+
+      const { data: authData, error: authError } = await signUpWithRetry();
 
       if (authError) {
         console.error('❌ Auth sign up error:', authError);
@@ -137,15 +144,22 @@ export class AuthService {
 
   /**
    * Sign in existing user
+   * ✅ Phase 4.4.2: Enhanced with network retry logic
    */
   static async signIn(data: SignInData) {
     try {
       console.log('🔐 Starting sign in process for:', data.email);
 
-      const { data: authData, error } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
-      });
+      // Sign in with retry
+      const signInWithRetry = withRetry(
+        async () => supabase.auth.signInWithPassword({
+          email: data.email,
+          password: data.password,
+        }),
+        { maxAttempts: 3 }
+      );
+
+      const { data: authData, error } = await signInWithRetry();
 
       if (error) {
         console.error('❌ Sign in error:', error);
@@ -230,16 +244,23 @@ export class AuthService {
 
   /**
    * Get user profile by ID
+   * ✅ Phase 4.4.2: Enhanced with network retry logic
    */
   static async getProfile(userId: string): Promise<Profile | null> {
     try {
       console.log('👤 Fetching profile for user:', userId);
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
+      // Fetch profile with retry
+      const getProfileWithRetry = withRetry(
+        async () => supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single(),
+        { maxAttempts: 3 }
+      );
+
+      const { data, error } = await getProfileWithRetry();
 
       if (error) {
         console.error('❌ Get profile error:', error);
@@ -256,17 +277,24 @@ export class AuthService {
 
   /**
    * Update user profile
+   * ✅ Phase 4.4.2: Enhanced with network retry logic
    */
   static async updateProfile(userId: string, updates: Partial<Profile>) {
     try {
       console.log('👤 Updating profile for user:', userId, updates);
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .update(updates)
-        .eq('id', userId)
-        .select()
-        .single();
+      // Update profile with retry
+      const updateProfileWithRetry = withRetry(
+        async () => supabase
+          .from('profiles')
+          .update(updates)
+          .eq('id', userId)
+          .select()
+          .single(),
+        { maxAttempts: 3 }
+      );
+
+      const { data, error } = await updateProfileWithRetry();
 
       if (error) {
         console.error('❌ Update profile error:', error);

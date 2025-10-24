@@ -909,6 +909,7 @@ const styles = StyleSheet.create({
   },
   lifeAreaBubblesContainer: {
     paddingHorizontal: theme.spacing['4'],
+    paddingTop: 18, // Space above keywords
     gap: theme.spacing['2'],
     flexDirection: 'row',
   },

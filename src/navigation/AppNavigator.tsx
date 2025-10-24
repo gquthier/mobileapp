@@ -44,7 +44,7 @@ function EmptyComponent() {
   return null;
 }
 
-// ✅ RecordScreen wrapped with ErrorBoundary for auto-recovery
+// ✅ Phase 4.4: Wrap critical screens with ErrorBoundary for auto-recovery
 function RecordScreenWithErrorBoundary(props: any) {
   const handleError = (error: Error) => {
     console.error('🔴 [RECORD ERROR]', error);
@@ -61,6 +61,33 @@ function RecordScreenWithErrorBoundary(props: any) {
   return (
     <ErrorBoundary onError={handleError} autoRecover={true}>
       <RecordScreen {...props} />
+    </ErrorBoundary>
+  );
+}
+
+// ✅ Phase 4.4.2: Wrap LibraryScreen with ErrorBoundary
+function LibraryScreenWithErrorBoundary(props: any) {
+  return (
+    <ErrorBoundary onError={(error) => console.error('🔴 [LIBRARY ERROR]', error)}>
+      {ENABLE_REACT_QUERY_LIBRARY ? <LibraryScreenV2 {...props} /> : <LibraryScreen {...props} />}
+    </ErrorBoundary>
+  );
+}
+
+// ✅ Phase 4.4.2: Wrap MomentumDashboardScreen with ErrorBoundary
+function MomentumDashboardScreenWithErrorBoundary(props: any) {
+  return (
+    <ErrorBoundary onError={(error) => console.error('🔴 [MOMENTUM ERROR]', error)}>
+      <MomentumDashboardScreen {...props} />
+    </ErrorBoundary>
+  );
+}
+
+// ✅ Phase 4.4.2: Wrap VerticalFeedTabScreen with ErrorBoundary
+function VerticalFeedTabScreenWithErrorBoundary(props: any) {
+  return (
+    <ErrorBoundary onError={(error) => console.error('🔴 [FEED ERROR]', error)}>
+      <VerticalFeedTabScreen {...props} />
     </ErrorBoundary>
   );
 }
@@ -110,7 +137,7 @@ function MainTabs() {
       {showFeedTab && (
         <Tab.Screen
           name="VerticalFeed"
-          component={VerticalFeedTabScreen}
+          component={VerticalFeedTabScreenWithErrorBoundary}
           options={{
             title: 'Feed',
             tabBarIcon: () => ({ sfSymbol: 'rectangle.stack.fill' }),
@@ -165,7 +192,7 @@ function LibraryStackNavigator() {
     <LibraryStack.Navigator screenOptions={{ headerShown: false }}>
       <LibraryStack.Screen
         name="LibraryMain"
-        component={ENABLE_REACT_QUERY_LIBRARY ? LibraryScreenV2 : LibraryScreen}
+        component={LibraryScreenWithErrorBoundary}
       />
       <LibraryStack.Screen name="Settings" component={SettingsScreen} />
       <LibraryStack.Screen name="VideoImport" component={VideoImportScreen} />
@@ -186,7 +213,7 @@ function LibraryStackNavigator() {
 function MomentumStackNavigator() {
   return (
     <MomentumStack.Navigator screenOptions={{ headerShown: false }}>
-      <MomentumStack.Screen name="MomentumMain" component={MomentumDashboardScreen} />
+      <MomentumStack.Screen name="MomentumMain" component={MomentumDashboardScreenWithErrorBoundary} />
       <MomentumStack.Screen name="ChapterDetail" component={ChapterDetailScreen} />
       <MomentumStack.Screen name="ChapterManagement" component={ChapterManagementScreen} />
       <MomentumStack.Screen name="EditChapter" component={EditChapterScreen} />

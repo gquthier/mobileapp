@@ -7,6 +7,7 @@ import { VideoCacheService } from './videoCacheService';
 import { TranscriptionJobService } from './transcriptionJobService';
 import { VideoThumbnailGenerator } from './import/VideoThumbnailGenerator'; // ✅ Phase 1: Use modular thumbnail generation
 import { VideoSegment } from '../types'; // For segment-based Life Area filtering
+import { retryWithBackoff } from '../utils/networkUtils'; // ✅ Phase 4.4.2: Network retry logic
 
 export class VideoService {
   // Limite de taille pour Supabase (5GB configuré dans les settings)
@@ -53,33 +54,30 @@ export class VideoService {
   }
 
   /**
-   * Retry wrapper with exponential backoff
+   * ✅ Phase 4.4.2: Enhanced retry wrapper with network availability checks
+   * Uses networkUtils for smart retry logic with exponential backoff
    */
-  private static async retryWithBackoff<T>(
+  private static async retryWithBackoffEnhanced<T>(
     operation: () => Promise<T>,
     operationName: string,
     maxAttempts: number = this.MAX_RETRY_ATTEMPTS
   ): Promise<T> {
-    let lastError: Error | null = null;
+    console.log(`🔄 [VideoService] ${operationName} - starting with network-aware retry`);
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        console.log(`🔄 ${operationName} - Attempt ${attempt}/${maxAttempts}`);
-        return await operation();
-      } catch (error) {
-        lastError = error as Error;
-        console.error(`❌ ${operationName} - Attempt ${attempt} failed:`, error);
+    const result = await retryWithBackoff(operation, {
+      maxAttempts,
+      initialDelayMs: this.RETRY_DELAY_BASE_MS,
+      maxDelayMs: 10000, // 10 seconds max
+      backoffMultiplier: 2,
+    });
 
-        if (attempt < maxAttempts) {
-          // Exponential backoff: 2s, 4s, 8s
-          const delayMs = this.RETRY_DELAY_BASE_MS * Math.pow(2, attempt - 1);
-          console.log(`⏳ Retrying in ${delayMs / 1000}s...`);
-          await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
-      }
+    if (result.success && result.data !== undefined) {
+      console.log(`✅ [VideoService] ${operationName} succeeded after ${result.attempts} attempt(s)`);
+      return result.data;
     }
 
-    throw lastError || new Error(`${operationName} failed after ${maxAttempts} attempts`);
+    console.error(`❌ [VideoService] ${operationName} failed after ${result.attempts} attempts`);
+    throw result.error || new Error(`${operationName} failed after ${maxAttempts} attempts`);
   }
 
   /**
@@ -356,12 +354,12 @@ export class VideoService {
         throw new Error('No auth token available for upload');
       }
 
-      // Step 5: Upload with retry and progression (Solutions 1 & 2)
+      // Step 5: Upload with retry and progression (Solutions 1 & 2 + Phase 4.4.2)
       let uploadedFilePath: string | null = null;
       let uploadError: Error | null = null;
 
       try {
-        uploadedFilePath = await this.retryWithBackoff(
+        uploadedFilePath = await this.retryWithBackoffEnhanced(
           async () => {
             return await this.uploadWithProgression(
               processedVideoUri,
@@ -372,7 +370,7 @@ export class VideoService {
           'Video upload',
           this.MAX_RETRY_ATTEMPTS
         );
-        console.log('✅ Video uploaded successfully with retry logic');
+        console.log('✅ Video uploaded successfully with network-aware retry logic');
       } catch (error) {
         uploadError = error as Error;
         console.error('❌ Upload failed after all retries:', error);
