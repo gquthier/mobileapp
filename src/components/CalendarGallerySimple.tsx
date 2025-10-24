@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, memo, useEffect } from 'react';
+import { calendarCacheService } from '../services/calendarCacheService'; // 🆕 Phase 4.2.2
 import {
   View,
   Text,
@@ -201,13 +202,41 @@ const CalendarGallerySimpleComponent: React.FC<CalendarGalleryProps> = ({
   const [backendCalendarData, setBackendCalendarData] = useState<any[] | null>(null);
   const [backendError, setBackendError] = useState<string | null>(null);
 
-  // ✅ PHASE 2: Fetch calendar data from backend Edge Function
+  // ✅ PHASE 4.2.2: Cache-first fetch with background refresh
   useEffect(() => {
     const fetchBackendCalendarData = async () => {
       try {
+        // Get current user ID for cache
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          console.warn('⚠️ No user found, skipping calendar fetch');
+          setUseBackendData(false);
+          return;
+        }
+
+        // Step 1: Check cache first (instant display)
+        const cached = await calendarCacheService.get(user.id);
+        if (cached) {
+          console.log('📦 [CalendarCache] Using cached data (instant display)');
+          setBackendCalendarData(cached);
+          setUseBackendData(true);
+          setIsLoadingBackend(false);
+
+          // Check if stale and refresh in background
+          const isStale = await calendarCacheService.isStale(user.id);
+          if (isStale) {
+            console.log('🔄 [CalendarCache] Data is stale, refreshing in background...');
+            // Continue to fetch fresh data below (background refresh)
+          } else {
+            // Cache is fresh, no need to fetch
+            return;
+          }
+        }
+
+        // Step 2: Fetch from Edge Function (cache miss or stale)
         setIsLoadingBackend(true);
         setBackendError(null);
-        console.log('📅 [PHASE 2] Fetching calendar data from Edge Function...');
+        console.log('📅 [PHASE 4.2.2] Fetching calendar data from Edge Function...');
 
         const { data, error } = await supabase.functions.invoke('get-calendar-data', {
           headers: {
@@ -216,19 +245,27 @@ const CalendarGallerySimpleComponent: React.FC<CalendarGalleryProps> = ({
         });
 
         if (error) {
-          console.error('❌ [PHASE 2] Edge Function error:', error);
+          console.error('❌ Edge Function error:', error);
           setBackendError(error.message);
-          setUseBackendData(false); // Fallback to client-side calculation
+          // Keep using cached data if available
+          if (!cached) {
+            setUseBackendData(false); // Fallback to client-side calculation
+          }
         } else if (data?.calendar) {
-          console.log(`✅ [PHASE 2] Backend calendar data loaded: ${data.calendar.length} entries`);
+          console.log(`✅ Backend calendar data loaded: ${data.calendar.length} entries`);
           setBackendCalendarData(data.calendar);
-          setUseBackendData(true); // Use backend data
+          setUseBackendData(true);
+
+          // Cache the fresh data
+          await calendarCacheService.set(user.id, data.calendar);
         } else {
-          console.warn('⚠️ [PHASE 2] No calendar data returned from backend');
-          setUseBackendData(false); // Fallback to client-side calculation
+          console.warn('⚠️ No calendar data returned from backend');
+          if (!cached) {
+            setUseBackendData(false); // Fallback to client-side calculation
+          }
         }
       } catch (error: any) {
-        console.error('❌ [PHASE 2] Failed to fetch backend calendar data:', error);
+        console.error('❌ Failed to fetch backend calendar data:', error);
         setBackendError(error.message);
         setUseBackendData(false); // Fallback to client-side calculation
       } finally {

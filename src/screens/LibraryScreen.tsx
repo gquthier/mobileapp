@@ -29,6 +29,7 @@ import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { LoadingDots } from '../components/LoadingDots';
 import { imageCacheService } from '../services/imageCacheService'; // 🆕 Phase 4.2
+import { calendarCacheService } from '../services/calendarCacheService'; // 🆕 Phase 4.2.2
 import { VideoPlayer } from '../components/VideoPlayer';
 import { VideoRecord } from '../lib/supabase';
 import { VideoService } from '../services/videoService';
@@ -339,9 +340,18 @@ const LibraryScreen: React.FC = () => {
     console.log('🔄 Pull-to-refresh triggered');
     setRefreshing(true);
     try {
+      // Get current user for calendar cache
+      const { data: { user } } = await supabase.auth.getUser();
+
       // Clear image cache on pull-to-refresh (Phase 4.2)
       await imageCacheService.clear();
       console.log('🧹 [LibraryScreen] Image cache cleared on refresh');
+
+      // Clear calendar cache on pull-to-refresh (Phase 4.2.2)
+      if (user) {
+        await calendarCacheService.clear(user.id);
+        console.log('🧹 [LibraryScreen] Calendar cache cleared on refresh');
+      }
 
       await fetchVideos(0, false, true); // Silent refresh - keeps UI visible
     } finally {
@@ -1415,6 +1425,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing['2'], // 8px gap between search bar and filter button
+    marginBottom: 40, // TEST: Large margin to push keywords down
   },
   // Search Bar with Liquid Glass
   searchGlassBar: {
