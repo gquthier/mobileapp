@@ -691,7 +691,7 @@ const LibraryScreen: React.FC = () => {
         {librarySearch.showSearch ? (
             <View style={[styles.searchHeader, {
               paddingTop: insets.top + theme.spacing['3'],
-              paddingBottom: theme.spacing['3']
+              paddingBottom: 60 // TEST: Large padding to see if this affects keywords
             }]}>
               <View style={styles.searchHeaderContent}>
                 {/* Search Bar with Liquid Glass */}
@@ -1752,7 +1752,6 @@ const styles = StyleSheet.create({
   lifeAreaBubblesContainer: {
     paddingLeft: 12, // Small padding for first item
     paddingRight: 12, // Small padding for last item
-    paddingTop: 40, // TEST: Space above keywords
     gap: 8,
   },
   lifeAreaBubble: {
