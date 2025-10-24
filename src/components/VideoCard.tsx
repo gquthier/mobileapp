@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { theme } from '../styles';
 import { Icon } from './Icon';
 import { SourceRect } from './library/types';
 import { useNetworkQuality } from '../hooks/useNetworkQuality'; // 🆕 Phase 1.3
+import { imageCacheService } from '../services/imageCacheService'; // 🆕 Phase 4.2
 
 const { width } = Dimensions.get('window');
 const cardWidth = (width - 48) / 2; // 2 columns with 16px padding on sides and 16px gap
@@ -138,6 +139,28 @@ export const VideoCard: React.FC<VideoCardProps> = ({
     }
   };
 
+  // Cache-first: Check cache on mount
+  useEffect(() => {
+    const checkCache = async () => {
+      const thumbnailUrl = video.thumbnail_frames?.[0] || getThumbnailUri();
+      if (thumbnailUrl) {
+        await imageCacheService.get(thumbnailUrl);
+      }
+    };
+
+    checkCache();
+  }, [video.thumbnail_frames, video.thumbnail_path]);
+
+  // Mark image as cached when loaded
+  const handleImageLoad = async () => {
+    setImageLoaded(true);
+
+    const thumbnailUrl = video.thumbnail_frames?.[0] || getThumbnailUri();
+    if (thumbnailUrl) {
+      await imageCacheService.set(thumbnailUrl, 50000); // Estimate 50KB per thumbnail
+    }
+  };
+
   return (
     <TouchableOpacity
       style={styles.card}
@@ -163,14 +186,14 @@ export const VideoCard: React.FC<VideoCardProps> = ({
             source={{ uri: video.thumbnail_frames[0] }}
             style={[styles.thumbnail, { opacity: imageLoaded ? 1 : 0 }]}
             resizeMode="cover"
-            onLoad={() => setImageLoaded(true)}
+            onLoad={handleImageLoad}
           />
         ) : !showPreview && getThumbnailUri() ? (
           <Image
             source={{ uri: getThumbnailUri()! }}
             style={[styles.thumbnail, { opacity: imageLoaded ? 1 : 0 }]}
             resizeMode="cover"
-            onLoad={() => setImageLoaded(true)}
+            onLoad={handleImageLoad}
           />
         ) : !showPreview && !video.thumbnail_blurhash && (
           <View style={styles.placeholderThumbnail}>

@@ -3,6 +3,7 @@ import { Image, View, StyleSheet } from 'react-native';
 import { Blurhash } from 'react-native-blurhash';
 import { LoadingDots } from './LoadingDots';
 import { useTheme } from '../contexts/ThemeContext';
+import { imageCacheService } from '../services/imageCacheService';
 
 interface AnimatedThumbnailProps {
   frames: string[];
@@ -23,6 +24,34 @@ export const AnimatedThumbnail: React.FC<AnimatedThumbnailProps> = ({
   const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
   const [imageLoaded, setImageLoaded] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout>();
+
+  // Cache-first: Check cache and mark as cached when loaded
+  useEffect(() => {
+    const checkCache = async () => {
+      if (frames && frames.length > 0) {
+        const currentFrame = frames[currentFrameIndex];
+        const cached = await imageCacheService.get(currentFrame);
+
+        if (cached) {
+          // Image is in cache, React Native will load it faster
+          console.log(`📦 [AnimatedThumbnail] Using cached frame: ${currentFrame}`);
+        }
+      }
+    };
+
+    checkCache();
+  }, [frames, currentFrameIndex]);
+
+  // Mark image as cached when loaded
+  const handleImageLoad = async () => {
+    setImageLoaded(true);
+
+    // Cache the loaded image URL
+    if (frames && frames.length > 0) {
+      const currentFrame = frames[currentFrameIndex];
+      await imageCacheService.set(currentFrame, 50000); // Estimate 50KB per frame
+    }
+  };
 
   useEffect(() => {
     // TOUJOURS nettoyer l'intervalle existant avant d'en créer un nouveau
@@ -87,7 +116,7 @@ export const AnimatedThumbnail: React.FC<AnimatedThumbnailProps> = ({
           { opacity: imageLoaded ? 1 : 0 } // Smooth fade-in
         ]}
         resizeMode="cover"
-        onLoad={() => setImageLoaded(true)}
+        onLoad={handleImageLoad}
         // Cache configuration for better performance
         cache="force-cache"
       />

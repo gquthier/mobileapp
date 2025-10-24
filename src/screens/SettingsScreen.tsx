@@ -27,6 +27,7 @@ import { OnboardingService } from '../services/onboardingService';
 import { supabase, Chapter } from '../lib/supabase';
 import { getCurrentChapter } from '../services/chapterService';
 import { CHAPTER_COLORS } from '../constants/chapterColors';
+import { imageCacheService } from '../services/imageCacheService'; // 🆕 Phase 4.2
 import ProfileScreen from './ProfileScreen';
 import NotificationSettingsScreen from './NotificationSettingsScreen';
 import AuthScreen from './AuthScreen';
@@ -227,12 +228,52 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   // App color theme state
   const [showColorPickerModal, setShowColorPickerModal] = useState(false);
 
+  // Image cache stats (Phase 4.2)
+  const [cacheStats, setCacheStats] = useState<{
+    entryCount: number;
+    totalSizeMB: number;
+    hitCount: number;
+    missCount: number;
+    hitRate: number;
+  } | null>(null);
+
   // Admin: Testing
   const [showFirstRecordingPrompt, setShowFirstRecordingPrompt] = useState(false);
 
   useEffect(() => {
     loadUserData();
+    loadCacheStats(); // Phase 4.2
   }, []);
+
+  // Load image cache stats (Phase 4.2)
+  const loadCacheStats = async () => {
+    try {
+      const stats = await imageCacheService.getStats();
+      setCacheStats(stats);
+    } catch (error) {
+      console.error('❌ Failed to load cache stats:', error);
+    }
+  };
+
+  // Clear image cache (Phase 4.2)
+  const handleClearCache = async () => {
+    Alert.alert(
+      'Clear Image Cache',
+      `This will clear ${cacheStats?.entryCount || 0} cached images (${cacheStats?.totalSizeMB.toFixed(2) || 0}MB). Are you sure?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            await imageCacheService.clear();
+            await loadCacheStats();
+            Alert.alert('Cache Cleared', 'Image cache has been cleared successfully');
+          },
+        },
+      ]
+    );
+  };
 
   const loadUserData = async () => {
     setLoading(true);
@@ -754,6 +795,21 @@ const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
               subtitle="App version and information"
               showChevron
               onPress={handleAboutPress}
+            />
+          </SettingsSection>
+
+          {/* Developer Section (Phase 4.2) */}
+          <SettingsSection title="Developer">
+            <SettingsItem
+              icon="database"
+              title="Image Cache"
+              subtitle={
+                cacheStats
+                  ? `${cacheStats.entryCount} images • ${cacheStats.totalSizeMB.toFixed(2)}MB • ${cacheStats.hitRate.toFixed(1)}% hit rate`
+                  : 'Loading...'
+              }
+              showChevron
+              onPress={handleClearCache}
             />
           </SettingsSection>
 

@@ -10,6 +10,7 @@ import { useFonts, Poppins_600SemiBold_Italic } from '@expo-google-fonts/poppins
 import { initializeNotifications } from './src/services/notificationService';
 import { VideoLRUCache } from './src/services/videoLRUCache';
 import { HighlightsCache } from './src/services/highlightsCache';
+import { imageCacheService } from './src/services/imageCacheService'; // 🆕 Phase 4.2
 import queryClient from './src/lib/queryClient';
 
 export default function App() {
@@ -19,8 +20,14 @@ export default function App() {
 
   // 🔔 Initialiser le système de notifications au démarrage
   // 🧹 PHASE 3.2: Auto-cleanup des caches au démarrage
+  // 🖼️ PHASE 4.2: Initialize image cache service
   useEffect(() => {
     initializeNotifications();
+
+    // Initialize image cache service (Phase 4.2)
+    imageCacheService.initialize().then(() => {
+      console.log('✅ [App] Image cache service initialized');
+    });
 
     // Nettoyer les vidéos en cache de plus de 30 jours (background, non-bloquant)
     VideoLRUCache.cleanup(30).then(removed => {

@@ -28,6 +28,7 @@ import { useTheme } from '../hooks/useTheme';
 import { TopBar } from '../components/TopBar';
 import { Icon } from '../components/Icon';
 import { LoadingDots } from '../components/LoadingDots';
+import { imageCacheService } from '../services/imageCacheService'; // 🆕 Phase 4.2
 import { VideoPlayer } from '../components/VideoPlayer';
 import { VideoRecord } from '../lib/supabase';
 import { VideoService } from '../services/videoService';
@@ -338,6 +339,10 @@ const LibraryScreen: React.FC = () => {
     console.log('🔄 Pull-to-refresh triggered');
     setRefreshing(true);
     try {
+      // Clear image cache on pull-to-refresh (Phase 4.2)
+      await imageCacheService.clear();
+      console.log('🧹 [LibraryScreen] Image cache cleared on refresh');
+
       await fetchVideos(0, false, true); // Silent refresh - keeps UI visible
     } finally {
       setRefreshing(false);
@@ -958,7 +963,7 @@ const LibraryScreen: React.FC = () => {
           {librarySearch.showSearch ? (
             <TouchableWithoutFeedback onPress={handleOutsidePress}>
               <View style={[styles.searchContentContainer, {
-                paddingTop: insets.top + theme.spacing['3'] + 44 + 22 + 10 + 50 + theme.spacing['3']
+                paddingTop: insets.top + theme.spacing['3'] + 44 + 22 + 40 + 50 + theme.spacing['3']
               }]}>
                 {/* Results Area */}
                 {librarySearch.isSearchingLifeArea ? (
@@ -1747,7 +1752,7 @@ const styles = StyleSheet.create({
   lifeAreaBubblesContainer: {
     paddingLeft: 12, // Small padding for first item
     paddingRight: 12, // Small padding for last item
-    paddingTop: 10, // Space above keywords
+    paddingTop: 40, // TEST: Space above keywords
     gap: 8,
   },
   lifeAreaBubble: {
