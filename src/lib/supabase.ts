@@ -68,6 +68,7 @@ export interface VideoRecord {
   user_id?: string;
   thumbnail_path?: string;
   thumbnail_frames?: string[]; // Array of frame URLs for animated thumbnails
+  thumbnail_blurhash?: string; // Blurhash string for instant placeholder (Phase 4.1)
   theme_id?: string;
   chapter_id?: string;
   // Nouvelles colonnes pour le design

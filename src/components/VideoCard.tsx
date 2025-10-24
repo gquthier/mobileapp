@@ -7,6 +7,7 @@ import {
   Image,
   Dimensions,
 } from 'react-native';
+import { Blurhash } from 'react-native-blurhash';
 import { Video, ResizeMode } from 'expo-av';
 import { VideoRecord } from '../lib/supabase';
 import { theme } from '../styles';
@@ -33,6 +34,7 @@ export const VideoCard: React.FC<VideoCardProps> = ({
 
   const [showPreview, setShowPreview] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const videoRef = useRef<Video>(null);
   const timeoutRef = useRef<NodeJS.Timeout>();
   const containerRef = useRef<View>(null);
@@ -146,20 +148,31 @@ export const VideoCard: React.FC<VideoCardProps> = ({
     >
       {/* Thumbnail/Video Preview */}
       <View ref={containerRef} style={styles.thumbnailContainer}>
+        {/* Blurhash placeholder - Instant display (Phase 4.1) */}
+        {!showPreview && video.thumbnail_blurhash && !imageLoaded && (
+          <Blurhash
+            blurhash={video.thumbnail_blurhash}
+            style={StyleSheet.absoluteFillObject}
+            resizeMode="cover"
+          />
+        )}
+
         {/* Static thumbnail - display first frame only */}
         {!showPreview && video.thumbnail_frames && video.thumbnail_frames.length > 0 ? (
           <Image
             source={{ uri: video.thumbnail_frames[0] }}
-            style={styles.thumbnail}
+            style={[styles.thumbnail, { opacity: imageLoaded ? 1 : 0 }]}
             resizeMode="cover"
+            onLoad={() => setImageLoaded(true)}
           />
         ) : !showPreview && getThumbnailUri() ? (
           <Image
             source={{ uri: getThumbnailUri()! }}
-            style={styles.thumbnail}
+            style={[styles.thumbnail, { opacity: imageLoaded ? 1 : 0 }]}
             resizeMode="cover"
+            onLoad={() => setImageLoaded(true)}
           />
-        ) : !showPreview && (
+        ) : !showPreview && !video.thumbnail_blurhash && (
           <View style={styles.placeholderThumbnail}>
             <Icon name="cameraFilled" size={24} color={theme.colors.text.disabled} />
           </View>

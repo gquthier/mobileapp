@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Image, View, StyleSheet } from 'react-native';
+import { Blurhash } from 'react-native-blurhash';
 import { LoadingDots } from './LoadingDots';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface AnimatedThumbnailProps {
   frames: string[];
+  blurhash?: string; // Blurhash string for instant placeholder
   style?: any;
   interval?: number; // Interval between frames in ms
   isUploading?: boolean; // Show spinner overlay if true
@@ -12,12 +14,14 @@ interface AnimatedThumbnailProps {
 
 export const AnimatedThumbnail: React.FC<AnimatedThumbnailProps> = ({
   frames,
+  blurhash,
   style,
   interval = 400, // Default: change frame every 400ms (balanced GIF effect with 10 frames)
   isUploading = false,
 }) => {
   const { brandColor } = useTheme();
   const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout>();
 
   useEffect(() => {
@@ -65,13 +69,29 @@ export const AnimatedThumbnail: React.FC<AnimatedThumbnailProps> = ({
 
   return (
     <View style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {/* Blurhash placeholder - Instant display (0ms) */}
+      {blurhash && !imageLoaded && (
+        <Blurhash
+          blurhash={blurhash}
+          style={StyleSheet.absoluteFillObject}
+          resizeMode="cover"
+        />
+      )}
+
+      {/* Real thumbnail - Fades in when loaded */}
       <Image
         source={{ uri: currentFrame }}
-        style={[styles.frame, style]}
+        style={[
+          styles.frame,
+          style,
+          { opacity: imageLoaded ? 1 : 0 } // Smooth fade-in
+        ]}
         resizeMode="cover"
+        onLoad={() => setImageLoaded(true)}
         // Cache configuration for better performance
         cache="force-cache"
       />
+
       {isUploading && (
         <View style={styles.uploadingOverlay}>
           <LoadingDots color={brandColor} />

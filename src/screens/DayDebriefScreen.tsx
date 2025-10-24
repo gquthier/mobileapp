@@ -520,6 +520,7 @@ export const DayDebriefScreen: React.FC<DayDebriefScreenProps> = ({
                   {video.thumbnail_frames && video.thumbnail_frames.length > 0 ? (
                     <AnimatedThumbnail
                       frames={video.thumbnail_frames}
+                      blurhash={video.thumbnail_blurhash}
                       style={styles.videoGridThumbnail}
                       interval={400}
                     />

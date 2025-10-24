@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { encode } from "https://deno.land/x/blurhash@v0.1.0/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -49,6 +50,7 @@ serve(async (req) => {
     const frameCount = 6;
     const durationMs = duration * 1000;
     const frameUrls: string[] = [];
+    let blurhash: string | null = null;
 
     for (let i = 0; i < frameCount; i++) {
       const baseTime = (durationMs / (frameCount + 1)) * (i + 1);
@@ -87,6 +89,55 @@ serve(async (req) => {
       // Read the frame file
       const frameData = await Deno.readFile(framePath);
 
+      // Generate blurhash from first frame only
+      if (i === 0 && !blurhash) {
+        try {
+          console.log('🎨 Generating blurhash from first frame...');
+
+          // Decode JPEG to get pixel data (using Deno's built-in Image APIs)
+          // For Deno, we'll use a simpler approach with FFmpeg to get raw RGB data
+          const rgbPath = `/tmp/rgb_${video_id}_${i}.rgb`;
+
+          const ffmpegRgbCmd = new Deno.Command("ffmpeg", {
+            args: [
+              "-i", framePath,
+              "-vf", "scale=32:32", // Resize to 32x32 for blurhash (faster + smaller)
+              "-f", "rawvideo",
+              "-pix_fmt", "rgb24",
+              "-y",
+              rgbPath
+            ],
+            stdout: "null",
+            stderr: "null"
+          });
+
+          const rgbProcess = ffmpegRgbCmd.spawn();
+          const rgbStatus = await rgbProcess.status;
+
+          if (rgbStatus.success) {
+            const rgbData = await Deno.readFile(rgbPath);
+            const width = 32;
+            const height = 32;
+
+            // Convert Uint8Array to number array for blurhash
+            const pixelData = Array.from(rgbData);
+
+            // Generate blurhash with 4x3 components (good balance)
+            blurhash = encode(pixelData, width, height, 4, 3);
+
+            console.log(`✅ Blurhash generated: ${blurhash}`);
+
+            // Clean up RGB file
+            await Deno.remove(rgbPath);
+          } else {
+            console.error('❌ FFmpeg RGB conversion failed for blurhash');
+          }
+        } catch (blurhashError) {
+          console.error('⚠️ Blurhash generation failed (non-critical):', blurhashError);
+          // Continue without blurhash - not critical for functionality
+        }
+      }
+
       // Upload frame to Supabase Storage
       const frameFileName = `thumbnail_${Date.now()}_frame${i}.jpg`;
       const { error: uploadError } = await supabase.storage
@@ -120,12 +171,13 @@ serve(async (req) => {
       throw new Error('Failed to generate any frames');
     }
 
-    // Update video record with frames
+    // Update video record with frames and blurhash
     const { error: updateError } = await supabase
       .from('videos')
       .update({
         thumbnail_path: frameUrls[0],
-        thumbnail_frames: frameUrls
+        thumbnail_frames: frameUrls,
+        thumbnail_blurhash: blurhash
       })
       .eq('id', video_id);
 
@@ -135,13 +187,15 @@ serve(async (req) => {
     }
 
     console.log(`✅ All ${frameUrls.length} frames generated and saved`);
+    console.log(`✅ Blurhash: ${blurhash || 'Not generated'}`);
 
     return new Response(JSON.stringify({
       success: true,
       thumbnail_path: frameUrls[0],
       thumbnail_frames: frameUrls,
+      thumbnail_blurhash: blurhash,
       frame_count: frameUrls.length,
-      message: `${frameUrls.length} animated frames generated successfully`
+      message: `${frameUrls.length} animated frames generated successfully${blurhash ? ' with blurhash' : ''}`
     }), {
       headers: {
         ...corsHeaders,

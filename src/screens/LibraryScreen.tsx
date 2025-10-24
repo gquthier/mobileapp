@@ -684,7 +684,10 @@ const LibraryScreen: React.FC = () => {
       <View style={styles.content}>
         {/* Header - Normal or Search Mode */}
         {librarySearch.showSearch ? (
-            <View style={[styles.searchHeader, { paddingTop: insets.top + theme.spacing['3'] }]}>
+            <View style={[styles.searchHeader, {
+              paddingTop: insets.top + theme.spacing['3'],
+              paddingBottom: theme.spacing['3']
+            }]}>
               <View style={styles.searchHeaderContent}>
                 {/* Search Bar with Liquid Glass */}
                 <LiquidGlassView
@@ -735,6 +738,47 @@ const LibraryScreen: React.FC = () => {
                   </GlassButton>
                 </Animated.View>
               </View>
+
+              {/* Life Area Bubbles - Below search bar as part of header */}
+              <ScrollView
+                ref={lifeAreaScrollViewRef}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.lifeAreaBubblesContainer}
+                style={[styles.lifeAreaScrollView, { marginTop: 22, paddingTop: 10 }]}
+                onScroll={handleLifeAreaScroll}
+                scrollEventThrottle={16}
+                keyboardShouldPersistTaps="handled"
+              >
+                {infiniteLifeAreas.map((area, index) => {
+                  const isSelected = librarySearch.selectedLifeArea === area;
+                  return (
+                    <TouchableOpacity
+                      key={`${area}-${index}`}
+                      onPress={() => handleLifeAreaPress(area)}
+                      activeOpacity={0.7}
+                    >
+                      <LiquidGlassView
+                        style={[
+                          styles.lifeAreaBubble,
+                          isSelected && styles.lifeAreaBubbleSelected,
+                          !isLiquidGlassSupported && {
+                            backgroundColor: isSelected ? theme.colors.gray300 : theme.colors.gray100,
+                          }
+                        ]}
+                        interactive={true}
+                      >
+                        <Text style={[
+                          styles.lifeAreaText,
+                          isSelected && styles.lifeAreaTextSelected
+                        ]}>
+                          {area}
+                        </Text>
+                      </LiquidGlassView>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
           ) : (
             <Animated.View style={[styles.header, { paddingTop: insets.top + theme.spacing['3'] }]}>
@@ -913,48 +957,9 @@ const LibraryScreen: React.FC = () => {
           {/* Content Area */}
           {librarySearch.showSearch ? (
             <TouchableWithoutFeedback onPress={handleOutsidePress}>
-              <View style={[styles.searchContentContainer, { paddingTop: insets.top + 12 + 44 + 24 }]}>
-                {/* Life Area Bubbles - Edge-to-edge with infinite scroll */}
-                <ScrollView
-                  ref={lifeAreaScrollViewRef}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.lifeAreaBubblesContainer}
-                  style={styles.lifeAreaScrollView}
-                  onScroll={handleLifeAreaScroll}
-                  scrollEventThrottle={16}
-                  keyboardShouldPersistTaps="handled"
-                >
-                  {infiniteLifeAreas.map((area, index) => {
-                    const isSelected = librarySearch.selectedLifeArea === area;
-                    return (
-                      <TouchableOpacity
-                        key={`${area}-${index}`}
-                        onPress={() => handleLifeAreaPress(area)}
-                        activeOpacity={0.7}
-                      >
-                        <LiquidGlassView
-                          style={[
-                            styles.lifeAreaBubble,
-                            isSelected && styles.lifeAreaBubbleSelected,
-                            !isLiquidGlassSupported && {
-                              backgroundColor: isSelected ? theme.colors.gray300 : theme.colors.gray100,
-                            }
-                          ]}
-                          interactive={true}
-                        >
-                          <Text style={[
-                            styles.lifeAreaText,
-                            isSelected && styles.lifeAreaTextSelected
-                          ]}>
-                            {area}
-                          </Text>
-                        </LiquidGlassView>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-
+              <View style={[styles.searchContentContainer, {
+                paddingTop: insets.top + theme.spacing['3'] + 44 + 22 + 10 + 50 + theme.spacing['3']
+              }]}>
                 {/* Results Area */}
                 {librarySearch.isSearchingLifeArea ? (
                   <View style={[styles.searchLoadingContainer, { paddingHorizontal: theme.spacing['4'] }]}>
