@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { encode } from "https://deno.land/x/blurhash@v0.1.0/mod.ts";
+import { encode } from "https://esm.sh/blurhash@2.0.5";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -94,16 +94,15 @@ serve(async (req) => {
         try {
           console.log('🎨 Generating blurhash from first frame...');
 
-          // Decode JPEG to get pixel data (using Deno's built-in Image APIs)
-          // For Deno, we'll use a simpler approach with FFmpeg to get raw RGB data
-          const rgbPath = `/tmp/rgb_${video_id}_${i}.rgb`;
+          // Use FFmpeg to convert JPEG to raw RGBA pixels for blurhash
+          const rgbPath = `/tmp/rgba_${video_id}_${i}.rgba`;
 
           const ffmpegRgbCmd = new Deno.Command("ffmpeg", {
             args: [
               "-i", framePath,
               "-vf", "scale=32:32", // Resize to 32x32 for blurhash (faster + smaller)
               "-f", "rawvideo",
-              "-pix_fmt", "rgb24",
+              "-pix_fmt", "rgba", // RGBA format for blurhash library
               "-y",
               rgbPath
             ],
@@ -115,22 +114,22 @@ serve(async (req) => {
           const rgbStatus = await rgbProcess.status;
 
           if (rgbStatus.success) {
-            const rgbData = await Deno.readFile(rgbPath);
+            const rgbaData = await Deno.readFile(rgbPath);
             const width = 32;
             const height = 32;
 
-            // Convert Uint8Array to number array for blurhash
-            const pixelData = Array.from(rgbData);
+            // Convert Uint8Array to Uint8ClampedArray for blurhash
+            const pixelData = new Uint8ClampedArray(rgbaData);
 
             // Generate blurhash with 4x3 components (good balance)
             blurhash = encode(pixelData, width, height, 4, 3);
 
             console.log(`✅ Blurhash generated: ${blurhash}`);
 
-            // Clean up RGB file
+            // Clean up RGBA file
             await Deno.remove(rgbPath);
           } else {
-            console.error('❌ FFmpeg RGB conversion failed for blurhash');
+            console.error('❌ FFmpeg RGBA conversion failed for blurhash');
           }
         } catch (blurhashError) {
           console.error('⚠️ Blurhash generation failed (non-critical):', blurhashError);
