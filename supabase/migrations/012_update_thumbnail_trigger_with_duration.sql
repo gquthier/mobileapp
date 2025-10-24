@@ -1,7 +1,14 @@
--- Enable the http extension if not already enabled
-CREATE EXTENSION IF NOT EXISTS http;
+-- =====================================================
+-- Migration: Update thumbnail trigger to send duration
+-- Phase 4.1 - Fix blurhash generation
+-- Date: 2025-10-25
+-- =====================================================
 
--- Create function to call thumbnail generation edge function
+-- Drop existing trigger and function
+DROP TRIGGER IF EXISTS trigger_generate_thumbnail ON videos;
+DROP FUNCTION IF EXISTS generate_video_thumbnail();
+
+-- Recreate function with duration parameter
 CREATE OR REPLACE FUNCTION generate_video_thumbnail()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -30,24 +37,22 @@ BEGIN
             );
 
         -- Log the thumbnail generation request
-        RAISE NOTICE 'Thumbnail generation requested for video: % (path: %)', NEW.id, NEW.file_path;
+        RAISE NOTICE 'Thumbnail generation requested for video: % (path: %, duration: %s)',
+            NEW.id, NEW.file_path, COALESCE(NEW.duration, 0);
     END IF;
 
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create trigger that fires after video insert
-DROP TRIGGER IF EXISTS trigger_generate_thumbnail ON videos;
+-- Recreate trigger that fires after video insert
 CREATE TRIGGER trigger_generate_thumbnail
     AFTER INSERT ON videos
     FOR EACH ROW
     EXECUTE FUNCTION generate_video_thumbnail();
 
--- Grant necessary permissions
-GRANT USAGE ON SCHEMA net TO service_role;
-GRANT EXECUTE ON FUNCTION net.http_post TO service_role;
-
 -- Comment for documentation
-COMMENT ON FUNCTION generate_video_thumbnail() IS 'Automatically generates thumbnails for newly uploaded videos by calling the generate-thumbnail edge function';
-COMMENT ON TRIGGER trigger_generate_thumbnail ON videos IS 'Triggers thumbnail generation when a new video is inserted';
+COMMENT ON FUNCTION generate_video_thumbnail() IS
+'Automatically generates thumbnails AND blurhash for newly uploaded videos by calling the generate-thumbnail edge function';
+COMMENT ON TRIGGER trigger_generate_thumbnail ON videos IS
+'Triggers thumbnail + blurhash generation when a new video is inserted';

@@ -745,7 +745,7 @@ const LibraryScreen: React.FC = () => {
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.lifeAreaBubblesContainer}
-                style={[styles.lifeAreaScrollView, { marginTop: 22, paddingTop: 10 }]}
+                style={[styles.lifeAreaScrollView, { marginTop: 22 }]}
                 onScroll={handleLifeAreaScroll}
                 scrollEventThrottle={16}
                 keyboardShouldPersistTaps="handled"
@@ -1747,6 +1747,7 @@ const styles = StyleSheet.create({
   lifeAreaBubblesContainer: {
     paddingLeft: 12, // Small padding for first item
     paddingRight: 12, // Small padding for last item
+    paddingTop: 10, // Space above keywords
     gap: 8,
   },
   lifeAreaBubble: {
