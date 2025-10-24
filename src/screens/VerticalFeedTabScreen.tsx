@@ -23,12 +23,19 @@ interface VerticalFeedTabScreenProps {
 export const VerticalFeedTabScreen: React.FC<VerticalFeedTabScreenProps> = ({ navigation }) => {
   const { brandColor } = useTheme();
 
+  console.log('🔵 [VerticalFeedTab] Screen opened');
+
   // ✅ React Query: Replace useState + useEffect with useQuery
   const {
     data: allVideos = [],
     isLoading,
     refetch,
   } = useVideosQuery();
+
+  console.log('📊 [VerticalFeedTab] Query state:', {
+    isLoading,
+    videosCount: allVideos.length,
+  });
 
   // ✅ Navigation focus listener: Refetch when tab becomes active
   useEffect(() => {

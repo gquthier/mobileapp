@@ -85,6 +85,8 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
   const insets = useSafeAreaInsets();
   const { brandColor } = useThemeContext();
 
+  console.log('🔵 [ChapterDetailScreen] Screen opened for chapter:', initialChapter.title);
+
   // ✅ React Query: Fetch chapter data
   const {
     data: chapter = initialChapter,
@@ -100,11 +102,20 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
     data: allChapters = [],
   } = useChaptersQuery();
 
+  console.log('📊 [ChapterDetailScreen] Query states:', {
+    chapterLoading,
+    videosLoading,
+    videosCount: videos.length,
+    allChaptersCount: allChapters.length,
+  });
+
   // ✅ React Query: Chapter mutation
   const updateChapterMutation = useUpdateChapterMutation();
 
   // ✅ Get video IDs for bulk fetching
   const videoIds = useMemo(() => videos.map(v => v.id), [videos]);
+
+  console.log('🎬 [ChapterDetailScreen] Video IDs for bulk fetch:', videoIds.length);
 
   // ✅ Bulk fetch transcriptions for all videos
   const {
@@ -118,8 +129,17 @@ export default function ChapterDetailScreen({ navigation, route }: ChapterDetail
     isLoading: quotesLoading,
   } = useQuotesQuery(videoIds);
 
+  console.log('📝 [ChapterDetailScreen] Transcriptions & Quotes:', {
+    transcriptionsLoading,
+    quotesLoading,
+    transcriptionsCount: transcriptionsMap?.size || 0,
+    quotesCount: quotes.length,
+  });
+
   // ✅ Combined loading state
   const loading = chapterLoading || videosLoading || transcriptionsLoading || quotesLoading;
+
+  console.log('⏳ [ChapterDetailScreen] Combined loading state:', loading);
 
   // ✅ Convert transcriptionsMap to object (for backward compatibility)
   const transcriptionJobs = useMemo(() => {

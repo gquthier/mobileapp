@@ -66,6 +66,8 @@ export default function MomentumDashboardScreen({ navigation }: MomentumDashboar
   const insets = useSafeAreaInsets();
   const { colorMode, loadCurrentChapterColor, brandColor } = useTheme();
 
+  console.log('🔵 [MomentumDashboard] Screen opened');
+
   // ✅ React Query: Replace useState/useEffect with useQuery
   const {
     data: videos = [],
@@ -81,6 +83,15 @@ export default function MomentumDashboardScreen({ navigation }: MomentumDashboar
     refetch: refetchChapters,
   } = useChaptersQuery();
 
+  console.log('📊 [MomentumDashboard] Query states:', {
+    videosLoading,
+    videosRefetching,
+    videosCount: videos.length,
+    chaptersLoading,
+    chaptersRefetching,
+    chaptersCount: chapters.length,
+  });
+
   const updateChapterMutation = useUpdateChapterMutation();
 
   // ✅ Keep UI state (not data fetching)
@@ -92,6 +103,8 @@ export default function MomentumDashboardScreen({ navigation }: MomentumDashboar
   // ✅ Combined loading and refreshing states
   const loading = videosLoading || chaptersLoading;
   const refreshing = videosRefetching || chaptersRefetching;
+
+  console.log('⏳ [MomentumDashboard] Loading states:', { loading, refreshing });
 
   // Calculate header height for content inset (same as LibraryScreen)
   // Header height = safe area top + icon height (44px) + padding (12px top + 12px bottom for spacing)

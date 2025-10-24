@@ -50,7 +50,7 @@ export const useInfiniteVideosQuery = (options?: UseInfiniteVideosOptions) => {
   return useInfiniteQuery<VideoRecord[], Error>({
     queryKey: ['videos', 'infinite'],
     queryFn: async ({ pageParam = 0 }) => {
-      // console.log(`🔄 [React Query] Fetching videos page ${pageParam}...`);
+      console.log(`🔄 [useInfiniteVideosQuery] Fetching videos page ${pageParam}...`);
 
       // Simuler pagination avec offset/limit
       // TODO: Adapter selon votre API Supabase
@@ -59,7 +59,7 @@ export const useInfiniteVideosQuery = (options?: UseInfiniteVideosOptions) => {
       const end = start + pageSize;
       const pageVideos = allVideos.slice(start, end);
 
-      // console.log(`✅ [React Query] Fetched page with ${pageVideos.length} videos`);
+      console.log(`✅ [useInfiniteVideosQuery] Fetched page with ${pageVideos.length} videos (${start}-${end})`);
       return pageVideos;
     },
     getNextPageParam: (lastPage, allPages) => {

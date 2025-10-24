@@ -63,6 +63,8 @@ interface UseLibraryDataReturn {
 }
 
 export function useLibraryDataV2(): UseLibraryDataReturn {
+  console.log('🔵 [useLibraryDataV2] Hook initialization');
+
   // Query client pour invalidation
   const queryClient = useQueryClient();
 
@@ -79,9 +81,24 @@ export function useLibraryDataV2(): UseLibraryDataReturn {
     isRefetching,
   } = useInfiniteVideosQuery({ pageSize: 50 });
 
+  console.log('📊 [useLibraryDataV2] Videos query state:', {
+    isLoading,
+    isError,
+    isRefetching,
+    isFetchingNextPage,
+    hasNextPage,
+    pagesCount: infiniteData?.pages.length || 0,
+    totalVideos: infiniteData?.pages.flatMap(p => p).length || 0,
+  });
+
   // ✅ React Query pour les chapitres
   const { data: chapters = [] } = useChaptersQuery();
   const { data: currentChapter = null } = useCurrentChapterQuery();
+
+  console.log('📚 [useLibraryDataV2] Chapters data:', {
+    chaptersCount: chapters.length,
+    currentChapter: currentChapter?.title || 'None',
+  });
 
   // État local pour UI seulement
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
@@ -110,6 +127,12 @@ export function useLibraryDataV2(): UseLibraryDataReturn {
 
   // Flatten les pages de l'infinite query en un seul tableau
   const videos = infiniteData?.pages.flatMap(page => page) ?? [];
+
+  console.log('🎬 [useLibraryDataV2] Final videos array:', {
+    count: videos.length,
+    firstVideo: videos[0]?.title || 'None',
+    lastVideo: videos[videos.length - 1]?.title || 'None',
+  });
 
   // ✅ Wrapper pour compatibilité avec l'ancienne API
   const fetchVideos = useCallback(async (pageToLoad?: number, append?: boolean, silent?: boolean) => {
