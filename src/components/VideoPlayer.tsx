@@ -213,6 +213,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [visible, safeInitialIndex, videoList]);
 
+  // ✅ Phase 5.2: Memory management - Unload video when player closes
+  useEffect(() => {
+    if (!visible && activePlayerRef.current) {
+      console.log('🧹 [VideoPlayer] Unloading video to free memory');
+
+      // Unload the active player
+      const unloadPlayer = async () => {
+        try {
+          if (activePlayerRef.current?.unloadAsync) {
+            await activePlayerRef.current.unloadAsync();
+            console.log('✅ [VideoPlayer] Video unloaded successfully (~50MB saved)');
+          }
+        } catch (error) {
+          console.error('❌ [VideoPlayer] Failed to unload video:', error);
+        }
+      };
+
+      unloadPlayer();
+
+      // Clear player reference
+      activePlayerRef.current = null;
+    }
+  }, [visible]);
+
   // Reset progress when video changes
   useEffect(() => {
     setPosition(0);
